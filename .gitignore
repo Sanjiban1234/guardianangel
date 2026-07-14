@@ -1,0 +1,15 @@
+# Flutter
+mobile/.dart_tool/
+mobile/.flutter-plugin-registrant/
+mobile/build/
+mobile/.pub-cache/
+mobile/.pub/
+*.iml
+
+# Node
+backend/node_modules/
+backend/.env
+
+# General
+.DS_Store
+*.log
