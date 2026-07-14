@@ -11,10 +11,18 @@
 6. Pull `main` into your branch regularly so you're not stale.
 
 ## Module ownership
-- Utsuk : mobile/lib/telemetry - GPS, online/offline switch, SQLite cache
-- Pratyush: mobile/lib/safety - crash detection, countdown, override
-- Sanjiban: backend/ - sessions, sockets, DB, security
-- Radium: mobile/lib/ui - six screens, weather integration
+- Utsuk: mobile/src/telemetry - GPS, online/offline switch, SQLite cache
+  (react-native-sqlite-storage)
+- Pratyush: mobile/src/safety - crash detection, countdown, override
+- Sanjiban: backend/ - sessions, sockets, DB (PostgreSQL), security
+- Radium: mobile/src/ui - six screens, weather integration
+
+## Mobile app scaffold
+`mobile/` is a single React Native project - one `package.json`, one
+`android/`, one `ios/`. Only one `react-native init` run, ever. Whoever sets
+it up first pushes it to `main` before others branch off `mobile/`. Adding a
+dependency to `mobile/package.json` affects everyone's build - flag it in
+the group chat before merging.
 
 ## Shared contract rule
 Changes to `contracts/websocket-events.md` must be flagged to the team
