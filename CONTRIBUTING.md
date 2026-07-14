@@ -11,10 +11,10 @@
 6. Pull `main` into your branch regularly so you're not stale.
 
 ## Module ownership
-- Person 1: mobile/lib/telemetry - GPS, online/offline switch, SQLite cache
-- Person 2: mobile/lib/safety - crash detection, countdown, override
-- Person 3: backend/ - sessions, sockets, DB, security
-- Person 4: mobile/lib/ui - six screens, weather integration
+- Utsuk : mobile/lib/telemetry - GPS, online/offline switch, SQLite cache
+- Pratyush: mobile/lib/safety - crash detection, countdown, override
+- Sanjiban: backend/ - sessions, sockets, DB, security
+- Radium: mobile/lib/ui - six screens, weather integration
 
 ## Shared contract rule
 Changes to `contracts/websocket-events.md` must be flagged to the team
