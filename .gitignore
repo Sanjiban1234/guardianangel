@@ -14,3 +14,6 @@ backend/.env
 # General
 .DS_Store
 *.log
+backend/dist/
+.claude/
+
