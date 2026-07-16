@@ -2,20 +2,10 @@ import { Server } from 'socket.io';
 import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { RoomService } from '../services/RoomService';
 
-/**
- * Shared mutable state passed between all handlers for a single socket connection.
- * Using a reference object so every handler sees the same currentRoomId value.
- */
 export interface RoomState {
-  currentRoomId: string | null;
+  currentGroupCode: string | null;
 }
 
-/**
- * SessionHandler — handles session:join and session:leave socket events.
- *
- * Failure in join/leave is caught here and emitted as a socket error.
- * It never propagates to LocationHandler, BulkSyncHandler, etc.
- */
 export class SessionHandler {
   constructor(
     private readonly io: Server,
@@ -25,53 +15,52 @@ export class SessionHandler {
   ) {}
 
   register(): void {
-    this.socket.on('session:join', (data: { room_token: string }) =>
+    this.socket.on('session:join', (data: { group_code: string }) =>
       this.handleJoin(data)
     );
     this.socket.on('session:leave', () => this.handleLeave());
   }
 
-  private async handleJoin(data: { room_token: string }): Promise<void> {
-    const { room_token } = data;
+  private async handleJoin(data: { group_code: string }): Promise<void> {
+    const { group_code } = data;
     const userId = this.socket.user!.id;
-    const username = this.socket.user!.username;
+    const name = this.socket.user!.name;
 
-    if (!room_token) {
-      this.socket.emit('error', { message: 'Room token is required' });
+    if (!group_code) {
+      this.socket.emit('error', { message: 'Group code is required' });
       return;
     }
 
     try {
-      const room = await this.roomService.verifyMembership(room_token, userId);
+      const room = await this.roomService.verifyMembership(group_code, userId);
 
       if (!room) {
         this.socket.emit('error', {
-          message: 'Forbidden: You are not authorized to join this room',
+          message: 'Forbidden: You are not authorized to join this group',
         });
         return;
       }
 
       if (room.status !== 'active') {
         this.socket.emit('error', {
-          message: 'This ride room is no longer active',
+          message: 'This ride group is no longer active',
         });
         return;
       }
 
-      const roomId = room.id;
-      this.roomState.currentRoomId = roomId;
+      this.roomState.currentGroupCode = group_code;
 
-      this.socket.join(`room:${roomId}`);
+      this.socket.join(`group:${group_code}`);
 
-      const members = await this.roomService.getMembers(roomId);
+      const members = await this.roomService.getMembers(group_code);
 
-      this.socket.emit('session:joined', { room_id: roomId, members });
+      this.socket.emit('session:joined', { group_code, members });
 
       this.socket
-        .to(`room:${roomId}`)
-        .emit('session:member_joined', { user_id: userId, username });
+        .to(`group:${group_code}`)
+        .emit('session:member_joined', { user_id: userId, name });
 
-      console.log(`SessionHandler: ${username} joined room ${roomId}`);
+      console.log(`SessionHandler: ${name} joined group ${group_code}`);
     } catch (err) {
       console.error('SessionHandler.handleJoin error:', err);
       this.socket.emit('error', {
@@ -81,19 +70,19 @@ export class SessionHandler {
   }
 
   private handleLeave(): void {
-    const roomId = this.roomState.currentRoomId;
-    if (!roomId) return;
+    const groupCode = this.roomState.currentGroupCode;
+    if (!groupCode) return;
 
     const userId = this.socket.user!.id;
-    const username = this.socket.user!.username;
+    const name = this.socket.user!.name;
 
-    console.log(`SessionHandler: ${username} leaving room ${roomId}`);
+    console.log(`SessionHandler: ${name} leaving group ${groupCode}`);
 
     this.socket
-      .to(`room:${roomId}`)
-      .emit('session:member_left', { user_id: userId, username });
+      .to(`group:${groupCode}`)
+      .emit('session:member_left', { user_id: userId, name });
 
-    this.socket.leave(`room:${roomId}`);
-    this.roomState.currentRoomId = null;
+    this.socket.leave(`group:${groupCode}`);
+    this.roomState.currentGroupCode = null;
   }
 }

@@ -3,15 +3,6 @@ import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { EmergencyAlertService } from '../services/EmergencyAlertService';
 import { RoomState } from './SessionHandler';
 
-/**
- * CrashHandler — handles crash:candidate and crash:countdownExpired events.
- *
- * crash:candidate is fire-and-forget logging.
- * crash:countdownExpired persists an alert and broadcasts SOS to the room.
- *
- * A DB failure in countdownExpired is caught here and logged — it never
- * crashes the socket or affects SessionHandler, LocationHandler, etc.
- */
 export class CrashHandler {
   constructor(
     private readonly io: Server,
@@ -39,11 +30,11 @@ export class CrashHandler {
     latitude: number;
     longitude: number;
   }): void {
-    const roomId = this.roomState.currentRoomId;
-    if (!roomId) return;
+    const groupCode = this.roomState.currentGroupCode;
+    if (!groupCode) return;
     console.log(
-      `CrashHandler: CANDIDATE — user "${this.socket.user!.username}" ` +
-      `room "${roomId}" @ ${data.latitude},${data.longitude}`
+      `CrashHandler: CANDIDATE — user "${this.socket.user!.name}" ` +
+      `group "${groupCode}" @ ${data.latitude},${data.longitude}`
     );
   }
 
@@ -52,29 +43,29 @@ export class CrashHandler {
     latitude: number;
     longitude: number;
   }): Promise<void> {
-    const roomId = this.roomState.currentRoomId;
-    if (!roomId) return;
+    const groupCode = this.roomState.currentGroupCode;
+    if (!groupCode) return;
 
     const userId = this.socket.user!.id;
-    const username = this.socket.user!.username;
+    const name = this.socket.user!.name;
 
     try {
       console.log(
-        `CrashHandler: CONFIRMED — user "${username}" room "${roomId}". Creating SOS alert.`
+        `CrashHandler: CONFIRMED — user "${name}" group "${groupCode}". Creating SOS alert.`
       );
 
       const alert = await this.alertService.createAlert(
-        roomId,
+        groupCode,
         userId,
         data.timestamp,
         data.latitude,
         data.longitude
       );
 
-      this.io.to(`room:${roomId}`).emit('sos:broadcast', {
-        alert_id: alert.id,
+      this.io.to(`group:${groupCode}`).emit('sos:broadcast', {
+        alarm_no: alert.alarm_no,
         user_id: userId,
-        username,
+        name,
         timestamp: data.timestamp,
         latitude: data.latitude,
         longitude: data.longitude,

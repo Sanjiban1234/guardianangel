@@ -2,15 +2,6 @@ import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { PresenceService } from '../services/PresenceService';
 import { RoomState } from './SessionHandler';
 
-/**
- * DisconnectHandler — handles the disconnect socket event.
- *
- * On disconnect, fetches the user's last known location and broadcasts it
- * to the room as peer:lastKnown. If PresenceService fails, a zeroed-out
- * payload is still broadcast so peers know the rider has gone offline.
- *
- * Failure here is isolated — it never affects any other handler.
- */
 export class DisconnectHandler {
   constructor(
     private readonly socket: AuthenticatedSocket,
@@ -24,16 +15,16 @@ export class DisconnectHandler {
 
   private async handleDisconnect(): Promise<void> {
     const userId = this.socket.user!.id;
-    const username = this.socket.user!.username;
-    const roomId = this.roomState.currentRoomId;
+    const name = this.socket.user!.name;
+    const groupCode = this.roomState.currentGroupCode;
 
-    console.log(`DisconnectHandler: ${username} disconnected`);
+    console.log(`DisconnectHandler: ${name} disconnected`);
 
-    if (!roomId) return;
+    if (!groupCode) return;
 
     const payload = {
       user_id: userId,
-      username,
+      name,
       timestamp: Date.now(),
       latitude: 0,
       longitude: 0,
@@ -47,10 +38,9 @@ export class DisconnectHandler {
         payload.timestamp = lastLoc.device_timestamp;
       }
     } catch (err) {
-      // PresenceService already logs internally; we still broadcast with zeros
       console.error('DisconnectHandler: failed to fetch last location:', err);
     }
 
-    this.socket.to(`room:${roomId}`).emit('peer:lastKnown', payload);
+    this.socket.to(`group:${groupCode}`).emit('peer:lastKnown', payload);
   }
 }

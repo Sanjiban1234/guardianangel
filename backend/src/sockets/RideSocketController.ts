@@ -10,15 +10,6 @@ import { BulkSyncHandler } from '../handlers/BulkSyncHandler';
 import { CrashHandler } from '../handlers/CrashHandler';
 import { DisconnectHandler } from '../handlers/DisconnectHandler';
 
-/**
- * RideSocketController — orchestrates all socket handler classes.
- *
- * Each incoming WebSocket connection gets its own set of handler instances
- * sharing a single RoomState reference. This guarantees:
- *  - No shared mutable state between connections
- *  - Handler failures are isolated per-connection
- *  - Adding/removing a handler requires a one-line change here only
- */
 export class RideSocketController {
   constructor(
     private readonly roomService: RoomService,
@@ -27,27 +18,23 @@ export class RideSocketController {
     private readonly presenceService: PresenceService
   ) {}
 
-  /** Attach the controller to a Socket.io Server instance */
   register(io: Server): void {
-    // JWT handshake validation
     io.use(AuthMiddleware.authenticateSocket);
 
     io.on('connection', (socket: AuthenticatedSocket) => {
       const userId = socket.user?.id;
-      const username = socket.user?.username;
+      const name = socket.user?.name;
 
-      if (!userId || !username) {
+      if (!userId || !name) {
         console.error('RideSocketController: socket connected without user details — disconnecting');
         socket.disconnect(true);
         return;
       }
 
-      console.log(`RideSocketController: ${username} (${userId}) connected`);
+      console.log(`RideSocketController: ${name} (${userId}) connected`);
 
-      // Shared mutable room state for this connection
-      const roomState: RoomState = { currentRoomId: null };
+      const roomState: RoomState = { currentGroupCode: null };
 
-      // Instantiate and register all handlers for this connection
       new SessionHandler(io, socket, roomState, this.roomService).register();
       new LocationHandler(socket, roomState, this.telemetryService).register();
       new BulkSyncHandler(socket, roomState, this.telemetryService).register();

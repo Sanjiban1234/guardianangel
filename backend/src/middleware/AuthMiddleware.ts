@@ -3,38 +3,21 @@ import jwt from 'jsonwebtoken';
 import { Socket } from 'socket.io';
 import { JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET } from '../config';
 
-// ─── Augmented request / socket types ────────────────────────────────────────
-
 export interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
-    username: string;
+    name: string;
   };
 }
 
 export interface AuthenticatedSocket extends Socket {
   user?: {
     id: string;
-    username: string;
+    name: string;
   };
 }
 
-// ─── AuthMiddleware class ─────────────────────────────────────────────────────
-
-/**
- * AuthMiddleware — stateless class owning all JWT verification logic.
- * Both REST and WebSocket authentication live here so there is exactly
- * one place to update if the signing algorithm or secret rotation changes.
- *
- * Failure in either public method is self-contained and returns an HTTP/WS
- * error to the caller; it never propagates to other middleware or routes.
- */
 export class AuthMiddleware {
-  /**
-   * Verify a raw token string.
-   * Tries the configured issuer/audience first; falls back to a legacy
-   * verify (no claims) for backward compatibility with old tokens.
-   */
   private static verifyToken(
     token: string,
     callback: (err: unknown, user?: unknown) => void
@@ -48,7 +31,6 @@ export class AuthMiddleware {
           callback(null, user);
           return;
         }
-        // Legacy fallback — tokens signed without iss/aud claims
         jwt.verify(token, JWT_SECRET, (legacyErr, legacyUser) => {
           if (legacyErr) {
             callback(err, undefined);
@@ -60,10 +42,6 @@ export class AuthMiddleware {
     );
   }
 
-  /**
-   * Express middleware — validates Bearer token in the Authorization header.
-   * Returns 401 if missing, 403 if invalid/expired.
-   */
   static authenticateJWT(
     req: AuthenticatedRequest,
     res: Response,
@@ -76,23 +54,18 @@ export class AuthMiddleware {
       return;
     }
 
-    const token = authHeader.split(' ')[1]; // "Bearer <token>"
+    const token = authHeader.split(' ')[1];
 
     AuthMiddleware.verifyToken(token, (err, user) => {
       if (err) {
         res.status(403).json({ error: 'Forbidden: Invalid or expired token' });
         return;
       }
-      req.user = user as { id: string; username: string };
+      req.user = user as { id: string; name: string };
       next();
     });
   }
 
-  /**
-   * Socket.io middleware — validates the token passed in the connection
-   * handshake auth payload or Authorization header.
-   * Rejects with an Error to prevent the socket from connecting.
-   */
   static authenticateSocket(
     socket: AuthenticatedSocket,
     next: (err?: Error) => void
@@ -115,7 +88,7 @@ export class AuthMiddleware {
         next(new Error('Authentication error: Invalid or expired token'));
         return;
       }
-      socket.user = decoded as { id: string; username: string };
+      socket.user = decoded as { id: string; name: string };
       next();
     });
   }

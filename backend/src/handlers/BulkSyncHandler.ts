@@ -3,13 +3,6 @@ import { TelemetryService, BulkTelemetryReading } from '../services/TelemetrySer
 import { RoomState } from './SessionHandler';
 import { MAX_BULK_BATCH } from '../config';
 
-/**
- * BulkSyncHandler — handles the telemetry:bulkSync socket event.
- *
- * Manages the State B → State A catch-up flow: validates the batch,
- * delegates persistence to TelemetryService, and returns a confirmed-IDs
- * acknowledgment. Errors stay inside this handler.
- */
 export class BulkSyncHandler {
   constructor(
     private readonly socket: AuthenticatedSocket,
@@ -31,9 +24,9 @@ export class BulkSyncHandler {
     data: { readings: BulkTelemetryReading[] },
     callback?: (response: { confirmedClientReadingIds: string[] }) => void
   ): Promise<void> {
-    const roomId = this.roomState.currentRoomId;
+    const groupCode = this.roomState.currentGroupCode;
 
-    if (!roomId) {
+    if (!groupCode) {
       this.socket.emit('error', {
         message: 'Must join a ride session before synchronizing telemetry',
       });
@@ -55,18 +48,18 @@ export class BulkSyncHandler {
     }
 
     const userId = this.socket.user!.id;
-    const username = this.socket.user!.username;
+    const name = this.socket.user!.name;
 
     try {
       console.log(
-        `BulkSyncHandler: starting sync for ${username}. Batch: ${data.readings.length}`
+        `BulkSyncHandler: starting sync for ${name}. Batch: ${data.readings.length}`
       );
 
       const confirmedClientReadingIds =
-        await this.telemetryService.bulkSyncTelemetry(roomId, userId, data.readings);
+        await this.telemetryService.bulkSyncTelemetry(groupCode, userId, data.readings);
 
       console.log(
-        `BulkSyncHandler: sync done for ${username}. ` +
+        `BulkSyncHandler: sync done for ${name}. ` +
         `${confirmedClientReadingIds.length}/${data.readings.length} confirmed.`
       );
 

@@ -5,37 +5,25 @@ import { JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET } from '../config';
 
 export interface RegisterResult {
   id: string;
-  username: string;
+  name: string;
 }
 
 export interface LoginResult {
   token: string;
-  user: { id: string; username: string };
+  user: { id: string; name: string };
 }
 
-/**
- * UserService — owns all user-account business logic.
- *
- * Failures (DB errors, hash errors) are thrown as plain Errors so the
- * caller (route handler) decides the HTTP status. This class has no
- * knowledge of Express or HTTP codes.
- */
 export class UserService {
   constructor(private readonly db: QueryRunner) {}
 
-  /**
-   * Register a new user.
-   * Throws if the username is already taken or the DB write fails.
-   */
   async register(
-    username: string,
+    name: string,
     password: string,
     phone: string
   ): Promise<RegisterResult> {
-    // Uniqueness pre-check — surfaces a clean error before hashing
     const existing = await this.db.run(
-      'SELECT id FROM users WHERE username = $1',
-      [username]
+      'SELECT id FROM users WHERE name = $1',
+      [name]
     );
     if (existing.rows.length > 0) {
       const err = new Error('Username is already taken');
@@ -47,21 +35,17 @@ export class UserService {
     const passwordHash = await bcrypt.hash(password, salt);
 
     const result = await this.db.run(
-      'INSERT INTO users (username, password_hash, phone) VALUES ($1, $2, $3) RETURNING id, username',
-      [username, passwordHash, phone]
+      'INSERT INTO users (name, password_hash, phone) VALUES ($1, $2, $3) RETURNING id, name',
+      [name, passwordHash, phone]
     );
 
     return result.rows[0] as RegisterResult;
   }
 
-  /**
-   * Authenticate a user and return a signed JWT.
-   * Throws with code AUTH_FAILED if credentials are wrong.
-   */
-  async login(username: string, password: string): Promise<LoginResult> {
+  async login(name: string, password: string): Promise<LoginResult> {
     const result = await this.db.run(
-      'SELECT * FROM users WHERE username = $1',
-      [username]
+      'SELECT * FROM users WHERE name = $1',
+      [name]
     );
 
     if (result.rows.length === 0) {
@@ -80,14 +64,21 @@ export class UserService {
     }
 
     const token = jwt.sign(
-      { id: user.id, username: user.username },
+      { id: user.id, name: user.name },
       JWT_SECRET,
       { expiresIn: '24h', issuer: JWT_ISSUER, audience: JWT_AUDIENCE }
     );
 
     return {
       token,
-      user: { id: user.id, username: user.username },
+      user: { id: user.id, name: user.name },
     };
+  }
+
+  async updateGeoHash(userId: string, geohash: string): Promise<void> {
+    await this.db.run(
+      'UPDATE users SET geohash = $1 WHERE id = $2',
+      [geohash, userId]
+    );
   }
 }

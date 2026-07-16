@@ -2,13 +2,6 @@ import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { TelemetryService, TelemetryReading } from '../services/TelemetryService';
 import { RoomState } from './SessionHandler';
 
-/**
- * LocationHandler — handles the location:update socket event (State A — Online).
- *
- * Validates the payload, persists to DB via TelemetryService, then broadcasts
- * to room peers. An error in any step is caught here and never escapes to
- * SessionHandler, BulkSyncHandler, or CrashHandler.
- */
 export class LocationHandler {
   constructor(
     private readonly socket: AuthenticatedSocket,
@@ -24,9 +17,9 @@ export class LocationHandler {
   }
 
   private async handleLocationUpdate(reading: TelemetryReading): Promise<void> {
-    const roomId = this.roomState.currentRoomId;
+    const groupCode = this.roomState.currentGroupCode;
 
-    if (!roomId) {
+    if (!groupCode) {
       this.socket.emit('error', {
         message: 'Must join a ride session before sending location updates',
       });
@@ -36,14 +29,14 @@ export class LocationHandler {
     if (!this.isValidReading(reading)) return;
 
     const userId = this.socket.user!.id;
-    const username = this.socket.user!.username;
+    const name = this.socket.user!.name;
 
     try {
-      await this.telemetryService.saveTelemetry(roomId, userId, reading);
+      await this.telemetryService.saveTelemetry(groupCode, userId, reading);
 
-      this.socket.to(`room:${roomId}`).emit('location:broadcast', {
+      this.socket.to(`group:${groupCode}`).emit('location:broadcast', {
         user_id: userId,
-        username,
+        name,
         timestamp: reading.timestamp,
         latitude: reading.latitude,
         longitude: reading.longitude,
@@ -55,7 +48,6 @@ export class LocationHandler {
     }
   }
 
-  /** Validates types, coordinate ranges, and timestamp sanity */
   private isValidReading(reading: TelemetryReading): boolean {
     if (
       typeof reading?.timestamp !== 'number' ||

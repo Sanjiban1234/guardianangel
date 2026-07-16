@@ -1,51 +1,63 @@
 import { QueryRunner } from '../db/QueryRunner';
 
 export interface EmergencyAlert {
-  id: string;
-  room_id: string;
+  alarm_no: string;
   user_id: string;
-  timestamp: number;
+  correlation_id: string;
   status: string;
   latitude: number;
   longitude: number;
+  join_check_timestamp: string;
 }
 
-/**
- * EmergencyAlertService — owns SOS alert persistence.
- *
- * Completely isolated from TelemetryService and PresenceService.
- * If the DB insert fails, it throws — the caller (CrashHandler) catches
- * and handles the error without affecting any other socket handler.
- */
 export class EmergencyAlertService {
   constructor(private readonly db: QueryRunner) {}
 
-  /**
-   * Persist a confirmed crash / SOS alert and return the full record.
-   * Throws on DB failure so the caller can decide whether to broadcast.
-   */
   async createAlert(
-    roomId: string,
+    groupCode: string,
     userId: string,
     timestamp: number,
     latitude: number,
     longitude: number
   ): Promise<EmergencyAlert> {
-    const result = await this.db.run(
-      `INSERT INTO emergency_alerts (room_id, user_id, timestamp, status, latitude, longitude)
-       VALUES ($1, $2, $3, 'active', $4, $5)
-       RETURNING id`,
-      [roomId, userId, timestamp, latitude, longitude]
+    const activeRider = await this.db.run(
+      "SELECT id FROM active_riders WHERE group_code = $1 AND user_id = $2 AND status = 'active' LIMIT 1",
+      [groupCode, userId]
     );
 
+    const activeRiderId = activeRider.rows.length > 0 ? activeRider.rows[0].id : null;
+
+    const result = await this.db.run(
+      `INSERT INTO emergency_alarms (user_id, active_rider_id, latitude, longitude, expire, status)
+       VALUES ($1, $2, $3, $4, NOW() + INTERVAL '1 hour', 'active')
+       RETURNING alarm_no, correlation_id, join_check_timestamp, status`,
+      [userId, activeRiderId, latitude, longitude]
+    );
+
+    const row = result.rows[0];
     return {
-      id: result.rows[0].id,
-      room_id: roomId,
+      alarm_no: row.alarm_no,
       user_id: userId,
-      timestamp,
-      status: 'active',
+      correlation_id: row.correlation_id,
+      status: row.status,
       latitude,
       longitude,
+      join_check_timestamp: row.join_check_timestamp,
     };
+  }
+
+  async resolveAlert(alarmNo: string): Promise<void> {
+    await this.db.run(
+      "UPDATE emergency_alarms SET status = 'resolved' WHERE alarm_no = $1",
+      [alarmNo]
+    );
+  }
+
+  async getActiveAlerts(userId: string): Promise<EmergencyAlert[]> {
+    const result = await this.db.run(
+      "SELECT alarm_no, user_id, correlation_id, status, latitude, longitude, join_check_timestamp FROM emergency_alarms WHERE user_id = $1 AND status = 'active' ORDER BY created_at DESC",
+      [userId]
+    );
+    return result.rows as EmergencyAlert[];
   }
 }

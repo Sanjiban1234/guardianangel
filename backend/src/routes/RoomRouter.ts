@@ -9,10 +9,6 @@ const joinRoomLimiter = rateLimit({
   message: { error: 'Too many join attempts. Try again in 15 minutes.' },
 });
 
-/**
- * RoomRouter — thin Express router delegating all logic to RoomService.
- * Also owns the /health endpoint (no service dependency needed).
- */
 export class RoomRouter {
   readonly router: Router;
 
@@ -22,19 +18,16 @@ export class RoomRouter {
   }
 
   private registerRoutes(): void {
-    // GET /api/health
     this.router.get('/health', (_req: Request, res: Response) => {
       res.status(200).json({ status: 'healthy', timestamp: Date.now() });
     });
 
-    // POST /api/rooms
     this.router.post(
       '/rooms',
       AuthMiddleware.authenticateJWT,
       (req, res) => this.handleCreateRoom(req as AuthenticatedRequest, res)
     );
 
-    // POST /api/rooms/join
     this.router.post(
       '/rooms/join',
       AuthMiddleware.authenticateJWT,
@@ -42,15 +35,12 @@ export class RoomRouter {
       (req, res) => this.handleJoinRoom(req as AuthenticatedRequest, res)
     );
 
-    // GET /api/rooms/:roomId/history
     this.router.get(
-      '/rooms/:roomId/history',
+      '/rooms/:groupCode/history',
       AuthMiddleware.authenticateJWT,
       (req, res) => this.handleGetHistory(req as AuthenticatedRequest, res)
     );
   }
-
-  // ─── POST /api/rooms ──────────────────────────────────────────────────────
 
   private async handleCreateRoom(
     req: AuthenticatedRequest,
@@ -71,51 +61,47 @@ export class RoomRouter {
     }
   }
 
-  // ─── POST /api/rooms/join ─────────────────────────────────────────────────
-
   private async handleJoinRoom(
     req: AuthenticatedRequest,
     res: Response
   ): Promise<void> {
     const userId = req.user?.id;
-    const { room_token } = req.body;
+    const { group_code } = req.body;
 
     if (!userId) {
       res.status(401).json({ error: 'Unauthorized: Missing user credentials' });
       return;
     }
-    if (!room_token) {
-      res.status(400).json({ error: 'Room token is required' });
+    if (!group_code) {
+      res.status(400).json({ error: 'Group code is required' });
       return;
     }
-    if (typeof room_token !== 'string' || room_token.length > 32) {
-      res.status(400).json({ error: 'Invalid room token format' });
+    if (typeof group_code !== 'string' || group_code.length > 32) {
+      res.status(400).json({ error: 'Invalid group code format' });
       return;
     }
 
     try {
-      const result = await this.roomService.joinRoom(userId, room_token);
-      res.status(200).json({ message: 'Successfully joined room', room_id: result.room_id });
+      const result = await this.roomService.joinRoom(userId, group_code);
+      res.status(200).json({ message: 'Successfully joined ride group', room_id: result.room_id });
     } catch (err: any) {
       if (err?.code === 'ROOM_NOT_FOUND') {
-        res.status(404).json({ error: 'Ride room not found' });
+        res.status(404).json({ error: 'Ride group not found' });
       } else if (err?.code === 'ROOM_ENDED') {
-        res.status(400).json({ error: 'This ride room has already ended' });
+        res.status(400).json({ error: 'This ride group has already ended' });
       } else {
         console.error('RoomRouter.joinRoom error:', err);
-        res.status(500).json({ error: 'Internal server error while joining ride room' });
+        res.status(500).json({ error: 'Internal server error while joining ride group' });
       }
     }
   }
-
-  // ─── GET /api/rooms/:roomId/history ──────────────────────────────────────
 
   private async handleGetHistory(
     req: AuthenticatedRequest,
     res: Response
   ): Promise<void> {
     const userId = req.user?.id;
-    const { roomId } = req.params;
+    const { groupCode } = req.params;
 
     if (!userId) {
       res.status(401).json({ error: 'Unauthorized: Missing user credentials' });
@@ -123,15 +109,15 @@ export class RoomRouter {
     }
 
     try {
-      const isMember = await this.roomService.isMember(roomId, userId);
+      const isMember = await this.roomService.isMember(groupCode, userId);
       if (!isMember) {
         res.status(403).json({
-          error: 'Forbidden: You are not a member of this ride room',
+          error: 'Forbidden: You are not a member of this ride group',
         });
         return;
       }
 
-      const history = await this.roomService.getRoomHistory(roomId);
+      const history = await this.roomService.getRoomHistory(groupCode);
       res.status(200).json(history);
     } catch (err) {
       console.error('RoomRouter.getHistory error:', err);
@@ -139,8 +125,6 @@ export class RoomRouter {
     }
   }
 }
-
-// ─── Factory helper ──────────────────────────────────────────────────────────
 
 export function createRoomRouter(roomService: RoomService): Router {
   return new RoomRouter(roomService).router;
