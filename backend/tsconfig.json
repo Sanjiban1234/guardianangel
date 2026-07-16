@@ -10,7 +10,8 @@
     "outDir": "./dist",
     "rootDir": "./",
     "resolveJsonModule": true,
-    "moduleResolution": "node"
+    "moduleResolution": "node",
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src/**/*", "demo/**/*", "tests/**/*"],
   "exclude": ["node_modules", "dist"]
