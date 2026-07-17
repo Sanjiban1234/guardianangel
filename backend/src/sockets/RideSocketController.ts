@@ -4,6 +4,7 @@ import { RoomService } from '../services/RoomService';
 import { TelemetryService } from '../services/TelemetryService';
 import { EmergencyAlertService } from '../services/EmergencyAlertService';
 import { PresenceService } from '../services/PresenceService';
+import { CrashCandidateRepository } from '../repositories/CrashCandidateRepository';
 import { SessionHandler, RoomState } from '../handlers/SessionHandler';
 import { LocationHandler } from '../handlers/LocationHandler';
 import { BulkSyncHandler } from '../handlers/BulkSyncHandler';
@@ -15,7 +16,8 @@ export class RideSocketController {
     private readonly roomService: RoomService,
     private readonly telemetryService: TelemetryService,
     private readonly alertService: EmergencyAlertService,
-    private readonly presenceService: PresenceService
+    private readonly presenceService: PresenceService,
+    private readonly crashRepo: CrashCandidateRepository
   ) {}
 
   register(io: Server): void {
@@ -38,7 +40,7 @@ export class RideSocketController {
       new SessionHandler(io, socket, roomState, this.roomService).register();
       new LocationHandler(socket, roomState, this.telemetryService).register();
       new BulkSyncHandler(socket, roomState, this.telemetryService).register();
-      new CrashHandler(io, socket, roomState, this.alertService).register();
+      new CrashHandler(io, socket, roomState, this.alertService, this.crashRepo).register();
       new DisconnectHandler(socket, roomState, this.presenceService).register();
     });
   }

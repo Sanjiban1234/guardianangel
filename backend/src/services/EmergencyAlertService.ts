@@ -23,21 +23,29 @@ export class EmergencyAlertService {
     userId: string,
     timestamp: number,
     latitude: number,
-    longitude: number
+    longitude: number,
+    roomId?: string | null
   ): Promise<EmergencyAlert> {
-    const tokenHash = this.hashToken(groupCode);
+    // When roomId is explicitly provided (including null), use it directly.
+    // Only fall back to token_hash lookup when roomId is undefined (legacy callers).
+    let resolvedRoomId: string | null;
 
-    const roomResult = await this.db.run(
-      "SELECT id FROM ride_rooms WHERE token_hash = $1 AND status = 'active' LIMIT 1",
-      [tokenHash]
-    );
-    const roomId = roomResult.rows.length > 0 ? roomResult.rows[0].id : null;
+    if (roomId !== undefined) {
+      resolvedRoomId = roomId;
+    } else {
+      const tokenHash = this.hashToken(groupCode);
+      const roomResult = await this.db.run(
+        "SELECT id FROM ride_rooms WHERE token_hash = $1 AND status = 'active' LIMIT 1",
+        [tokenHash]
+      );
+      resolvedRoomId = roomResult.rows.length > 0 ? roomResult.rows[0].id : null;
+    }
 
     const result = await this.db.run(
       `INSERT INTO emergency_alarms (user_id, room_id, latitude, longitude, expire, status)
        VALUES ($1, $2, $3, $4, NOW() + INTERVAL '1 hour', 'active')
        RETURNING alarm_no, correlation_id, join_check_timestamp, status`,
-      [userId, roomId, latitude, longitude]
+      [userId, resolvedRoomId, latitude, longitude]
     );
 
     const row = result.rows[0];

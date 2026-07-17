@@ -137,7 +137,11 @@ This contract defines the real-time communication events between the Guardian An
 }
 ```
 
-### 12. `sos:broadcast` (Server → Room Broadcast)
+### 12. `crash:cancelled` (Client → Server)
+- **Description:** Emitted when the rider manually dismisses the crash warning during the 15-second grace period. No payload — the server marks the most recent candidate in this room as `false_alarm`.
+- **Payload Shape:** _(empty object)_
+
+### 13. `sos:broadcast` (Server → Room Broadcast)
 - **Description:** Maximum priority emergency SOS broadcast sent to all members in the Ride Room and observers.
 - **Payload Shape:**
 ```json

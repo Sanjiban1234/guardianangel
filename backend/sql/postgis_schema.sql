@@ -110,4 +110,19 @@ CREATE INDEX IF NOT EXISTS geofences_area_gix
 CREATE INDEX IF NOT EXISTS geofences_active_type_idx
   ON geofences (type) WHERE is_active;
 
+CREATE TABLE IF NOT EXISTS crash_candidates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id UUID REFERENCES ride_rooms(id) ON DELETE SET NULL,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device_timestamp_ms BIGINT NOT NULL,
+  location GEOGRAPHY(POINT, 4326) NOT NULL,
+  speed REAL,
+  speed_reading_timestamp_ms BIGINT,
+  outcome TEXT CHECK (outcome IN ('confirmed', 'false_alarm')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS crash_candidates_room_user_idx
+  ON crash_candidates (room_id, user_id, device_timestamp_ms DESC);
+
 COMMIT;

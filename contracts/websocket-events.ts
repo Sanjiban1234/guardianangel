@@ -117,7 +117,14 @@ export interface CrashCountdownExpiredPayload {
 }
 
 /**
- * 12. sos:broadcast (Server -> Room Broadcast)
+ * 12. crash:cancelled (Client -> Server)
+ * Rider manually dismissed the crash warning during the 15s grace period.
+ * No payload needed — the server marks the most recent candidate as false_alarm.
+ */
+export type CrashCancelledPayload = Record<string, never>;
+
+/**
+ * 13. sos:broadcast (Server -> Room Broadcast)
  * Emergency broadcast alert forwarded to riders and family web observer portals.
  */
 export interface SosBroadcastPayload {
