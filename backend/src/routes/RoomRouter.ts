@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { AuthMiddleware, AuthenticatedRequest } from '../middleware/AuthMiddleware';
 import { RoomService } from '../services/RoomService';
+import { PostgisTelemetryRepository } from '../repositories/PostgisTelemetryRepository';
 
 const joinRoomLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -12,7 +13,10 @@ const joinRoomLimiter = rateLimit({
 export class RoomRouter {
   readonly router: Router;
 
-  constructor(private readonly roomService: RoomService) {
+  constructor(
+    private readonly roomService: RoomService,
+    private readonly telemetryRepo?: PostgisTelemetryRepository
+  ) {
     this.router = Router();
     this.registerRoutes();
   }
@@ -39,6 +43,12 @@ export class RoomRouter {
       '/rooms/:groupCode/history',
       AuthMiddleware.authenticateJWT,
       (req, res) => this.handleGetHistory(req as AuthenticatedRequest, res)
+    );
+
+    this.router.get(
+      '/rooms/:groupCode/summary',
+      AuthMiddleware.authenticateJWT,
+      (req, res) => this.handleGetSummary(req as AuthenticatedRequest, res)
     );
   }
 
@@ -124,8 +134,50 @@ export class RoomRouter {
       res.status(500).json({ error: 'Internal server error while fetching telemetry history' });
     }
   }
+  private async handleGetSummary(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    const userId = req.user?.id;
+    const { groupCode } = req.params;
+
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized: Missing user credentials' });
+      return;
+    }
+
+    if (!this.telemetryRepo) {
+      res.status(503).json({ error: 'Telemetry repository not available' });
+      return;
+    }
+
+    try {
+      const room = await this.roomService.verifyMembership(groupCode, userId);
+      if (!room) {
+        res.status(403).json({
+          error: 'Forbidden: You are not a member of this ride group',
+        });
+        return;
+      }
+
+      const [totalDistance, durationMs] = await Promise.all([
+        this.telemetryRepo.totalDistanceMeters(room.id, userId, 0, Date.now()),
+        this.telemetryRepo.rideDurationMs(room.id, userId),
+      ]);
+
+      res.status(200).json({
+        room_id: room.id,
+        user_id: userId,
+        total_distance_meters: totalDistance,
+        duration_ms: durationMs,
+      });
+    } catch (err) {
+      console.error('RoomRouter.getSummary error:', err);
+      res.status(500).json({ error: 'Internal server error while fetching ride summary' });
+    }
+  }
 }
 
-export function createRoomRouter(roomService: RoomService): Router {
-  return new RoomRouter(roomService).router;
+export function createRoomRouter(roomService: RoomService, telemetryRepo?: PostgisTelemetryRepository): Router {
+  return new RoomRouter(roomService, telemetryRepo).router;
 }

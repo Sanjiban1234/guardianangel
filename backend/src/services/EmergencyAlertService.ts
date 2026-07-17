@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { QueryRunner } from '../db/QueryRunner';
 
 export interface EmergencyAlert {
@@ -13,6 +14,10 @@ export interface EmergencyAlert {
 export class EmergencyAlertService {
   constructor(private readonly db: QueryRunner) {}
 
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token.toUpperCase()).digest('hex');
+  }
+
   async createAlert(
     groupCode: string,
     userId: string,
@@ -20,18 +25,19 @@ export class EmergencyAlertService {
     latitude: number,
     longitude: number
   ): Promise<EmergencyAlert> {
-    const activeRider = await this.db.run(
-      "SELECT id FROM active_riders WHERE group_code = $1 AND user_id = $2 AND status = 'active' LIMIT 1",
-      [groupCode, userId]
-    );
+    const tokenHash = this.hashToken(groupCode);
 
-    const activeRiderId = activeRider.rows.length > 0 ? activeRider.rows[0].id : null;
+    const roomResult = await this.db.run(
+      "SELECT id FROM ride_rooms WHERE token_hash = $1 AND status = 'active' LIMIT 1",
+      [tokenHash]
+    );
+    const roomId = roomResult.rows.length > 0 ? roomResult.rows[0].id : null;
 
     const result = await this.db.run(
-      `INSERT INTO emergency_alarms (user_id, active_rider_id, latitude, longitude, expire, status)
+      `INSERT INTO emergency_alarms (user_id, room_id, latitude, longitude, expire, status)
        VALUES ($1, $2, $3, $4, NOW() + INTERVAL '1 hour', 'active')
        RETURNING alarm_no, correlation_id, join_check_timestamp, status`,
-      [userId, activeRiderId, latitude, longitude]
+      [userId, roomId, latitude, longitude]
     );
 
     const row = result.rows[0];

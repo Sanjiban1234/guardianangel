@@ -28,28 +28,42 @@ export class RoomService {
     return crypto.randomBytes(8).toString('hex').toUpperCase();
   }
 
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
   async createRoom(userId: string): Promise<CreateRoomResult> {
     const groupCode = this.generateGroupCode();
+    const tokenHash = this.hashToken(groupCode);
 
     const result = await this.db.run(
-      `INSERT INTO active_riders (user_id, group_code, type_of_operation, status)
-       VALUES ($1, $2, 'ride', 'active')
-       RETURNING id, group_code`,
-      [userId, groupCode]
+      `INSERT INTO ride_rooms (token_hash, creator_id)
+       VALUES ($1, $2)
+       RETURNING id`,
+      [tokenHash, userId]
     );
 
-    const row = result.rows[0];
+    const roomId = result.rows[0].id;
+
+    await this.db.run(
+      `INSERT INTO room_members (room_id, user_id, role)
+       VALUES ($1, $2, 'rider')`,
+      [roomId, userId]
+    );
+
     return {
-      room_id: row.id,
-      group_code: row.group_code,
+      room_id: roomId,
+      group_code: groupCode,
       creator_id: userId,
     };
   }
 
   async joinRoom(userId: string, groupCode: string): Promise<JoinRoomResult> {
+    const tokenHash = this.hashToken(groupCode.toUpperCase());
+
     const existing = await this.db.run(
-      "SELECT id, status FROM active_riders WHERE group_code = $1 AND status = 'active' LIMIT 1",
-      [groupCode.toUpperCase()]
+      "SELECT id, status FROM ride_rooms WHERE token_hash = $1 LIMIT 1",
+      [tokenHash]
     );
 
     if (existing.rows.length === 0) {
@@ -67,20 +81,23 @@ export class RoomService {
     }
 
     await this.db.run(
-      `INSERT INTO active_riders (user_id, group_code, include_id, type_of_operation, status)
-       VALUES ($1, $2, $3, 'ride', 'active')
-       ON CONFLICT (user_id, group_code) DO NOTHING`,
-      [userId, groupCode.toUpperCase(), existing.rows[0].id]
+      `INSERT INTO room_members (room_id, user_id, role)
+       VALUES ($1, $2, 'rider')
+       ON CONFLICT (room_id, user_id) DO NOTHING`,
+      [room.id, userId]
     );
 
     return { room_id: room.id };
   }
 
   async isMember(groupCode: string, userId: string): Promise<boolean> {
+    const tokenHash = this.hashToken(groupCode.toUpperCase());
     try {
       const result = await this.db.run(
-        "SELECT 1 FROM active_riders WHERE group_code = $1 AND user_id = $2 AND status = 'active'",
-        [groupCode, userId]
+        `SELECT 1 FROM room_members rm
+         JOIN ride_rooms rr ON rr.id = rm.room_id
+         WHERE rr.token_hash = $1 AND rm.user_id = $2 AND rr.status = 'active'`,
+        [tokenHash, userId]
       );
       return result.rows.length > 0;
     } catch {
@@ -92,10 +109,13 @@ export class RoomService {
     groupCode: string,
     userId: string
   ): Promise<RoomVerification | null> {
+    const tokenHash = this.hashToken(groupCode.toUpperCase());
     try {
       const result = await this.db.run(
-        "SELECT id, status FROM active_riders WHERE group_code = $1 AND user_id = $2 AND status = 'active'",
-        [groupCode.toUpperCase(), userId]
+        `SELECT rr.id, rr.status FROM ride_rooms rr
+         JOIN room_members rm ON rm.room_id = rr.id
+         WHERE rr.token_hash = $1 AND rm.user_id = $2`,
+        [tokenHash, userId]
       );
       return result.rows.length > 0 ? result.rows[0] : null;
     } catch {
@@ -104,13 +124,15 @@ export class RoomService {
   }
 
   async getMembers(groupCode: string): Promise<RoomMember[]> {
+    const tokenHash = this.hashToken(groupCode.toUpperCase());
     try {
       const result = await this.db.run(
-        `SELECT ar.user_id, u.name
-         FROM active_riders ar
-         JOIN users u ON ar.user_id = u.id
-         WHERE ar.group_code = $1 AND ar.status = 'active'`,
-        [groupCode]
+        `SELECT rm.user_id, u.name
+         FROM room_members rm
+         JOIN ride_rooms rr ON rr.id = rm.room_id
+         JOIN users u ON rm.user_id = u.id
+         WHERE rr.token_hash = $1 AND rr.status = 'active'`,
+        [tokenHash]
       );
       return result.rows as RoomMember[];
     } catch {
@@ -119,22 +141,27 @@ export class RoomService {
   }
 
   async getRoomHistory(groupCode: string): Promise<any[]> {
+    const tokenHash = this.hashToken(groupCode.toUpperCase());
     const result = await this.db.run(
-      `SELECT eh.user_id, u.name, eh.device_timestamp,
-              eh.latitude, eh.longitude, eh.accuracy, eh.speed
-       FROM engine_heartbeat eh
-       JOIN users u ON eh.user_id = u.id
-       WHERE eh.group_code = $1
-       ORDER BY eh.device_timestamp ASC`,
-      [groupCode]
+      `SELECT tr.user_id, u.name, tr.device_timestamp_ms AS device_timestamp,
+              ST_Y(tr.location::geometry) AS latitude,
+              ST_X(tr.location::geometry) AS longitude,
+              tr.accuracy, tr.speed
+       FROM telemetry_readings tr
+       JOIN ride_rooms rr ON rr.id = tr.room_id
+       JOIN users u ON tr.user_id = u.id
+       WHERE rr.token_hash = $1
+       ORDER BY tr.device_timestamp_ms ASC`,
+      [tokenHash]
     );
     return result.rows;
   }
 
   async endRoom(groupCode: string): Promise<void> {
+    const tokenHash = this.hashToken(groupCode.toUpperCase());
     await this.db.run(
-      "UPDATE active_riders SET status = 'ended' WHERE group_code = $1",
-      [groupCode]
+      "UPDATE ride_rooms SET status = 'ended', ended_at = now() WHERE token_hash = $1",
+      [tokenHash]
     );
   }
 }

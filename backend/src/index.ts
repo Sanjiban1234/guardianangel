@@ -3,7 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 
 // ─── DB Layer ──────────────────────────────────────────────────────────────
-import { initDb } from './db';
+import { initDb, pool } from './db';
 import { QueryRunner } from './db/QueryRunner';
 
 // ─── Services ─────────────────────────────────────────────────────────────
@@ -12,6 +12,7 @@ import { RoomService } from './services/RoomService';
 import { TelemetryService } from './services/TelemetryService';
 import { EmergencyAlertService } from './services/EmergencyAlertService';
 import { PresenceService } from './services/PresenceService';
+import { PostgisTelemetryRepository } from './repositories/PostgisTelemetryRepository';
 
 // ─── Routes ───────────────────────────────────────────────────────────────
 import { createAuthRouter } from './routes/AuthRouter';
@@ -33,6 +34,7 @@ const roomService      = new RoomService(queryRunner);
 const telemetryService = new TelemetryService(queryRunner);
 const alertService     = new EmergencyAlertService(queryRunner);
 const presenceService  = new PresenceService(queryRunner);
+const telemetryRepo    = new PostgisTelemetryRepository(pool);
 
 const socketController = new RideSocketController(
   roomService,
@@ -56,7 +58,7 @@ app.use(express.json({ limit: MAX_BODY_SIZE }));
 
 // Mount REST routes
 app.use('/api/auth', createAuthRouter(userService));
-app.use('/api',      createRoomRouter(roomService));
+app.use('/api',      createRoomRouter(roomService, telemetryRepo));
 
 // Register WebSocket controller
 socketController.register(io);

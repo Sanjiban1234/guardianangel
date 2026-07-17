@@ -22,11 +22,11 @@ All endpoints (except registration and login) require the header `Authorization:
 
 | Method | Path | Description | Request Body / Parameters | Response (200/201) |
 |---|---|---|---|---|
-| `POST` | `/api/auth/register` | User Signup | `{ username, password, phone }` | `{ message, user: { id, username } }` |
-| `POST` | `/api/auth/login` | User Signin | `{ username, password }` | `{ token, user: { id, username } }` |
-| `POST` | `/api/rooms` | Create Ride Room | `{}` | `{ room_id, room_token, creator_id }` |
-| `POST` | `/api/rooms/join` | Join Ride Room | `{ room_token }` | `{ message, room_id }` |
-| `GET` | `/api/rooms/:roomId/history` | Get Room history | `roomId` (URI Param) | `[ { user_id, username, device_timestamp, latitude, longitude, accuracy, speed }, ... ]` |
+| `POST` | `/api/auth/register` | User Signup | `{ name, password, phone }` | `{ message, user: { id, name } }` |
+| `POST` | `/api/auth/login` | User Signin | `{ name, password }` | `{ token, user: { id, name } }` |
+| `POST` | `/api/rooms` | Create Ride Room | `{}` | `{ room_id, group_code, creator_id }` |
+| `POST` | `/api/rooms/join` | Join Ride Room | `{ group_code }` | `{ message, room_id }` |
+| `GET` | `/api/rooms/:groupCode/history` | Get Room history | `groupCode` (URI Param) | `[ { user_id, name, device_timestamp, latitude, longitude, accuracy, speed }, ... ]` |
 | `GET` | `/api/health` | Connectivity check | None | `{ status: "healthy", timestamp }` |
 
 ---
@@ -37,19 +37,19 @@ All socket events expect an authenticated connection (JWT token passed in the `a
 
 | Event Name | Direction | Payload Shape | Description |
 |---|---|---|---|
-| `session:join` | Client -> Server | `{ room_token: string }` | Join the Ride Room WebSocket channel. |
-| `session:joined` | Server -> Client | `{ room_id: string, members: Array<{ user_id, username }> }` | Success confirmation returned to the joiner. |
-| `session:member_joined` | Server -> Room | `{ user_id: string, username: string }` | Emitted to existing members when a peer joins. |
+| `session:join` | Client -> Server | `{ group_code: string }` | Join the Ride Room WebSocket channel. |
+| `session:joined` | Server -> Client | `{ group_code: string, members: Array<{ user_id, name }> }` | Success confirmation returned to the joiner. |
+| `session:member_joined` | Server -> Room | `{ user_id: string, name: string }` | Emitted to existing members when a peer joins. |
 | `session:leave` | Client -> Server | `{}` | Leave the Ride Room cleanly. |
-| `session:member_left` | Server -> Room | `{ user_id: string, username: string }` | Emitted when a peer cleanly leaves the room. |
+| `session:member_left` | Server -> Room | `{ user_id: string, name: string }` | Emitted when a peer cleanly leaves the room. |
 | `location:update` | Client -> Server | `{ timestamp: number, latitude: number, longitude: number, accuracy: number, speed: number }` | Sends single live telemetry reading (State A). |
-| `location:broadcast` | Server -> Room | `{ user_id, username, timestamp, latitude, longitude, accuracy, speed }` | Broadcasts rider position to other members. |
+| `location:broadcast` | Server -> Room | `{ user_id, name, timestamp, latitude, longitude, accuracy, speed }` | Broadcasts rider position to other members. |
 | `telemetry:bulkSync` | Client -> Server | `{ readings: Array<{ client_reading_id, timestamp, latitude, longitude, accuracy, speed }> }` | Batch catch-up upload of offline cached readings. Supports a callback confirmation. |
 | `telemetry:bulkSyncAck` | Server -> Client | `{ confirmedClientReadingIds: Array<string> }` | Acknowledgment listing successfully saved reading IDs. |
 | `crash:candidate` | Client -> Server | `{ timestamp, latitude, longitude }` | Sent by client to notify that a candidate crash was detected. |
 | `crash:countdownExpired`| Client -> Server | `{ timestamp, latitude, longitude }` | Sent by client when countdown expires to trigger immediate SOS. |
-| `sos:broadcast` | Server -> Room | `{ alert_id, user_id, username, timestamp, latitude, longitude }` | Maximum priority alert broadcast to room and portal. |
-| `peer:lastKnown` | Server -> Room | `{ user_id, username, timestamp, latitude, longitude }` | Broadcast when a member suddenly disconnects. |
+| `sos:broadcast` | Server -> Room | `{ alarm_no, user_id, name, timestamp, latitude, longitude }` | Maximum priority alert broadcast to room and portal. |
+| `peer:lastKnown` | Server -> Room | `{ user_id, name, timestamp, latitude, longitude }` | Broadcast when a member suddenly disconnects. |
 
 ---
 

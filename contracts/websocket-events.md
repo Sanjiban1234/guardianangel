@@ -11,11 +11,11 @@ This contract defines the real-time communication events between the Guardian An
 ## Event Registry
 
 ### 1. `session:join` (Client → Server)
-- **Description:** Join a live Ride Room session using the cryptographic join token.
+- **Description:** Join a live Ride Room session using the group code.
 - **Payload Shape:**
 ```json
 {
-  "room_token": "cryptographic-short-token"
+  "group_code": "RIDE11ABCDEF1234"
 }
 ```
 
@@ -24,11 +24,11 @@ This contract defines the real-time communication events between the Guardian An
 - **Payload Shape:**
 ```json
 {
-  "room_id": "uuid-string",
+  "group_code": "RIDE11ABCDEF1234",
   "members": [
     {
       "user_id": "uuid-string",
-      "username": "sanjiban"
+      "name": "sanjiban"
     }
   ]
 }
@@ -40,7 +40,7 @@ This contract defines the real-time communication events between the Guardian An
 ```json
 {
   "user_id": "uuid-string",
-  "username": "sanjiban"
+  "name": "sanjiban"
 }
 ```
 
@@ -54,7 +54,7 @@ This contract defines the real-time communication events between the Guardian An
 ```json
 {
   "user_id": "uuid-string",
-  "username": "sanjiban"
+  "name": "sanjiban"
 }
 ```
 
@@ -77,7 +77,7 @@ This contract defines the real-time communication events between the Guardian An
 ```json
 {
   "user_id": "uuid-string",
-  "username": "sanjiban",
+  "name": "sanjiban",
   "timestamp": 1720958400000,
   "latitude": 28.2096,
   "longitude": 83.9856,
@@ -127,7 +127,7 @@ This contract defines the real-time communication events between the Guardian An
 ```
 
 ### 11. `crash:countdownExpired` (Client → Server)
-- **Description:** Emitter when the 15-second crash warning countdown expires on-device without manual cancel. Tells the server to broadcast SOS immediately.
+- **Description:** Emitted when the 15-second crash warning countdown expires on-device without manual cancel. Tells the server to broadcast SOS immediately.
 - **Payload Shape:**
 ```json
 {
@@ -142,9 +142,9 @@ This contract defines the real-time communication events between the Guardian An
 - **Payload Shape:**
 ```json
 {
-  "alert_id": "uuid-string",
+  "alarm_no": "uuid-string",
   "user_id": "uuid-string",
-  "username": "sanjiban",
+  "name": "sanjiban",
   "timestamp": 1720958420000,
   "latitude": 28.2096,
   "longitude": 83.9856
@@ -157,7 +157,7 @@ This contract defines the real-time communication events between the Guardian An
 ```json
 {
   "user_id": "uuid-string",
-  "username": "sanjiban",
+  "name": "sanjiban",
   "timestamp": 1720958400000,
   "latitude": 28.2096,
   "longitude": 83.9856

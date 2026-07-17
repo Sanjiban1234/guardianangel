@@ -128,70 +128,74 @@ If PostgreSQL is not running or `DATABASE_URL` is invalid, the backend automatic
 
 ## 5. Database Schema
 
-The following tables are created automatically on first startup:
+The following tables are created automatically on first startup. See `backend/sql/postgis_schema.sql` for the full normalized PostGIS schema.
 
 ```sql
 -- Users table
 CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  username VARCHAR(50) UNIQUE NOT NULL,
+  name VARCHAR(100) UNIQUE NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
   phone VARCHAR(20) NOT NULL,
   created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Ride rooms / sessions
+-- Ride rooms / sessions (group_code is derived from token_hash)
 CREATE TABLE ride_rooms (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  room_token VARCHAR(255) UNIQUE NOT NULL,
-  creator_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  status VARCHAR(20) NOT NULL DEFAULT 'active',
-  created_at TIMESTAMP DEFAULT NOW(),
-  ended_at TIMESTAMP
+  token_hash TEXT UNIQUE NOT NULL,
+  creator_id UUID REFERENCES users(id) ON DELETE RESTRICT,
+  status TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'ended')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ended_at TIMESTAMPTZ
 );
 
 -- Room membership (many-to-many)
 CREATE TABLE room_members (
   room_id UUID REFERENCES ride_rooms(id) ON DELETE CASCADE,
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-  joined_at TIMESTAMP DEFAULT NOW(),
+  role TEXT NOT NULL DEFAULT 'rider'
+    CHECK (role IN ('rider', 'guardian')),
+  joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (room_id, user_id)
 );
 
--- Telemetry / GPS readings with PostGIS geometry
+-- Telemetry / GPS readings with PostGIS geography column
 CREATE TABLE telemetry_readings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   room_id UUID REFERENCES ride_rooms(id) ON DELETE CASCADE,
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-  device_timestamp BIGINT NOT NULL,
-  latitude DOUBLE PRECISION NOT NULL,
-  longitude DOUBLE PRECISION NOT NULL,
+  device_timestamp_ms BIGINT NOT NULL,
+  location GEOGRAPHY(POINT, 4326) NOT NULL,
   accuracy REAL NOT NULL,
   speed REAL NOT NULL,
-  geom GEOMETRY(Point, 4326),
-  UNIQUE (user_id, device_timestamp)
+  client_reading_id UUID NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, client_reading_id),
+  UNIQUE (room_id, user_id, device_timestamp_ms)
+);
+
+-- Current rider positions (maintained by trigger on telemetry_readings)
+CREATE TABLE rider_current_locations (
+  room_id UUID REFERENCES ride_rooms(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  device_timestamp_ms BIGINT NOT NULL,
+  location GEOGRAPHY(POINT, 4326) NOT NULL,
+  accuracy REAL NOT NULL,
+  speed REAL NOT NULL,
+  PRIMARY KEY (room_id, user_id)
 );
 
 -- Emergency SOS alerts
-CREATE TABLE emergency_alerts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  room_id UUID REFERENCES ride_rooms(id) ON DELETE CASCADE,
+CREATE TABLE emergency_alarms (
+  alarm_no UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-  timestamp BIGINT NOT NULL,
+  room_id UUID REFERENCES ride_rooms(id) ON DELETE SET NULL,
+  latitude DOUBLE PRECISION,
+  longitude DOUBLE PRECISION,
   status VARCHAR(20) NOT NULL DEFAULT 'active',
-  latitude DOUBLE PRECISION NOT NULL,
-  longitude DOUBLE PRECISION NOT NULL
-);
-
--- Weather reports
-CREATE TABLE weather_reports (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  room_id UUID REFERENCES ride_rooms(id) ON DELETE CASCADE,
-  latitude DOUBLE PRECISION NOT NULL,
-  longitude DOUBLE PRECISION NOT NULL,
-  condition VARCHAR(50) NOT NULL,
-  temperature REAL NOT NULL,
-  timestamp BIGINT NOT NULL
+  created_at TIMESTAMP DEFAULT NOW()
 );
 ```
 

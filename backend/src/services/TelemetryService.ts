@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { QueryRunner } from '../db/QueryRunner';
 
 export interface TelemetryReading {
@@ -15,30 +16,32 @@ export interface BulkTelemetryReading extends TelemetryReading {
 export class TelemetryService {
   constructor(private readonly db: QueryRunner) {}
 
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token.toUpperCase()).digest('hex');
+  }
+
   async saveTelemetry(
     groupCode: string,
     userId: string,
     reading: TelemetryReading
   ): Promise<boolean> {
-    const params = [
-      userId, groupCode,
-      reading.timestamp, reading.latitude, reading.longitude,
-      reading.accuracy, reading.speed,
-    ];
-
+    const tokenHash = this.hashToken(groupCode);
     try {
       await this.db.run(
-        `INSERT INTO engine_heartbeat
-           (user_id, group_code, device_timestamp, latitude, longitude, accuracy, speed, status_id, pulses, seconds, number_of_pulse)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'normal', 1, 0, 1)
-         ON CONFLICT (user_id, device_timestamp)
-         DO UPDATE SET
-           group_code = EXCLUDED.group_code,
-           latitude = EXCLUDED.latitude,
-           longitude = EXCLUDED.longitude,
+        `INSERT INTO telemetry_readings
+           (room_id, user_id, device_timestamp_ms, location, accuracy, speed, client_reading_id)
+         VALUES (
+           (SELECT id FROM ride_rooms WHERE token_hash = $1 AND status = 'active' LIMIT 1),
+           $2::uuid, $3,
+           ST_SetSRID(ST_MakePoint($4, $5), 4326)::geography,
+           $6, $7, gen_random_uuid()
+         )
+         ON CONFLICT (room_id, user_id, device_timestamp_ms) DO UPDATE SET
+           location = EXCLUDED.location,
            accuracy = EXCLUDED.accuracy,
            speed = EXCLUDED.speed`,
-        params
+        [tokenHash, userId, reading.timestamp, reading.longitude, reading.latitude,
+          reading.accuracy, reading.speed]
       );
       return true;
     } catch (err) {
@@ -52,38 +55,71 @@ export class TelemetryService {
     userId: string,
     readings: BulkTelemetryReading[]
   ): Promise<string[]> {
-    const confirmed: string[] = [];
+    if (readings.length === 0) return [];
 
-    for (const reading of readings) {
-      const params = [
-        userId, groupCode,
-        reading.timestamp, reading.latitude, reading.longitude,
-        reading.accuracy, reading.speed,
-      ];
-
-      try {
-        await this.db.run(
-          `INSERT INTO engine_heartbeat
-             (user_id, group_code, device_timestamp, latitude, longitude, accuracy, speed, status_id, pulses, seconds, number_of_pulse)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 'normal', 1, 0, 1)
-           ON CONFLICT (user_id, device_timestamp)
-           DO UPDATE SET
-             group_code = EXCLUDED.group_code,
-             latitude = EXCLUDED.latitude,
-             longitude = EXCLUDED.longitude,
-             accuracy = EXCLUDED.accuracy,
-             speed = EXCLUDED.speed`,
-          params
-        );
-        confirmed.push(reading.client_reading_id);
-      } catch (err) {
-        console.error(
-          `TelemetryService.bulkSync: failed for client_reading_id "${reading.client_reading_id}":`,
-          err
-        );
-      }
+    const tokenHash = this.hashToken(groupCode);
+    try {
+      const result = await this.db.run(
+        `INSERT INTO telemetry_readings
+           (room_id, user_id, device_timestamp_ms, location, accuracy, speed, client_reading_id)
+         SELECT
+           (SELECT id FROM ride_rooms WHERE token_hash = $1 AND status = 'active' LIMIT 1),
+           $2::uuid,
+           r.timestamp_ms,
+           ST_SetSRID(ST_MakePoint(r.longitude, r.latitude), 4326)::geography,
+           r.accuracy,
+           r.speed,
+           r.client_reading_id
+         FROM jsonb_to_recordset($3::jsonb) AS r(
+           client_reading_id uuid,
+           timestamp_ms bigint,
+           latitude double precision,
+           longitude double precision,
+           accuracy real,
+           speed real
+         )
+         ON CONFLICT (user_id, client_reading_id) DO NOTHING
+         RETURNING client_reading_id`,
+        [tokenHash, userId, JSON.stringify(readings.map((r) => ({
+          client_reading_id: r.client_reading_id,
+          timestamp_ms: r.timestamp,
+          latitude: r.latitude,
+          longitude: r.longitude,
+          accuracy: r.accuracy,
+          speed: r.speed,
+        })))]
+      );
+      return result.rows.map((row: any) => row.client_reading_id);
+    } catch (err) {
+      console.error('TelemetryService.bulkSyncTelemetry: DB write failed:', err);
+      return [];
     }
+  }
 
-    return confirmed;
+  async ridersNearby(
+    groupCode: string,
+    latitude: number,
+    longitude: number,
+    radiusMeters: number
+  ): Promise<Array<{ userId: string; latitude: number; longitude: number; distanceMeters: number }>> {
+    const tokenHash = this.hashToken(groupCode);
+    const result = await this.db.run(
+      `SELECT l.user_id,
+              ST_Y(l.location::geometry) AS latitude,
+              ST_X(l.location::geometry) AS longitude,
+              ST_Distance(l.location, ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography) AS distance_meters
+       FROM rider_current_locations l
+       JOIN ride_rooms rr ON rr.id = l.room_id
+       WHERE rr.token_hash = $1 AND rr.status = 'active'
+         AND ST_DWithin(l.location, ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, $4)
+       ORDER BY distance_meters`,
+      [tokenHash, longitude, latitude, radiusMeters]
+    );
+    return result.rows.map((row: any) => ({
+      userId: row.user_id,
+      latitude: Number(row.latitude),
+      longitude: Number(row.longitude),
+      distanceMeters: Number(row.distance_meters),
+    }));
   }
 }

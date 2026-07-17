@@ -10,6 +10,7 @@ mobile/.expo/
 # Node (backend)
 backend/node_modules/
 backend/.env
+backend/docker-compose.override.yml
 
 # General
 .DS_Store

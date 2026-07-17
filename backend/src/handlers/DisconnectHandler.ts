@@ -31,7 +31,7 @@ export class DisconnectHandler {
     };
 
     try {
-      const lastLoc = await this.presenceService.getLastKnownLocation(userId);
+      const lastLoc = await this.presenceService.getLastKnownLocation(userId, groupCode);
       if (lastLoc) {
         payload.latitude = lastLoc.latitude;
         payload.longitude = lastLoc.longitude;

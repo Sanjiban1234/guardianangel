@@ -3,7 +3,7 @@
  * @description Shared WebSocket Contract for Guardian Angel.
  * This file serves as the type-safe contract between the Node.js backend
  * and the React Native mobile client.
- * 
+ *
  * IMPORTANT: SHARED CONTRACT - DO NOT MUTATE WITHOUT TEAM ALIGNMENT.
  */
 
@@ -12,7 +12,7 @@
  * Emitted by the client to request joining a Ride Room.
  */
 export interface SessionJoinPayload {
-  room_token: string;
+  group_code: string;
 }
 
 /**
@@ -20,10 +20,10 @@ export interface SessionJoinPayload {
  * Emitted by the server to confirm the client has successfully joined.
  */
 export interface SessionJoinedPayload {
-  room_id: string;
+  group_code: string;
   members: Array<{
     user_id: string;
-    username: string;
+    name: string;
   }>;
 }
 
@@ -33,7 +33,7 @@ export interface SessionJoinedPayload {
  */
 export interface SessionMemberJoinedPayload {
   user_id: string;
-  username: string;
+  name: string;
 }
 
 /**
@@ -49,7 +49,7 @@ export type SessionLeavePayload = Record<string, never>;
  */
 export interface SessionMemberLeftPayload {
   user_id: string;
-  username: string;
+  name: string;
 }
 
 /**
@@ -70,7 +70,7 @@ export interface LocationUpdatePayload {
  */
 export interface LocationBroadcastPayload extends LocationUpdatePayload {
   user_id: string;
-  username: string;
+  name: string;
 }
 
 /**
@@ -121,10 +121,10 @@ export interface CrashCountdownExpiredPayload {
  * Emergency broadcast alert forwarded to riders and family web observer portals.
  */
 export interface SosBroadcastPayload {
-  alert_id: string;   // Database alert primary key
-  user_id: string;    // Impacted rider ID
-  username: string;  // Impacted rider username
-  timestamp: number;  // SOS event timestamp
+  alarm_no: string;  // Database alert primary key
+  user_id: string;   // Impacted rider ID
+  name: string;      // Impacted rider name
+  timestamp: number; // SOS event timestamp
   latitude: number;
   longitude: number;
 }
@@ -135,7 +135,7 @@ export interface SosBroadcastPayload {
  */
 export interface PeerLastKnownPayload {
   user_id: string;
-  username: string;
+  name: string;
   timestamp: number;
   latitude: number;
   longitude: number;
