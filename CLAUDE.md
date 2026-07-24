@@ -48,6 +48,9 @@ src/services/RoomService.ts           Room CRUD, membership verification
 src/services/TelemetryService.ts      Single-reading persistence
 src/services/EmergencyAlertService.ts SOS alert creation/resolution
 src/services/PresenceService.ts       Online/offline tracking
+src/services/WeatherService.ts        Weather provider client + in-memory cache + centroid calc
+
+src/routes/WeatherRouter.ts           GET /api/rooms/:groupCode/weather
 
 src/repositories/PostgisTelemetryRepository.ts   Spatial queries (distance, nearby, geofences)
 src/repositories/CrashCandidateRepository.ts     Crash candidate persistence + outcome tracking
@@ -78,6 +81,7 @@ Legacy tables still in schema but not used for new paths: `active_riders`, `noti
 | POST | `/api/rooms/join` | Join existing room by group_code |
 | GET | `/api/rooms/:groupCode/history` | Telemetry history for room |
 | GET | `/api/rooms/:groupCode/summary` | Distance + duration stats |
+| GET | `/api/rooms/:groupCode/weather` | Current weather at ride centroid (active rooms only) |
 | POST | `/api/geofences` | Create geofence (name, type, area as coordinate array) |
 | GET | `/api/geofences` | List active geofences |
 | PATCH | `/api/geofences/:id` | Update geofence fields (name, type, is_active) |
@@ -147,13 +151,47 @@ Environment variables: `DATABASE_URL`, `JWT_SECRET` (required in non-test), `POR
 | `crash-candidates.test.ts` | Crash candidate persistence, outcome transitions, room scoping |
 | `emergency-alert.test.ts` | SOS creation with/without room_id, graceful degradation |
 | `geofences.test.ts` | Geofence CRUD (create, list, update, soft-delete, validation) |
+| `weather.test.ts` | Weather endpoint (auth, membership, active-room guard, provider mock, cache, centroid, WMO mapping) |
 
 All tests use mocked `db.query` via `jest.mock('../src/db')` — no live database needed.
+
+## Weather Module
+
+**Provider:** Open-Meteo (no API key, no billing, 10k requests/day free tier). Chosen for capstone scope — no budget, good-enough accuracy for "expect rain?" use case.
+
+**Update model:** Pull with cache. `GET /api/rooms/:groupCode/weather` fetches on demand; results cached in-memory per room with 5-minute TTL. Push (periodic Socket.IO broadcast) deferred as a v2 enhancement.
+
+**Location derivation:** Arithmetic mean (centroid) of all riders in `rider_current_locations` for the room. Returns `weather: null, reason: "no_location_data"` if no telemetry has been received yet.
+
+**Active-room restriction:** Endpoint returns 409 for ended rooms. Current weather for an ended ride would be misleading — this is not historical weather-at-ride-time.
+
+**Failure isolation:** 5-second AbortController timeout on the provider call. On any failure, returns `weather: null, reason: "provider_unavailable"` with 200 status. Never blocks or slows safety-critical paths.
+
+**WMO code mapping:** `mapWeatherCode()` in `WeatherService.ts` — pure function mapping numeric WMO weather codes to human-readable condition strings (clear_sky, rain, thunderstorm_with_hail, etc.). Exported and unit-tested independently.
+
+**Response shape:**
+```json
+{
+  "weather": {
+    "condition": "partly_cloudy",
+    "temperature_celsius": 28.5,
+    "precipitation_probability": 40,
+    "wind_speed_kmh": 12.3,
+    "fetched_at": "2026-07-24T10:30:00Z"
+  },
+  "location": { "latitude": 14.5123, "longitude": 121.0456 }
+}
+```
+
+**Known limitations:**
+- In-memory cache means a server restart clears it (acceptable for project scale; not a bug to fix now)
+- Centroid uses arithmetic mean — accurate for group rides within a few km, but would need a proper geographic centroid for continent-scale spread (not a real scenario)
+- No weather-based alerting or route-hazard logic (future feature — would need its own design)
 
 ## Known Gaps / Deferred Work
 
 - **Mobile safety module**: `mobile/src/safety/` is empty (.gitkeep only) — crash detection algorithm not yet implemented
-- **Weather module**: Deferred until after midterm defense
+- **Weather push model**: Server could poll weather per active room and broadcast `weather:update` via Socket.IO — deferred, pull-with-cache is sufficient for v1
 - **Guardian Portal** (web observer UI): Deferred until after midterm defense
 - **Geofences**: CRUD endpoints exist; any authenticated user can create/modify/soft-delete geofences (deliberate scope decision for now, not an oversight — must add role-based restriction before production)
 - **Role-based permissions**: All authenticated users have equal access; admin/guardian restrictions deferred
