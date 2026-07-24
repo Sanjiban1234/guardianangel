@@ -12,6 +12,7 @@ import { RoomService } from './services/RoomService';
 import { TelemetryService } from './services/TelemetryService';
 import { EmergencyAlertService } from './services/EmergencyAlertService';
 import { PresenceService } from './services/PresenceService';
+import { WeatherService } from './services/WeatherService';
 import { PostgisTelemetryRepository } from './repositories/PostgisTelemetryRepository';
 import { CrashCandidateRepository } from './repositories/CrashCandidateRepository';
 
@@ -19,6 +20,7 @@ import { CrashCandidateRepository } from './repositories/CrashCandidateRepositor
 import { createAuthRouter } from './routes/AuthRouter';
 import { createRoomRouter } from './routes/RoomRouter';
 import { createGeofenceRouter } from './routes/GeofenceRouter';
+import { createWeatherRouter } from './routes/WeatherRouter';
 
 // ─── Socket Controller ────────────────────────────────────────────────────
 import { RideSocketController } from './sockets/RideSocketController';
@@ -36,6 +38,7 @@ const roomService      = new RoomService(queryRunner);
 const telemetryService = new TelemetryService(queryRunner);
 const alertService     = new EmergencyAlertService(queryRunner);
 const presenceService  = new PresenceService(queryRunner);
+const weatherService   = new WeatherService(queryRunner);
 const telemetryRepo    = new PostgisTelemetryRepository(pool);
 const crashRepo        = new CrashCandidateRepository(queryRunner);
 
@@ -64,6 +67,7 @@ app.use(express.json({ limit: MAX_BODY_SIZE }));
 app.use('/api/auth', createAuthRouter(userService));
 app.use('/api',      createRoomRouter(roomService, telemetryRepo));
 app.use('/api',      createGeofenceRouter(queryRunner));
+app.use('/api',      createWeatherRouter(roomService, weatherService));
 
 // Register WebSocket controller
 socketController.register(io);
