@@ -16,13 +16,8 @@ Real-time safety platform for group motorcycle rides. Detects crashes via on-dev
 
 ```
 backend/          Node.js server (sessions, sockets, REST, DB)
-<<<<<<< HEAD
-mobile/           React Native app (telemetry, safety, UI)
-contracts/        Shared WebSocket event contract (types + docs)
-=======
 mobile/           React Native app (telemetry, safety, Post-Ride Summary UI)
 contracts/        Shared WebSocket & REST contract specs (types + docs, ride-summary.ts)
->>>>>>> bb065c9 (feat: add Post-Ride Summary UI, data contracts, and update CLAUDE.md documentation)
 docs/             Architecture docs, audit reports, ER diagram
 ```
 
