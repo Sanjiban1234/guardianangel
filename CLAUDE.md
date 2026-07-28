@@ -208,6 +208,47 @@ All tests use mocked `db.query` via `jest.mock('../src/db')` — no live databas
 **TypeScript Config Interop:**
 - Enabled `"esModuleInterop": true` and `"allowSyntheticDefaultImports": true` in `mobile/tsconfig.json` to resolve React default import interop issues.
 
+## Connected Mobile App Flow
+
+`mobile/App.tsx` is the current interactive UI prototype for the six core
+screens. It intentionally uses the backend contract vocabulary (`name` and
+password for JWT login; `group_code` for sessions) rather than an email or
+social-login pattern.
+
+```
+Login -> Session portal -> Live map
+                              |
+                       sensor candidate
+                              v
+                    Crash countdown (15s)
+                       |             |
+                    cancel          expires
+                       v             v
+                    Live map <- SOS confirmation
+                              |
+                           end ride
+                              v
+                       Ride summary -> Session portal
+```
+
+- **Map connectivity:** `live` explicitly means the group can see current
+  location updates (success green); `offline` explicitly means local cache is
+  active and telemetry is awaiting re-sync (warning amber). The prototype
+  includes a state toggle to review both designs.
+- **Crash flow:** The countdown is event-driven, not a normal navigation
+  action. A large “I'M OK — CANCEL ALERT” control emits the intended cancel
+  path; expiry represents `crash:countdownExpired` and leads to a reassuring,
+  non-decision SOS confirmation state.
+- **Manual traffic override:** Present as a distinct, deliberate map action;
+  it must never be placed where it can be triggered accidentally during a
+  ride.
+- **Weather:** Map layout reserves space for the existing pull-with-cache
+  weather feature without making the widget a v1 dependency.
+- **Summary return path:** Returning to the session portal preserves a real
+  entry point for starting/joining another ride and a non-dead-end past-rides
+  affordance. The summary itself remains implemented by
+  `mobile/src/ui/RideSummaryScreen.tsx`.
+
 
 ## Known Gaps / Deferred Work
 
