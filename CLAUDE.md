@@ -16,8 +16,13 @@ Real-time safety platform for group motorcycle rides. Detects crashes via on-dev
 
 ```
 backend/          Node.js server (sessions, sockets, REST, DB)
+<<<<<<< HEAD
 mobile/           React Native app (telemetry, safety, UI)
 contracts/        Shared WebSocket event contract (types + docs)
+=======
+mobile/           React Native app (telemetry, safety, Post-Ride Summary UI)
+contracts/        Shared WebSocket & REST contract specs (types + docs, ride-summary.ts)
+>>>>>>> bb065c9 (feat: add Post-Ride Summary UI, data contracts, and update CLAUDE.md documentation)
 docs/             Architecture docs, audit reports, ER diagram
 ```
 
@@ -187,6 +192,27 @@ All tests use mocked `db.query` via `jest.mock('../src/db')` — no live databas
 - In-memory cache means a server restart clears it (acceptable for project scale; not a bug to fix now)
 - Centroid uses arithmetic mean — accurate for group rides within a few km, but would need a proper geographic centroid for continent-scale spread (not a real scenario)
 - No weather-based alerting or route-hazard logic (future feature — would need its own design)
+
+## Post-Ride Summary UI & Data Contracts
+
+**Contracts & Specification:** `contracts/ride-summary.ts`
+- Data structures for `RideSummaryData`, `DownsampledSpeedPoint`, and low-data fallbacks.
+- Strictly bounds downsampled telemetry arrays (12–25 points) to prevent performance degradation on mobile devices.
+
+**Mobile UI Component:** `mobile/src/ui/RideSummaryScreen.tsx` & `mobile/src/ui/useRideSummary.ts`
+- **Interactive Telemetry Chart:** Static, non-zoomable chart with interactive node selection showing speed (km/h) and distance (km) at specific sample points.
+- **Pace Benchmark:** Framed post-hoc as "Pace Benchmark (45 km/h group avg)" rather than deceptive predictive ETAs.
+- **Graceful Low-Data Handling:** Displays a calm, non-disruptive banner when `total_distance_meters < 500` or `speed_profile.length < 3` (`has_low_data` flag set).
+- **Brand Palette:** Strict adherence to Guardian Angel brand colors:
+  - `#14532D` (Primary Forest Green) — Card headers & structural accents
+  - `#16A34A` (Success Green) — Completion badge & normal pace indicators
+  - `#2F80ED` (Active Blue) — Route markers & track lines
+  - `#F59E0B` (Warning Amber) — Speed spike indicators (> threshold) & low-data warnings
+  - `#DC2626` (Emergency Red) — Emergency alert callout banner (only if SOS occurred during ride)
+
+**TypeScript Config Interop:**
+- Enabled `"esModuleInterop": true` and `"allowSyntheticDefaultImports": true` in `mobile/tsconfig.json` to resolve React default import interop issues.
+
 
 ## Known Gaps / Deferred Work
 
