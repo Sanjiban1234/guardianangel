@@ -1,124 +1,169 @@
 // mobile/src/safety/crash/crashDetector.ts
 import {
   AccelerometerReading,
-  CrashDetectorConfig,
+  CrashCandidateEvent,
   CrashDetectorState,
-  CrashEvent,
-  DEFAULT_CONFIG,
+  DetectionConfig,
+  DEFAULT_DETECTION_CONFIG,
+  GyroscopeReading,
+  TelemetryReading,
 } from './types';
+import {
+  computeMagnitude,
+  computeJerk,
+  computeGyroRotation,
+  computeSpeedRoughness,
+  resolveSpeedKmh,
+} from './signals';
 
-type Listener = (event: CrashEvent) => void;
+type CandidateListener = (event: CrashCandidateEvent) => void;
 type StateListener = (state: CrashDetectorState) => void;
 
 export class CrashDetector {
-  private config: CrashDetectorConfig;
+  private config: DetectionConfig;
   private state: CrashDetectorState = 'IDLE';
-  private buffer: AccelerometerReading[] = [];
-  private impactPeak = 0;
-  private impactReading: AccelerometerReading | null = null;
-  private confirmTimer: ReturnType<typeof setTimeout> | null = null;
 
-  private crashListeners: Listener[] = [];
+  private accelBuffer: AccelerometerReading[] = [];
+  private gyroBuffer: GyroscopeReading[] = [];
+  private telemetryBuffer: TelemetryReading[] = [];
+
+  private windowStartTs = 0;
+  private windowGyro: GyroscopeReading[] = [];
+  private windowSpeeds: number[] = [];
+  private spikeReading: AccelerometerReading | null = null;
+  private peakMagnitudeG = 0;
+  private peakJerk = 0;
+
+  private trafficOverrideActive = false;
+
+  private candidateListeners: CandidateListener[] = [];
   private stateListeners: StateListener[] = [];
 
-  constructor(config: Partial<CrashDetectorConfig> = {}) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+  constructor(config: Partial<DetectionConfig> = {}) {
+    this.config = { ...DEFAULT_DETECTION_CONFIG, ...config };
   }
 
-  onCrashDetected(cb: Listener) {
-    this.crashListeners.push(cb);
-    return () => {
-      this.crashListeners = this.crashListeners.filter((l) => l !== cb);
-    };
+  onCandidate(cb: CandidateListener) {
+    this.candidateListeners.push(cb);
+    return () => (this.candidateListeners = this.candidateListeners.filter((l) => l !== cb));
   }
 
   onStateChange(cb: StateListener) {
     this.stateListeners.push(cb);
-    return () => {
-      this.stateListeners = this.stateListeners.filter((l) => l !== cb);
-    };
+    return () => (this.stateListeners = this.stateListeners.filter((l) => l !== cb));
   }
 
   getState(): CrashDetectorState {
     return this.state;
   }
 
-  // Call this with every new sensor reading (real or mocked)
-  feed(reading: AccelerometerReading) {
-    this.buffer.push(reading);
-    if (this.buffer.length > 50) this.buffer.shift(); // keep ~last few seconds
+  // Manual Traffic Override: suppresses detection while active.
+  setTrafficOverride(active: boolean) {
+    this.trafficOverrideActive = active;
+  }
 
-    const magnitude = this.computeMagnitude(reading);
+  isTrafficOverrideActive(): boolean {
+    return this.trafficOverrideActive;
+  }
+
+  feedAccelerometer(reading: AccelerometerReading) {
+    this.accelBuffer.push(reading);
+    if (this.accelBuffer.length > 100) this.accelBuffer.shift();
+
+    if (this.trafficOverrideActive) return;
 
     if (this.state === 'IDLE') {
-      if (magnitude - this.config.gravity > this.config.impactThreshold) {
-        this.transitionTo('IMPACT_DETECTED');
-        this.impactPeak = magnitude;
-        this.impactReading = reading;
-        this.startConfirmWindow();
-      }
-      return;
-    }
-
-    if (this.state === 'IMPACT_DETECTED' || this.state === 'CONFIRMING') {
-      if (magnitude > this.impactPeak) this.impactPeak = magnitude;
-      if (this.state === 'IMPACT_DETECTED') this.transitionTo('CONFIRMING');
+      this.checkForSpike(reading);
+    } else if (this.state === 'WATCHING_POST_EVENT') {
+      this.checkWindowComplete(reading.timestamp);
     }
   }
 
-  // Reset back to IDLE — call this from the override/cancel button
+  feedGyroscope(reading: GyroscopeReading) {
+    this.gyroBuffer.push(reading);
+    if (this.gyroBuffer.length > 100) this.gyroBuffer.shift();
+    if (this.state === 'WATCHING_POST_EVENT') this.windowGyro.push(reading);
+  }
+
+  feedTelemetry(reading: TelemetryReading) {
+    this.telemetryBuffer.push(reading);
+    if (this.telemetryBuffer.length > 100) this.telemetryBuffer.shift();
+
+    if (this.state === 'WATCHING_POST_EVENT') {
+      const speed = resolveSpeedKmh(
+        this.telemetryBuffer,
+        this.telemetryBuffer.length - 1,
+        this.config.speedCrossCheckToleranceKmh
+      );
+      if (speed !== null) this.windowSpeeds.push(speed);
+    }
+  }
+
   reset() {
-    this.clearConfirmTimer();
-    this.impactPeak = 0;
-    this.impactReading = null;
+    this.state = 'IDLE';
+    this.windowGyro = [];
+    this.windowSpeeds = [];
+    this.spikeReading = null;
+    this.peakMagnitudeG = 0;
+    this.peakJerk = 0;
     this.transitionTo('IDLE');
   }
 
-  private startConfirmWindow() {
-    this.clearConfirmTimer();
-    this.confirmTimer = setTimeout(() => {
-      this.evaluateAfterWindow();
-    }, this.config.confirmWindowMs);
-  }
+  private checkForSpike(reading: AccelerometerReading) {
+    if (this.accelBuffer.length < 2) return;
 
-  private evaluateAfterWindow() {
-    const recentWindow = this.buffer.slice(-15); // last ~15 readings
-    const variance = this.computeVariance(recentWindow);
+    const prev = this.accelBuffer[this.accelBuffer.length - 2];
+    const jerk = computeJerk(prev, reading);
+    const magnitudeG = computeMagnitude(reading) / this.config.gravity;
 
-    const isStillOrErratic =
-      variance < this.config.stillnessThreshold || variance > this.config.impactThreshold;
+    const jerkOk = jerk > this.config.jerkThreshold;
+    const magnitudeOk = magnitudeG > this.config.magnitudeThresholdG;
+    const speedOk = this.currentSpeedGateOk();
 
-    if (isStillOrErratic && this.impactReading) {
-      this.transitionTo('CRASH_CONFIRMED');
-      const event: CrashEvent = {
-        detectedAt: Date.now(),
-        peakMagnitude: this.impactPeak,
-        reading: this.impactReading,
-      };
-      this.crashListeners.forEach((cb) => cb(event));
-    } else {
-      this.transitionTo('FALSE_POSITIVE');
-      // auto-return to idle so the detector keeps watching
-      setTimeout(() => this.reset(), 500);
+    if (jerkOk && magnitudeOk && speedOk) {
+      this.spikeReading = reading;
+      this.peakMagnitudeG = magnitudeG;
+      this.peakJerk = jerk;
+      this.windowStartTs = reading.timestamp;
+      this.windowGyro = [];
+      this.windowSpeeds = [];
+      this.transitionTo('WATCHING_POST_EVENT');
     }
   }
 
-  private computeMagnitude(r: AccelerometerReading): number {
-    return Math.sqrt(r.x * r.x + r.y * r.y + r.z * r.z);
+  private currentSpeedGateOk(): boolean {
+    if (this.telemetryBuffer.length === 0) return false; // no plausible speed data, don't fire
+    const speed = resolveSpeedKmh(
+      this.telemetryBuffer,
+      this.telemetryBuffer.length - 1,
+      this.config.speedCrossCheckToleranceKmh
+    );
+    return speed !== null && speed >= this.config.speedGateKmh;
   }
 
-  private computeVariance(readings: AccelerometerReading[]): number {
-    if (readings.length === 0) return 0;
-    const mags = readings.map((r) => this.computeMagnitude(r));
-    const mean = mags.reduce((a, b) => a + b, 0) / mags.length;
-    const sqDiffs = mags.map((m) => (m - mean) ** 2);
-    return Math.sqrt(sqDiffs.reduce((a, b) => a + b, 0) / mags.length);
-  }
+  private checkWindowComplete(nowTs: number) {
+    if (nowTs - this.windowStartTs < this.config.postEventWindowMs) return;
 
-  private clearConfirmTimer() {
-    if (this.confirmTimer) {
-      clearTimeout(this.confirmTimer);
-      this.confirmTimer = null;
+    const gyroRotation = computeGyroRotation(this.windowGyro);
+    const roughness = computeSpeedRoughness(this.windowSpeeds);
+
+    const gyroOk = gyroRotation > this.config.gyroRotationThresholdDegPerSec;
+    const roughnessOk = roughness > this.config.roughnessRatioThreshold;
+
+    if (gyroOk || roughnessOk) {
+      const event: CrashCandidateEvent = {
+        detectedAt: Date.now(),
+        peakMagnitudeG: this.peakMagnitudeG,
+        peakJerk: this.peakJerk,
+        gyroRotationDegPerSec: gyroRotation,
+        roughnessRatio: roughness,
+        triggerReading: this.spikeReading!,
+      };
+      this.transitionTo('CANDIDATE_CONFIRMED');
+      this.candidateListeners.forEach((cb) => cb(event));
+    } else {
+      this.transitionTo('REJECTED');
+      setTimeout(() => this.reset(), 500);
     }
   }
 
