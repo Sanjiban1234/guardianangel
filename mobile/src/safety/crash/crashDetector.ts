@@ -6,6 +6,7 @@ import {
   DetectionConfig,
   DEFAULT_DETECTION_CONFIG,
   GyroscopeReading,
+  SampleRateHealth,
   TelemetryReading,
 } from './types';
 import {
@@ -36,11 +37,28 @@ export class CrashDetector {
 
   private trafficOverrideActive = false;
 
+  // Sample rate health tracking (finding 5.6)
+  private lastAccelTimestamp: number | null = null;
+  private recentIntervals: number[] = [];
+  private spikeHealthRatio = 1; // health ratio captured at spike detection time
+
   private candidateListeners: CandidateListener[] = [];
   private stateListeners: StateListener[] = [];
 
   constructor(config: Partial<DetectionConfig> = {}) {
     this.config = { ...DEFAULT_DETECTION_CONFIG, ...config };
+  }
+
+  /**
+   * Update detection config without resetting detector state or buffers.
+   * Used after remote config fetch completes (finding 5.5).
+   */
+  updateConfig(config: Partial<DetectionConfig>) {
+    this.config = { ...this.config, ...config };
+  }
+
+  getConfig(): DetectionConfig {
+    return { ...this.config };
   }
 
   onCandidate(cb: CandidateListener) {
@@ -67,6 +85,23 @@ export class CrashDetector {
   }
 
   feedAccelerometer(reading: AccelerometerReading) {
+    // Track sample rate health (finding 5.6)
+    if (this.lastAccelTimestamp !== null) {
+      const interval = reading.timestamp - this.lastAccelTimestamp;
+
+      this.recentIntervals.push(interval);
+      if (this.recentIntervals.length > this.config.sampleHealthWindowSize) {
+        this.recentIntervals.shift();
+      }
+
+      if (interval < this.config.sampleIntervalMinMs || interval > this.config.sampleIntervalMaxMs) {
+        console.warn(
+          `Abnormal sample rate: ${interval}ms between readings (expected ${this.config.sampleIntervalMinMs}–${this.config.sampleIntervalMaxMs}ms)`,
+        );
+      }
+    }
+    this.lastAccelTimestamp = reading.timestamp;
+
     this.accelBuffer.push(reading);
     if (this.accelBuffer.length > 100) this.accelBuffer.shift();
 
@@ -99,6 +134,28 @@ export class CrashDetector {
     }
   }
 
+  /**
+   * Returns current sample rate health diagnostics.
+   * Useful for in-app diagnostics or testing (finding 5.6).
+   */
+  getSampleRateHealth(): SampleRateHealth {
+    if (this.recentIntervals.length === 0) {
+      return { isHealthy: true, healthRatio: 1, lastIntervalMs: 0 };
+    }
+
+    const healthyCount = this.recentIntervals.filter(
+      (iv) => iv >= this.config.sampleIntervalMinMs && iv <= this.config.sampleIntervalMaxMs,
+    ).length;
+    const healthRatio = healthyCount / this.recentIntervals.length;
+    const lastInterval = this.recentIntervals[this.recentIntervals.length - 1];
+
+    return {
+      isHealthy: healthRatio >= this.config.sampleHealthThreshold,
+      healthRatio,
+      lastIntervalMs: lastInterval,
+    };
+  }
+
   reset() {
     this.state = 'IDLE';
     this.windowGyro = [];
@@ -127,6 +184,8 @@ export class CrashDetector {
       this.windowStartTs = reading.timestamp;
       this.windowGyro = [];
       this.windowSpeeds = [];
+      // Capture sample rate health at spike detection time
+      this.spikeHealthRatio = this.getSampleRateHealth().healthRatio;
       this.transitionTo('WATCHING_POST_EVENT');
     }
   }
@@ -151,6 +210,11 @@ export class CrashDetector {
     const roughnessOk = roughness > this.config.roughnessRatioThreshold;
 
     if (gyroOk || roughnessOk) {
+      // Check sample rate health: use the worse of spike-time and current health
+      const currentHealthRatio = this.getSampleRateHealth().healthRatio;
+      const worstHealthRatio = Math.min(this.spikeHealthRatio, currentHealthRatio);
+      const lowConfidence = worstHealthRatio < this.config.sampleHealthThreshold;
+
       const event: CrashCandidateEvent = {
         detectedAt: Date.now(),
         peakMagnitudeG: this.peakMagnitudeG,
@@ -158,6 +222,7 @@ export class CrashDetector {
         gyroRotationDegPerSec: gyroRotation,
         roughnessRatio: roughness,
         triggerReading: this.spikeReading!,
+        lowConfidence,
       };
       this.transitionTo('CANDIDATE_CONFIRMED');
       this.candidateListeners.forEach((cb) => cb(event));

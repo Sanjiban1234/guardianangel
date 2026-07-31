@@ -37,6 +37,12 @@ export interface DetectionConfig {
   roughnessRatioThreshold: number; // path-length / net-displacement in speed
   speedCrossCheckToleranceKmh: number;
   gravity: number;
+  // Sample rate validation (finding 5.6)
+  expectedSampleIntervalMs: number; // expected ms between readings (50Hz = 20ms)
+  sampleIntervalMinMs: number; // minimum acceptable interval
+  sampleIntervalMaxMs: number; // maximum acceptable interval
+  sampleHealthWindowSize: number; // how many recent intervals to track
+  sampleHealthThreshold: number; // fraction of healthy samples required (0–1)
 }
 
 export const DEFAULT_DETECTION_CONFIG: DetectionConfig = {
@@ -48,7 +54,19 @@ export const DEFAULT_DETECTION_CONFIG: DetectionConfig = {
   roughnessRatioThreshold: 2.5,
   speedCrossCheckToleranceKmh: 10,
   gravity: 9.8,
+  // Sample rate defaults: expect ~50Hz (20ms intervals), tolerate 10–50ms
+  expectedSampleIntervalMs: 20,
+  sampleIntervalMinMs: 10,
+  sampleIntervalMaxMs: 50,
+  sampleHealthWindowSize: 20,
+  sampleHealthThreshold: 0.6, // 60% of recent intervals must be in range
 };
+
+export interface SampleRateHealth {
+  isHealthy: boolean; // true if recent sample rate is acceptable
+  healthRatio: number; // fraction of recent intervals within expected range [0, 1]
+  lastIntervalMs: number; // most recent interval for diagnostics
+}
 
 export interface CrashCandidateEvent {
   detectedAt: number;
@@ -57,4 +75,5 @@ export interface CrashCandidateEvent {
   gyroRotationDegPerSec: number;
   roughnessRatio: number;
   triggerReading: AccelerometerReading;
+  lowConfidence: boolean; // true when sample rate was unhealthy during detection
 }
