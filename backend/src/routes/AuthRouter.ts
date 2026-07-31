@@ -1,6 +1,16 @@
 import { Router, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { AuthenticatedRequest } from '../middleware/AuthMiddleware';
 import { UserService } from '../services/UserService';
+
+export const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many authentication attempts. Please try again after 15 minutes.' },
+  skip: () => process.env.NODE_ENV === 'test' && process.env.ENABLE_AUTH_RATE_LIMIT_TEST !== 'true',
+});
 
 export class AuthRouter {
   readonly router: Router;
@@ -11,8 +21,8 @@ export class AuthRouter {
   }
 
   private registerRoutes(): void {
-    this.router.post('/register', (req, res) => this.handleRegister(req as AuthenticatedRequest, res));
-    this.router.post('/login', (req, res) => this.handleLogin(req as AuthenticatedRequest, res));
+    this.router.post('/register', authLimiter, (req, res) => this.handleRegister(req as AuthenticatedRequest, res));
+    this.router.post('/login', authLimiter, (req, res) => this.handleLogin(req as AuthenticatedRequest, res));
   }
 
   private async handleRegister(
@@ -33,22 +43,38 @@ export class AuthRouter {
       res.status(400).json({ error: 'Invalid input format' });
       return;
     }
-    if (name.length > 100 || password.length > 128 || phone.length > 20) {
-      res.status(400).json({ error: 'Input exceeds maximum length' });
+    if (name.length > 50) {
+      res.status(400).json({ error: 'Username must not exceed 50 characters' });
       return;
     }
-    if (
-      password.length < 8 ||
-      !/[a-zA-Z]/.test(password) ||
-      !/[0-9]/.test(password)
-    ) {
-      res.status(400).json({
-        error: 'Password must be at least 8 characters with letters and numbers',
-      });
+    if (password.length > 128) {
+      res.status(400).json({ error: 'Password must not exceed 128 characters' });
       return;
     }
-    if (!/^\+?[1-9]\d{7,14}$/.test(phone)) {
-      res.status(400).json({ error: 'Invalid phone number format' });
+    if (phone.length > 20) {
+      res.status(400).json({ error: 'Phone number must not exceed 20 characters' });
+      return;
+    }
+
+    if (password.length < 8) {
+      res.status(400).json({ error: 'Password must be at least 8 characters long' });
+      return;
+    }
+    if (!/[A-Z]/.test(password)) {
+      res.status(400).json({ error: 'Password must contain at least one uppercase letter' });
+      return;
+    }
+    if (!/[a-z]/.test(password)) {
+      res.status(400).json({ error: 'Password must contain at least one lowercase letter' });
+      return;
+    }
+    if (!/[0-9]/.test(password)) {
+      res.status(400).json({ error: 'Password must contain at least one number' });
+      return;
+    }
+
+    if (!/^\+[1-9]\d{1,14}$/.test(phone)) {
+      res.status(400).json({ error: 'Invalid phone number format. Must be E.164 format (e.g. +1234567890)' });
       return;
     }
 
@@ -76,6 +102,14 @@ export class AuthRouter {
 
     if (!name || !password) {
       res.status(400).json({ error: 'Name and password are required' });
+      return;
+    }
+    if (typeof name !== 'string' || typeof password !== 'string') {
+      res.status(400).json({ error: 'Invalid input format' });
+      return;
+    }
+    if (name.length > 50 || password.length > 128) {
+      res.status(400).json({ error: 'Input exceeds maximum length' });
       return;
     }
 

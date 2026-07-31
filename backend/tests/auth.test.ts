@@ -2,7 +2,6 @@ import request from 'supertest';
 import { app } from '../src/index';
 import * as db from '../src/db';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 
 jest.mock('../src/db', () => ({
   query: jest.fn(),
@@ -14,13 +13,13 @@ jest.mock('../src/db', () => ({
 
 const mockedQuery = db.query as jest.MockedFunction<typeof db.query>;
 
-describe('Authentication REST Endpoints', () => {
+describe('Authentication REST Endpoints & Security Controls', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   describe('POST /api/auth/register', () => {
-    it('should register a new user successfully', async () => {
+    it('should register a new user successfully with strong password and valid E.164 phone', async () => {
       mockedQuery.mockResolvedValueOnce({ rows: [] } as any);
       mockedQuery.mockResolvedValueOnce({
         rows: [{ id: 'user-uuid-123', name: 'testrider' }]
@@ -30,7 +29,7 @@ describe('Authentication REST Endpoints', () => {
         .post('/api/auth/register')
         .send({
           name: 'testrider',
-          password: 'password123',
+          password: 'Password123',
           phone: '+9779812345678'
         });
 
@@ -49,7 +48,7 @@ describe('Authentication REST Endpoints', () => {
         .post('/api/auth/register')
         .send({
           name: 'existingrider',
-          password: 'password123',
+          password: 'Password123',
           phone: '+9779812345678'
         });
 
@@ -70,24 +69,77 @@ describe('Authentication REST Endpoints', () => {
       expect(mockedQuery).not.toHaveBeenCalled();
     });
 
-    it('should reject weak passwords', async () => {
+    it('should reject passwords missing uppercase letters', async () => {
       const response = await request(app)
         .post('/api/auth/register')
         .send({
           name: 'weakrider',
-          password: 'weak',
+          password: 'password123',
           phone: '+9779812345678'
         });
 
       expect(response.status).toBe(400);
-      expect(response.body).toHaveProperty('error', 'Password must be at least 8 characters with letters and numbers');
+      expect(response.body.error).toContain('uppercase');
       expect(mockedQuery).not.toHaveBeenCalled();
+    });
+
+    it('should reject passwords missing lowercase letters', async () => {
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          name: 'weakrider',
+          password: 'PASSWORD123',
+          phone: '+9779812345678'
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toContain('lowercase');
+    });
+
+    it('should reject passwords missing numbers', async () => {
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          name: 'weakrider',
+          password: 'PasswordWord',
+          phone: '+9779812345678'
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toContain('number');
+    });
+
+    it('should reject username exceeding 50 characters', async () => {
+      const longName = 'a'.repeat(51);
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          name: longName,
+          password: 'Password123',
+          phone: '+9779812345678'
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toContain('50 characters');
+    });
+
+    it('should reject non-E.164 phone numbers', async () => {
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          name: 'badphone',
+          password: 'Password123',
+          phone: '9812345678'
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toContain('E.164');
     });
   });
 
   describe('POST /api/auth/login', () => {
     it('should authenticate user and return a token', async () => {
-      const hashedPassword = await bcrypt.hash('password123', 10);
+      const hashedPassword = await bcrypt.hash('Password123', 10);
 
       mockedQuery.mockResolvedValueOnce({
         rows: [{
@@ -101,7 +153,7 @@ describe('Authentication REST Endpoints', () => {
         .post('/api/auth/login')
         .send({
           name: 'testrider',
-          password: 'password123'
+          password: 'Password123'
         });
 
       expect(response.status).toBe(200);
@@ -110,7 +162,7 @@ describe('Authentication REST Endpoints', () => {
     });
 
     it('should return 401 for incorrect password', async () => {
-      const hashedPassword = await bcrypt.hash('correct_password', 10);
+      const hashedPassword = await bcrypt.hash('CorrectPassword123', 10);
 
       mockedQuery.mockResolvedValueOnce({
         rows: [{
@@ -124,7 +176,7 @@ describe('Authentication REST Endpoints', () => {
         .post('/api/auth/login')
         .send({
           name: 'testrider',
-          password: 'wrong_password'
+          password: 'WrongPassword123'
         });
 
       expect(response.status).toBe(401);
@@ -138,11 +190,51 @@ describe('Authentication REST Endpoints', () => {
         .post('/api/auth/login')
         .send({
           name: 'unknownrider',
-          password: 'password123'
+          password: 'Password123'
         });
 
       expect(response.status).toBe(401);
       expect(response.body).toHaveProperty('error', 'Invalid username or password');
+    });
+  });
+
+  describe('Rate Limiting & JWT Secret Controls', () => {
+    it('should enforce rate limiting after 5 login attempts when test flag enabled', async () => {
+      process.env.ENABLE_AUTH_RATE_LIMIT_TEST = 'true';
+      mockedQuery.mockResolvedValue({ rows: [] } as any);
+
+      for (let i = 0; i < 5; i++) {
+        await request(app).post('/api/auth/login').send({ name: 'rider', password: 'Password123' });
+      }
+
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({ name: 'rider', password: 'Password123' });
+
+      expect(response.status).toBe(429);
+      expect(response.body).toHaveProperty('error');
+
+      delete process.env.ENABLE_AUTH_RATE_LIMIT_TEST;
+    });
+
+    it('should fail fast at startup if JWT_SECRET environment variable is missing', () => {
+      const originalSecret = process.env.JWT_SECRET;
+      delete process.env.JWT_SECRET;
+
+      expect(() => {
+        jest.isolateModules(() => {
+          delete process.env.JWT_SECRET;
+          delete require.cache[require.resolve('../src/config')];
+          const dotenv = require('dotenv');
+          jest.spyOn(dotenv, 'config').mockImplementation(() => {
+            delete process.env.JWT_SECRET;
+            return {};
+          });
+          require('../src/config');
+        });
+      }).toThrow('FATAL: JWT_SECRET environment variable is required');
+
+      process.env.JWT_SECRET = originalSecret;
     });
   });
 });

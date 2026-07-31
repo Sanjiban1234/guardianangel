@@ -70,6 +70,9 @@ src/repositories/CrashCandidateRepository.ts     Crash candidate persistence + o
 | `crash_candidates` | Persisted crash detection events with outcome tracking |
 | `geofences` | Safety zones (GEOGRAPHY POLYGON, hazard/dead_zone) |
 | `emergency_alarms` | SOS records (active/resolved) |
+| `vehicle_breakdowns` | Manual vehicle breakdown reports (reason, note, location, timestamps) |
+| `device_tokens` | FCM push notification registration per user and platform |
+| `medical_info` | Voluntary rider medical ID (blood group, allergies, emergency contacts, notes) |
 
 Legacy tables still in schema but not used for new paths: `active_riders`, `notification_subdivision`, `engine_heartbeat`.
 
@@ -88,6 +91,12 @@ Legacy tables still in schema but not used for new paths: `active_riders`, `noti
 | GET | `/api/geofences` | List active geofences |
 | PATCH | `/api/geofences/:id` | Update geofence fields (name, type, is_active) |
 | DELETE | `/api/geofences/:id` | Soft-delete (set is_active=false) |
+| GET | `/api/safety/config` | Retrieve crash detection threshold configuration |
+| GET | `/api/safety/stats` | Retrieve crash outcome analytics and false positive metrics |
+| POST | `/api/devices/register` | Register/upsert FCM device push token (token, platform) |
+| POST | `/api/users/medical-info` | Upsert authenticated user's medical ID info |
+| GET | `/api/users/medical-info` | Fetch authenticated user's medical ID info |
+| DELETE | `/api/users/medical-info` | Delete authenticated user's medical ID info |
 | GET | `/api/health` | Server health check |
 
 All endpoints except health require JWT in `Authorization: Bearer <token>` header.
@@ -106,9 +115,12 @@ All endpoints except health require JWT in `Authorization: Bearer <token>` heade
 | `crash:candidate` | Client → Server | On-device crash detection triggered |
 | `crash:countdownExpired` | Client → Server | 15s grace period elapsed, trigger SOS |
 | `crash:cancelled` | Client → Server | Rider dismissed crash warning |
-| `sos:broadcast` | Server → Room | Emergency alert to all members |
+| `sos:broadcast` | Server → Room | Emergency alert to all members (includes optional `medical_info`) |
 | `group:separationAlert` | Server → Room | Separation alert + midpoint & recommended speeds |
 | `group:reunited` | Server → Room | Notification when separated rider rejoins group |
+| `vehicle:breakdown` | Client → Server | Rider manually reports breakdown (optional reason/note) |
+| `vehicle:breakdownReported` | Server → Room | Breakdown broadcast to room members (includes optional `medical_info`) |
+| `vehicle:breakdownResolved` | Server → Room | Broadcast when rider marks breakdown resolved |
 
 WebSocket auth: JWT passed in `socket.auth.token` on connection.
 
@@ -157,6 +169,8 @@ Environment variables: `DATABASE_URL`, `JWT_SECRET` (required in non-test), `POR
 | `geofences.test.ts` | Geofence CRUD (create, list, update, soft-delete, validation) |
 | `weather.test.ts` | Weather endpoint (auth, membership, active-room guard, provider mock, cache, centroid, WMO mapping) |
 | `group-coherence.test.ts` | Nearest-rider separation detection, strung-out formation isolation, speed caps, reunion trigger, 30s cooldown |
+| `vehicle-breakdown.test.ts` | Vehicle breakdown report/resolution, FCM token registration, push notification failure isolation, and group coherence alert suppression |
+| `medical-info.test.ts` | Medical ID upsert/fetch/delete, blood group enum & E.164 phone validation, auth scoping, and alert payload integration |
 
 All tests use mocked `db.query` via `jest.mock('../src/db')` — no live database needed.
 
@@ -203,6 +217,32 @@ All tests use mocked `db.query` via `jest.mock('../src/db')` — no live databas
 - Centroid uses arithmetic mean — accurate for group rides within a few km, but would need a proper geographic centroid for continent-scale spread (not a real scenario)
 - No weather-based alerting or route-hazard logic (future feature — would need its own design)
 
+## Vehicle Breakdown Module
+
+**Tiering & Isolation:** Rider-initiated manual report (button press). Separate from `emergency_alarms` and `crash_candidates` — breakdown events do NOT inflate crash false-positive-rate analytics (`/api/safety/stats`). Broadcast at informational urgency.
+
+**Push Delivery & FCM:** Uses dual-path notification — Socket.IO room broadcast (`vehicle:breakdownReported`) for active foreground clients and Firebase Cloud Messaging (FCM) push notifications for backgrounded/locked devices. `POST /api/devices/register` upserts device tokens into `device_tokens (user_id, platform)`.
+
+**Isolated Failure Posture:** FCM push send failures (invalid tokens, network errors) are caught and logged silently without interrupting Socket.IO broadcasts or throwing errors.
+
+**Report Payload & Resolution:**
+- Report payload accepts optional `reason` enum (`flat_tire`, `mechanical_failure`, `fuel`, `other`) and optional free-text `note`. Rider identity and location are resolved server-side from auth socket and `rider_current_locations`.
+- Resolution (`vehicle:breakdownResolved`) updates `vehicle_breakdowns.resolved_at` and broadcasts resolution to the room.
+
+**Group Coherence Interaction:** When evaluating room coherence, generic `group:separationAlert` emission is suppressed if either the separated rider or their nearest neighbor currently has an unresolved vehicle breakdown reported.
+
+## Rider Medical ID Module
+
+**Scope & Storage:** Part A (Authenticated Scope). Stores voluntary medical info (`blood_group`, `allergies`, `emergency_contact_name`, `emergency_contact_phone`, `notes`) in a dedicated `medical_info` table (`user_id` PK/FK), isolating health data from `users`.
+
+**Registration Optionality & Self-Service Management:** All fields are optional (nullable). Account creation requires no health disclosure. Riders manage their own record via `POST/GET/DELETE /api/users/medical-info`.
+
+**Strict Alert-Triggered Visibility:** To preserve privacy and prevent ambient health data browsing mid-ride, **no ambient room-query endpoint exists**. `medical_info` snapshots surface ONLY dynamically inside `sos:broadcast` and `vehicle:breakdownReported` WebSocket payloads when an alert actually fires.
+
+**Deferred Paramedic Access:** Public/unauthenticated paramedic lookup is explicitly deferred — no public access route is built in Part A.
+
+
+
 ## Known Gaps / Deferred Work
 
 - **Mobile safety module**: `mobile/src/safety/` is empty (.gitkeep only) — crash detection algorithm not yet implemented
@@ -211,4 +251,19 @@ All tests use mocked `db.query` via `jest.mock('../src/db')` — no live databas
 - **Geofences**: CRUD endpoints exist; any authenticated user can create/modify/soft-delete geofences (deliberate scope decision for now, not an oversight — must add role-based restriction before production)
 - **Role-based permissions**: All authenticated users have equal access; admin/guardian restrictions deferred
 - **Telemetry speed in crash_candidates**: Populated from `rider_current_locations` — if no telemetry has been received yet for that ride, speed will be null
+
+## Security & Resilience Fixes (Audit Remediation)
+
+The following backend hardening measures were resolved per the July 31, 2026 Safety Audit:
+- **JWT Fallback Secret Removed**: Hardcoded JWT fallback secret deleted; server fails fast if `JWT_SECRET` is unset.
+- **Auth Rate Limiting**: `/api/auth/login` and `/api/auth/register` protected with `express-rate-limit` (5 attempts / 15-min window).
+- **CORS Whitelist**: Explicit origin checking against `ALLOWED_ORIGINS` with `credentials: true`.
+- **Password Complexity**: Enforced minimum 8 chars, 1 uppercase, 1 lowercase, 1 number on registration.
+- **Input Length & Format Limits**: Enforced username $\le 50$, password $\le 128$, phone $\le 20$ chars, and strict E.164 phone format (`/^\+[1-9]\d{1,14}$/`).
+- **Telemetry & Bounds Validation**: Coordinates, speed ceiling ($200\text{ m/s}$), relative timestamps (past 24h to future 5min), and `MAX_BULK_BATCH` enforced.
+- **UUID Format Validation**: Route params expecting UUID format validated before database access.
+- **Room Token Keyspace**: Group code generation updated to 12 hex characters (6 random bytes).
+- **Crash Rate Limiting & Safety Endpoints**: Client crash events rate-limited to max 3 / 60s per user; central `/api/safety/config` and `/api/safety/stats` analytics endpoints added.
+- **Graceful Shutdown & Audit Logging**: `SIGTERM`/`SIGINT` handlers added with a 30s drain window, structured audit logging via `winston`.
+
 - **Room resolution race**: `resolveRoomId` (via token_hash) is called independently at several points rather than cached once at session:join. A rare race exists where a room ending mid-flow leaves `emergency_alarms.room_id` as NULL for that alert (cosmetic/audit-only impact — confirmed via testing that outcome tracking and SOS broadcast are unaffected). A cleaner fix would cache room_id in socket roomState at session:join and thread it through everywhere instead of re-resolving; deferred as a broader refactor, not urgent.

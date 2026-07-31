@@ -5,12 +5,15 @@ import { TelemetryService } from '../services/TelemetryService';
 import { EmergencyAlertService } from '../services/EmergencyAlertService';
 import { PresenceService } from '../services/PresenceService';
 import { GroupCoherenceService } from '../services/GroupCoherenceService';
+import { VehicleBreakdownService } from '../services/VehicleBreakdownService';
+import { MedicalInfoService } from '../services/MedicalInfoService';
 import { CrashCandidateRepository } from '../repositories/CrashCandidateRepository';
 import { SessionHandler, RoomState } from '../handlers/SessionHandler';
 import { LocationHandler } from '../handlers/LocationHandler';
 import { BulkSyncHandler } from '../handlers/BulkSyncHandler';
 import { CrashHandler } from '../handlers/CrashHandler';
 import { DisconnectHandler } from '../handlers/DisconnectHandler';
+import { VehicleBreakdownHandler } from '../handlers/VehicleBreakdownHandler';
 
 export class RideSocketController {
   constructor(
@@ -19,7 +22,9 @@ export class RideSocketController {
     private readonly alertService: EmergencyAlertService,
     private readonly presenceService: PresenceService,
     private readonly crashRepo: CrashCandidateRepository,
-    private readonly coherenceService?: GroupCoherenceService
+    private readonly coherenceService?: GroupCoherenceService,
+    private readonly breakdownService?: VehicleBreakdownService,
+    private readonly medicalService?: MedicalInfoService
   ) {}
 
   register(io: Server): void {
@@ -42,9 +47,13 @@ export class RideSocketController {
       new SessionHandler(io, socket, roomState, this.roomService).register();
       new LocationHandler(socket, roomState, this.telemetryService, this.coherenceService).register();
       new BulkSyncHandler(socket, roomState, this.telemetryService).register();
-      new CrashHandler(io, socket, roomState, this.alertService, this.crashRepo).register();
+      new CrashHandler(io, socket, roomState, this.alertService, this.crashRepo, this.medicalService).register();
       new DisconnectHandler(socket, roomState, this.presenceService).register();
+      if (this.breakdownService) {
+        new VehicleBreakdownHandler(io, socket, roomState, this.breakdownService, this.medicalService).register();
+      }
     });
   }
 }
+
 

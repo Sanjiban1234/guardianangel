@@ -65,7 +65,6 @@ export class LocationHandler {
     }
   }
 
-
   private isValidReading(reading: TelemetryReading): boolean {
     if (
       typeof reading?.timestamp !== 'number' ||
@@ -81,16 +80,19 @@ export class LocationHandler {
     if (
       reading.latitude < -90 || reading.latitude > 90 ||
       reading.longitude < -180 || reading.longitude > 180 ||
-      reading.speed < 0 ||
+      reading.speed < 0 || reading.speed > 200 ||
       reading.accuracy < 0
     ) {
-      this.socket.emit('error', { message: 'Invalid coordinate values' });
+      this.socket.emit('error', { message: 'Invalid coordinate or speed values' });
       return false;
     }
 
     const now = Date.now();
-    if (reading.timestamp > now + 300_000 || reading.timestamp < 1_600_000_000_000) {
-      this.socket.emit('error', { message: 'Invalid timestamp' });
+    const twentyFourHoursAgo = now - 24 * 60 * 60 * 1000;
+    const fiveMinutesFuture = now + 5 * 60 * 1000;
+
+    if (reading.timestamp < twentyFourHoursAgo || reading.timestamp > fiveMinutesFuture) {
+      this.socket.emit('error', { message: 'Timestamp out of acceptable bounds' });
       return false;
     }
 

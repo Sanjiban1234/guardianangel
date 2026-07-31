@@ -13,7 +13,7 @@ jest.mock('../src/db', () => ({
 }));
 
 const mockedQuery = db.query as jest.MockedFunction<typeof db.query>;
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_jwt_key_change_me_in_production';
+const JWT_SECRET = process.env.JWT_SECRET || 'test_jwt_secret_value_for_unit_tests_only';
 
 describe('WebSocket Telemetry & Bulk Sync Integration Tests', () => {
   let serverPort: number;
@@ -95,6 +95,7 @@ describe('WebSocket Telemetry & Bulk Sync Integration Tests', () => {
     });
 
     let connectedCount = 0;
+    const now = Date.now();
     const onConnect = () => {
       connectedCount++;
       if (connectedCount === 2) {
@@ -108,7 +109,7 @@ describe('WebSocket Telemetry & Bulk Sync Integration Tests', () => {
 
     clientSocket2.on('session:joined', () => {
       clientSocket1.emit('location:update', {
-        timestamp: 1720958400000,
+        timestamp: now,
         latitude: 28.2096,
         longitude: 83.9856,
         accuracy: 5.0,
@@ -120,7 +121,7 @@ describe('WebSocket Telemetry & Bulk Sync Integration Tests', () => {
       expect(data).toEqual({
         user_id: user1.id,
         name: user1.name,
-        timestamp: 1720958400000,
+        timestamp: now,
         latitude: 28.2096,
         longitude: 83.9856,
         accuracy: 5.0,
@@ -131,7 +132,7 @@ describe('WebSocket Telemetry & Bulk Sync Integration Tests', () => {
     });
   });
 
-  it('should support bulk sync catch-up with conflict-resolution and callbacks', (done) => {
+  it('should reject location updates with speed exceeding ceiling (>200 m/s)', (done) => {
     clientSocket1 = ClientIO(`http://localhost:${serverPort}`, {
       auth: { token: userToken1 }
     });
@@ -141,10 +142,36 @@ describe('WebSocket Telemetry & Bulk Sync Integration Tests', () => {
     });
 
     clientSocket1.on('session:joined', () => {
+      clientSocket1.emit('location:update', {
+        timestamp: Date.now(),
+        latitude: 28.2096,
+        longitude: 83.9856,
+        accuracy: 5.0,
+        speed: 350.0 // > 200 m/s ceiling
+      });
+    });
+
+    clientSocket1.on('error', (err) => {
+      expect(err.message).toContain('Invalid coordinate or speed values');
+      done();
+    });
+  });
+
+  it('should support bulk sync catch-up with valid readings', (done) => {
+    clientSocket1 = ClientIO(`http://localhost:${serverPort}`, {
+      auth: { token: userToken1 }
+    });
+
+    clientSocket1.on('connect', () => {
+      clientSocket1.emit('session:join', { group_code: groupCode });
+    });
+
+    clientSocket1.on('session:joined', () => {
+      const now = Date.now();
       const readings = [
-        { client_reading_id: 'client-id-1', timestamp: 1720958401000, latitude: 28.2096, longitude: 83.9856, accuracy: 5.0, speed: 10 },
-        { client_reading_id: 'client-id-2', timestamp: 1720958402000, latitude: 28.2097, longitude: 83.9857, accuracy: 5.0, speed: 11 },
-        { client_reading_id: 'client-id-3', timestamp: 1720958403000, latitude: 28.2098, longitude: 83.9858, accuracy: 4.0, speed: 12 }
+        { client_reading_id: '00000000-0000-4000-8000-000000000001', timestamp: now - 3000, latitude: 28.2096, longitude: 83.9856, accuracy: 5.0, speed: 10 },
+        { client_reading_id: '00000000-0000-4000-8000-000000000002', timestamp: now - 2000, latitude: 28.2097, longitude: 83.9857, accuracy: 5.0, speed: 11 },
+        { client_reading_id: '00000000-0000-4000-8000-000000000003', timestamp: now - 1000, latitude: 28.2098, longitude: 83.9858, accuracy: 4.0, speed: 12 }
       ];
 
       mockedQuery.mockResolvedValueOnce({
@@ -152,12 +179,41 @@ describe('WebSocket Telemetry & Bulk Sync Integration Tests', () => {
       } as any);
 
       clientSocket1.emit('telemetry:bulkSync', { readings }, (ack: { confirmedClientReadingIds: string[] }) => {
-        expect(ack.confirmedClientReadingIds).toContain('client-id-1');
-        expect(ack.confirmedClientReadingIds).toContain('client-id-2');
-        expect(ack.confirmedClientReadingIds).toContain('client-id-3');
+        expect(ack.confirmedClientReadingIds).toContain('00000000-0000-4000-8000-000000000001');
+        expect(ack.confirmedClientReadingIds).toContain('00000000-0000-4000-8000-000000000002');
+        expect(ack.confirmedClientReadingIds).toContain('00000000-0000-4000-8000-000000000003');
         expect(mockedQuery).toHaveBeenCalled();
         done();
       });
+    });
+  });
+
+  it('should reject bulk sync when batch size exceeds MAX_BULK_BATCH', (done) => {
+    clientSocket1 = ClientIO(`http://localhost:${serverPort}`, {
+      auth: { token: userToken1 }
+    });
+
+    clientSocket1.on('connect', () => {
+      clientSocket1.emit('session:join', { group_code: groupCode });
+    });
+
+    clientSocket1.on('session:joined', () => {
+      const now = Date.now();
+      const oversizedReadings = Array.from({ length: 501 }, (_, i) => ({
+        client_reading_id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        timestamp: now - 100,
+        latitude: 28.2,
+        longitude: 83.9,
+        accuracy: 1.0,
+        speed: 10.0
+      }));
+
+      clientSocket1.emit('telemetry:bulkSync', { readings: oversizedReadings });
+    });
+
+    clientSocket1.on('error', (err) => {
+      expect(err.message).toContain('Batch too large');
+      done();
     });
   });
 });

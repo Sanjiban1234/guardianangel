@@ -2,7 +2,7 @@
 
 > [!WARNING]
 > **SHARED CONTRACT — FLAG BEFORE CHANGING**
-> This file is a shared contract that multiple modules (telemetry, crash detection, UI/weather) depend on. Any changes to event names, directions, or payload structures must be discussed and flagged with the team before merging.
+> This file is a shared contract that multiple modules (telemetry, crash detection, UI/weather, breakdown, medical ID) depend on. Any changes to event names, directions, or payload structures must be discussed and flagged with the team before merging.
 
 This contract defines the real-time communication events between the Guardian Angel mobile client and the Node.js backend server.
 
@@ -142,7 +142,7 @@ This contract defines the real-time communication events between the Guardian An
 - **Payload Shape:** _(empty object)_
 
 ### 13. `sos:broadcast` (Server → Room Broadcast)
-- **Description:** Maximum priority emergency SOS broadcast sent to all members in the Ride Room and observers.
+- **Description:** Maximum priority emergency SOS broadcast sent to all members in the Ride Room and observers. Includes optional rider `medical_info` snapshot.
 - **Payload Shape:**
 ```json
 {
@@ -151,7 +151,13 @@ This contract defines the real-time communication events between the Guardian An
   "name": "sanjiban",
   "timestamp": 1720958420000,
   "latitude": 28.2096,
-  "longitude": 83.9856
+  "longitude": 83.9856,
+  "medical_info": {
+    "blood_group": "O+",
+    "allergies": "Penicillin",
+    "emergency_contact_name": "Jane Doe",
+    "emergency_contact_phone": "+1234567890"
+  }
 }
 ```
 
@@ -203,3 +209,46 @@ This contract defines the real-time communication events between the Guardian An
 }
 ```
 
+### 17. `vehicle:breakdown` (Client → Server)
+- **Description:** Emitted when a rider manually reports a vehicle breakdown mid-ride.
+- **Payload Shape:**
+```json
+{
+  "reason": "flat_tire",
+  "note": "Rear tire punctured near petrol station"
+}
+```
+
+### 18. `vehicle:breakdownReported` (Server → Room Broadcast)
+- **Description:** Broadcast to room members when a rider has reported a breakdown. Includes optional rider `medical_info` snapshot.
+- **Payload Shape:**
+```json
+{
+  "breakdown_id": "uuid-string",
+  "user_id": "uuid-string",
+  "name": "utsuk",
+  "reason": "flat_tire",
+  "note": "Rear tire punctured near petrol station",
+  "latitude": 28.2096,
+  "longitude": 83.9856,
+  "reported_at": 1720958460000,
+  "medical_info": {
+    "blood_group": "O+",
+    "allergies": "Penicillin",
+    "emergency_contact_name": "Jane Doe",
+    "emergency_contact_phone": "+1234567890"
+  }
+}
+```
+
+### 19. `vehicle:breakdownResolved` (Server → Room Broadcast)
+- **Description:** Broadcast to room members when a rider marks their breakdown as resolved.
+- **Payload Shape:**
+```json
+{
+  "breakdown_id": "uuid-string",
+  "user_id": "uuid-string",
+  "name": "utsuk",
+  "resolved_at": 1720958500000
+}
+```

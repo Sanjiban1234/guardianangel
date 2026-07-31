@@ -143,7 +143,13 @@ export class GroupCoherenceService {
                 ST_Y(rcl.location::geometry) AS latitude,
                 ST_X(rcl.location::geometry) AS longitude,
                 rcl.speed,
-                rcl.device_timestamp_ms AS timestamp
+                rcl.device_timestamp_ms AS timestamp,
+                EXISTS (
+                  SELECT 1 FROM vehicle_breakdowns vb
+                  WHERE vb.room_id = rcl.room_id
+                    AND vb.user_id = rcl.user_id
+                    AND vb.resolved_at IS NULL
+                ) AS has_active_breakdown
          FROM rider_current_locations rcl
          JOIN ride_rooms rr ON rr.id = rcl.room_id
          JOIN users u ON u.id = rcl.user_id
@@ -151,14 +157,16 @@ export class GroupCoherenceService {
         [tokenHash]
       );
 
-      const riders: RiderLocation[] = result.rows.map((row) => ({
-        user_id: row.user_id,
-        name: row.name,
-        latitude: Number(row.latitude),
-        longitude: Number(row.longitude),
-        speed: Number(row.speed),
-        timestamp: Number(row.timestamp),
-      }));
+      const riders: (RiderLocation & { has_active_breakdown?: boolean })[] =
+        result.rows.map((row) => ({
+          user_id: row.user_id,
+          name: row.name,
+          latitude: Number(row.latitude),
+          longitude: Number(row.longitude),
+          speed: Number(row.speed),
+          timestamp: Number(row.timestamp),
+          has_active_breakdown: Boolean(row.has_active_breakdown),
+        }));
 
       if (riders.length < 2) {
         return { alerts, reunions };
@@ -181,6 +189,7 @@ export class GroupCoherenceService {
         // Calculate distance to all other riders
         const otherRiders = riders.filter((_, idx) => idx !== i);
         let minDistanceMeters = Infinity;
+        let nearestOtherRider: (RiderLocation & { has_active_breakdown?: boolean }) | null = null;
 
         for (const other of otherRiders) {
           const dist = this.calculateHaversineDistance(
@@ -191,6 +200,7 @@ export class GroupCoherenceService {
           );
           if (dist < minDistanceMeters) {
             minDistanceMeters = dist;
+            nearestOtherRider = other;
           }
         }
 
@@ -220,6 +230,11 @@ export class GroupCoherenceService {
               now - state.lastAlertEmittedAt >= this.config.cooldownMs;
 
             if (canEmit) {
+              // Suppress generic separation alert if rider or nearest neighbor has an active vehicle breakdown reported
+              if (rider.has_active_breakdown || nearestOtherRider?.has_active_breakdown) {
+                continue;
+              }
+
               state.lastAlertEmittedAt = now;
 
               // Meeting point: straight-line midpoint between separated rider and group centroid

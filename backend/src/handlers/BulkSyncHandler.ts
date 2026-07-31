@@ -47,6 +47,39 @@ export class BulkSyncHandler {
       return;
     }
 
+    const now = Date.now();
+    const twentyFourHoursAgo = now - 24 * 60 * 60 * 1000;
+    const fiveMinutesFuture = now + 5 * 60 * 1000;
+
+    for (const reading of data.readings) {
+      if (
+        typeof reading?.timestamp !== 'number' ||
+        typeof reading?.latitude !== 'number' ||
+        typeof reading?.longitude !== 'number' ||
+        typeof reading?.accuracy !== 'number' ||
+        typeof reading?.speed !== 'number' ||
+        !reading?.client_reading_id
+      ) {
+        this.socket.emit('error', { message: 'Invalid payload: malformed reading in batch' });
+        return;
+      }
+
+      if (
+        reading.latitude < -90 || reading.latitude > 90 ||
+        reading.longitude < -180 || reading.longitude > 180 ||
+        reading.speed < 0 || reading.speed > 200 ||
+        reading.accuracy < 0
+      ) {
+        this.socket.emit('error', { message: 'Invalid coordinate or speed values in bulk batch' });
+        return;
+      }
+
+      if (reading.timestamp < twentyFourHoursAgo || reading.timestamp > fiveMinutesFuture) {
+        this.socket.emit('error', { message: 'Timestamp out of acceptable bounds in bulk batch' });
+        return;
+      }
+    }
+
     const userId = this.socket.user!.id;
     const name = this.socket.user!.name;
 
