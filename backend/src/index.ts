@@ -21,6 +21,7 @@ import { createAuthRouter } from './routes/AuthRouter';
 import { createRoomRouter } from './routes/RoomRouter';
 import { createGeofenceRouter } from './routes/GeofenceRouter';
 import { createWeatherRouter } from './routes/WeatherRouter';
+import { createSafetyRouter } from './routes/SafetyRouter';
 
 // ─── Socket Controller ────────────────────────────────────────────────────
 import { RideSocketController } from './sockets/RideSocketController';
@@ -67,6 +68,7 @@ app.use(express.json({ limit: MAX_BODY_SIZE }));
 app.use('/api/auth', createAuthRouter(userService));
 app.use('/api',      createRoomRouter(roomService, telemetryRepo));
 app.use('/api',      createGeofenceRouter(queryRunner));
+app.use('/api',      createSafetyRouter(queryRunner));
 app.use('/api',      createWeatherRouter(roomService, weatherService));
 
 // Register WebSocket controller

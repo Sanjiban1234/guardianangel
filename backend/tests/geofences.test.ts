@@ -15,7 +15,8 @@ const mockedQuery = db.query as jest.MockedFunction<typeof db.query>;
 const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_jwt_key_change_me_in_production';
 
 describe('Geofence CRUD Endpoints', () => {
-  let userToken: string;
+  let adminToken: string;
+  let riderToken: string;
   const mockUser = { id: 'user-uuid-100', name: 'fence_admin' };
   const mockGeofenceId = 'geofence-uuid-001';
 
@@ -26,7 +27,8 @@ describe('Geofence CRUD Endpoints', () => {
   ];
 
   beforeAll(() => {
-    userToken = jwt.sign(mockUser, JWT_SECRET);
+    adminToken = jwt.sign({ ...mockUser, role: 'admin' }, JWT_SECRET);
+    riderToken = jwt.sign({ id: 'user-uuid-101', name: 'fence_rider', role: 'rider' }, JWT_SECRET);
   });
 
   beforeEach(() => {
@@ -55,7 +57,7 @@ describe('Geofence CRUD Endpoints', () => {
 
       const response = await request(app)
         .post('/api/geofences')
-        .set('Authorization', `Bearer ${userToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ name: 'Dangerous Curve', type: 'hazard', area: validArea });
 
       expect(response.status).toBe(201);
@@ -74,7 +76,7 @@ describe('Geofence CRUD Endpoints', () => {
     it('should reject missing name', async () => {
       const response = await request(app)
         .post('/api/geofences')
-        .set('Authorization', `Bearer ${userToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ type: 'hazard', area: validArea });
 
       expect(response.status).toBe(400);
@@ -84,7 +86,7 @@ describe('Geofence CRUD Endpoints', () => {
     it('should reject invalid type', async () => {
       const response = await request(app)
         .post('/api/geofences')
-        .set('Authorization', `Bearer ${userToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ name: 'Test', type: 'invalid', area: validArea });
 
       expect(response.status).toBe(400);
@@ -94,7 +96,7 @@ describe('Geofence CRUD Endpoints', () => {
     it('should reject area with fewer than 3 points', async () => {
       const response = await request(app)
         .post('/api/geofences')
-        .set('Authorization', `Bearer ${userToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ name: 'Test', type: 'hazard', area: [{ latitude: 28.0, longitude: 83.0 }] });
 
       expect(response.status).toBe(400);
@@ -104,7 +106,7 @@ describe('Geofence CRUD Endpoints', () => {
     it('should reject coordinates out of bounds', async () => {
       const response = await request(app)
         .post('/api/geofences')
-        .set('Authorization', `Bearer ${userToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({
           name: 'Test',
           type: 'hazard',
@@ -126,7 +128,7 @@ describe('Geofence CRUD Endpoints', () => {
 
       await request(app)
         .post('/api/geofences')
-        .set('Authorization', `Bearer ${userToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ name: 'Zone', type: 'dead_zone', area: validArea });
 
       const wkt = mockedQuery.mock.calls[0][1]![1] as string;
@@ -151,7 +153,7 @@ describe('Geofence CRUD Endpoints', () => {
 
       const response = await request(app)
         .get('/api/geofences')
-        .set('Authorization', `Bearer ${userToken}`);
+        .set('Authorization', `Bearer ${riderToken}`);
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveLength(2);
@@ -166,11 +168,21 @@ describe('Geofence CRUD Endpoints', () => {
 
       const response = await request(app)
         .get('/api/geofences')
-        .set('Authorization', `Bearer ${userToken}`);
+        .set('Authorization', `Bearer ${riderToken}`);
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual([]);
     });
+  });
+
+  it('should reject a rider from mutating geofences', async () => {
+    const response = await request(app)
+      .post('/api/geofences')
+      .set('Authorization', `Bearer ${riderToken}`)
+      .send({ name: 'Rider Zone', type: 'hazard', area: validArea });
+
+    expect(response.status).toBe(403);
+    expect(mockedQuery).not.toHaveBeenCalled();
   });
 
   describe('PATCH /api/geofences/:id (Update)', () => {
@@ -181,7 +193,7 @@ describe('Geofence CRUD Endpoints', () => {
 
       const response = await request(app)
         .patch(`/api/geofences/${mockGeofenceId}`)
-        .set('Authorization', `Bearer ${userToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ name: 'Renamed', type: 'dead_zone' });
 
       expect(response.status).toBe(200);
@@ -196,7 +208,7 @@ describe('Geofence CRUD Endpoints', () => {
 
       const response = await request(app)
         .patch(`/api/geofences/${mockGeofenceId}`)
-        .set('Authorization', `Bearer ${userToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ is_active: false });
 
       expect(response.status).toBe(200);
@@ -208,7 +220,7 @@ describe('Geofence CRUD Endpoints', () => {
 
       const response = await request(app)
         .patch('/api/geofences/nonexistent-uuid')
-        .set('Authorization', `Bearer ${userToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ name: 'Updated' });
 
       expect(response.status).toBe(404);
@@ -217,7 +229,7 @@ describe('Geofence CRUD Endpoints', () => {
     it('should return 400 when no valid fields provided', async () => {
       const response = await request(app)
         .patch(`/api/geofences/${mockGeofenceId}`)
-        .set('Authorization', `Bearer ${userToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({});
 
       expect(response.status).toBe(400);
@@ -227,7 +239,7 @@ describe('Geofence CRUD Endpoints', () => {
     it('should reject invalid type value', async () => {
       const response = await request(app)
         .patch(`/api/geofences/${mockGeofenceId}`)
-        .set('Authorization', `Bearer ${userToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ type: 'invalid' });
 
       expect(response.status).toBe(400);
@@ -242,7 +254,7 @@ describe('Geofence CRUD Endpoints', () => {
 
       const response = await request(app)
         .delete(`/api/geofences/${mockGeofenceId}`)
-        .set('Authorization', `Bearer ${userToken}`);
+        .set('Authorization', `Bearer ${adminToken}`);
 
       expect(response.status).toBe(200);
       expect(response.body.message).toContain('deactivated');
@@ -258,7 +270,7 @@ describe('Geofence CRUD Endpoints', () => {
 
       const response = await request(app)
         .delete(`/api/geofences/${mockGeofenceId}`)
-        .set('Authorization', `Bearer ${userToken}`);
+        .set('Authorization', `Bearer ${adminToken}`);
 
       expect(response.status).toBe(404);
       expect(response.body.error).toContain('already inactive');
@@ -269,7 +281,7 @@ describe('Geofence CRUD Endpoints', () => {
 
       const response = await request(app)
         .delete('/api/geofences/nonexistent-uuid')
-        .set('Authorization', `Bearer ${userToken}`);
+        .set('Authorization', `Bearer ${adminToken}`);
 
       expect(response.status).toBe(404);
     });
@@ -285,7 +297,7 @@ describe('Geofence CRUD Endpoints', () => {
 
       const response = await request(app)
         .get('/api/geofences')
-        .set('Authorization', `Bearer ${userToken}`);
+        .set('Authorization', `Bearer ${riderToken}`);
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveLength(1);

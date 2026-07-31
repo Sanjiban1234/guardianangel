@@ -107,6 +107,7 @@ describe('Authentication REST Endpoints', () => {
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('token');
       expect(response.body.user).toEqual({ id: 'user-uuid-123', name: 'testrider' });
+      expect(jwt.decode(response.body.token)).toMatchObject({ role: 'rider' });
     });
 
     it('should return 401 for incorrect password', async () => {
