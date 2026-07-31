@@ -13,6 +13,7 @@ import { TelemetryService } from './services/TelemetryService';
 import { EmergencyAlertService } from './services/EmergencyAlertService';
 import { PresenceService } from './services/PresenceService';
 import { WeatherService } from './services/WeatherService';
+import { GroupCoherenceService } from './services/GroupCoherenceService';
 import { PostgisTelemetryRepository } from './repositories/PostgisTelemetryRepository';
 import { CrashCandidateRepository } from './repositories/CrashCandidateRepository';
 
@@ -33,22 +34,25 @@ import { ALLOWED_ORIGINS, MAX_BODY_SIZE, PORT } from './config';
 
 const queryRunner = new QueryRunner();
 
-const userService      = new UserService(queryRunner);
-const roomService      = new RoomService(queryRunner);
-const telemetryService = new TelemetryService(queryRunner);
-const alertService     = new EmergencyAlertService(queryRunner);
-const presenceService  = new PresenceService(queryRunner);
-const weatherService   = new WeatherService(queryRunner);
-const telemetryRepo    = new PostgisTelemetryRepository(pool);
-const crashRepo        = new CrashCandidateRepository(queryRunner);
+const userService        = new UserService(queryRunner);
+const roomService        = new RoomService(queryRunner);
+const telemetryService   = new TelemetryService(queryRunner);
+const alertService       = new EmergencyAlertService(queryRunner);
+const presenceService    = new PresenceService(queryRunner);
+const weatherService     = new WeatherService(queryRunner);
+const coherenceService   = new GroupCoherenceService(queryRunner);
+const telemetryRepo      = new PostgisTelemetryRepository(pool);
+const crashRepo          = new CrashCandidateRepository(queryRunner);
 
 const socketController = new RideSocketController(
   roomService,
   telemetryService,
   alertService,
   presenceService,
-  crashRepo
+  crashRepo,
+  coherenceService
 );
+
 
 // ─── Express + Socket.io setup ─────────────────────────────────────────────
 

@@ -155,7 +155,7 @@ This contract defines the real-time communication events between the Guardian An
 }
 ```
 
-### 13. `peer:lastKnown` (Server → Room Broadcast)
+### 14. `peer:lastKnown` (Server → Room Broadcast)
 - **Description:** Broadcast when a rider suddenly disconnects from the WebSocket connection, supplying their last known location coordinates.
 - **Payload Shape:**
 ```json
@@ -167,3 +167,39 @@ This contract defines the real-time communication events between the Guardian An
   "longitude": 83.9856
 }
 ```
+
+### 15. `group:separationAlert` (Server → Room Broadcast)
+- **Description:** Emitted when a rider's distance to the nearest other group member exceeds threshold (500m) for over 30 seconds. Includes approximate straight-line meeting point and safe speed adjustment recommendations.
+- **Payload Shape:**
+```json
+{
+  "separated_rider": {
+    "user_id": "uuid-string",
+    "name": "utsuk",
+    "current_speed": 15.0,
+    "recommended_speed": 17.25,
+    "distance_from_nearest_meters": 650.0
+  },
+  "meeting_point": {
+    "latitude": 28.2120,
+    "longitude": 83.9870,
+    "is_approximate": true
+  },
+  "group_recommendation": {
+    "recommended_speed": 13.5
+  },
+  "timestamp": 1720958430000
+}
+```
+
+### 16. `group:reunited` (Server → Room Broadcast)
+- **Description:** Emitted when a previously separated rider's distance to the nearest group member drops below 300m for 15 seconds.
+- **Payload Shape:**
+```json
+{
+  "user_id": "uuid-string",
+  "name": "utsuk",
+  "timestamp": 1720958460000
+}
+```
+

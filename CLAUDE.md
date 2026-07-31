@@ -49,8 +49,10 @@ src/services/TelemetryService.ts      Single-reading persistence
 src/services/EmergencyAlertService.ts SOS alert creation/resolution
 src/services/PresenceService.ts       Online/offline tracking
 src/services/WeatherService.ts        Weather provider client + in-memory cache + centroid calc
+src/services/GroupCoherenceService.ts Group separation detection + midpoint & speed recommendations
 
 src/routes/WeatherRouter.ts           GET /api/rooms/:groupCode/weather
+
 
 src/repositories/PostgisTelemetryRepository.ts   Spatial queries (distance, nearby, geofences)
 src/repositories/CrashCandidateRepository.ts     Crash candidate persistence + outcome tracking
@@ -105,6 +107,8 @@ All endpoints except health require JWT in `Authorization: Bearer <token>` heade
 | `crash:countdownExpired` | Client → Server | 15s grace period elapsed, trigger SOS |
 | `crash:cancelled` | Client → Server | Rider dismissed crash warning |
 | `sos:broadcast` | Server → Room | Emergency alert to all members |
+| `group:separationAlert` | Server → Room | Separation alert + midpoint & recommended speeds |
+| `group:reunited` | Server → Room | Notification when separated rider rejoins group |
 
 WebSocket auth: JWT passed in `socket.auth.token` on connection.
 
@@ -152,8 +156,19 @@ Environment variables: `DATABASE_URL`, `JWT_SECRET` (required in non-test), `POR
 | `emergency-alert.test.ts` | SOS creation with/without room_id, graceful degradation |
 | `geofences.test.ts` | Geofence CRUD (create, list, update, soft-delete, validation) |
 | `weather.test.ts` | Weather endpoint (auth, membership, active-room guard, provider mock, cache, centroid, WMO mapping) |
+| `group-coherence.test.ts` | Nearest-rider separation detection, strung-out formation isolation, speed caps, reunion trigger, 30s cooldown |
 
 All tests use mocked `db.query` via `jest.mock('../src/db')` — no live database needed.
+
+## Group Coherence & Reunion Guidance
+
+**V1 Implementation Scope:**
+- **Separation Detection:** Triggers when a rider's distance to the **nearest other rider** exceeds 500 meters for $\ge 30$ seconds. Nearest-rider distance is specifically used (rather than centroid distance) to prevent false positives for motorcycle groups riding in normal strung-out linear formation.
+- **Meeting Point:** Straight-line (haversine) midpoint between separated rider and group centroid, labeled `is_approximate: true`.
+- **Speed Math & Safety Caps:** Computes equal-arrival target speeds. Separated rider speed increase is capped at max +15% and $+15\text{ km/h}$ ($+4.17\text{ m/s}$). Main group speed decrease is capped at max -20% and $-15\text{ km/h}$ ($-4.17\text{ m/s}$). If either side is stationary ($\le 1.4\text{ m/s}$ / $5\text{ km/h}$), `recommended_speed` is set to `null` to gracefully degrade.
+- **Cooldown & Reunion:** 30-second cooldown between re-emitting `group:separationAlert`. Reunion triggers (`group:reunited`) when distance drops $\le 300\text{ meters}$ for $\ge 15$ seconds to prevent threshold flapping.
+- **V2 Deferred Work:** Road-aware routing engines (OSRM/Google Maps) and route-distance/ETA speed calculations are explicitly deferred.
+
 
 ## Weather Module
 

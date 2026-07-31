@@ -1,12 +1,14 @@
 import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { TelemetryService, TelemetryReading } from '../services/TelemetryService';
+import { GroupCoherenceService } from '../services/GroupCoherenceService';
 import { RoomState } from './SessionHandler';
 
 export class LocationHandler {
   constructor(
     private readonly socket: AuthenticatedSocket,
     private readonly roomState: RoomState,
-    private readonly telemetryService: TelemetryService
+    private readonly telemetryService: TelemetryService,
+    private readonly coherenceService?: GroupCoherenceService
   ) {}
 
   register(): void {
@@ -46,7 +48,23 @@ export class LocationHandler {
     } catch (err) {
       console.error('LocationHandler: broadcast error:', err);
     }
+
+    if (this.coherenceService) {
+      try {
+        const { alerts, reunions } = await this.coherenceService.evaluateRoomCoherence(groupCode);
+
+        for (const alert of alerts) {
+          this.socket.nsp.to(`group:${groupCode}`).emit('group:separationAlert', alert);
+        }
+        for (const reunion of reunions) {
+          this.socket.nsp.to(`group:${groupCode}`).emit('group:reunited', reunion);
+        }
+      } catch (coherenceErr) {
+        console.error('LocationHandler: group coherence evaluation failed:', coherenceErr);
+      }
+    }
   }
+
 
   private isValidReading(reading: TelemetryReading): boolean {
     if (

@@ -147,3 +147,37 @@ export interface PeerLastKnownPayload {
   latitude: number;
   longitude: number;
 }
+
+/**
+ * 15. group:separationAlert (Server -> Room Broadcast)
+ * Emitted when a rider is detected as separated from the ride group.
+ */
+export interface GroupSeparationAlertPayload {
+  separated_rider: {
+    user_id: string;
+    name: string;
+    current_speed: number;
+    recommended_speed: number | null;
+    distance_from_nearest_meters: number;
+  };
+  meeting_point: {
+    latitude: number;
+    longitude: number;
+    is_approximate: boolean;
+  };
+  group_recommendation: {
+    recommended_speed: number | null;
+  };
+  timestamp: number;
+}
+
+/**
+ * 16. group:reunited (Server -> Room Broadcast)
+ * Emitted when a previously separated rider has reunited with the group.
+ */
+export interface GroupReunitedPayload {
+  user_id: string;
+  name: string;
+  timestamp: number;
+}
+
