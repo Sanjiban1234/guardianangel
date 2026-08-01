@@ -235,7 +235,7 @@ The backend endpoint `GET /api/safety/config` returns these exact values to allo
 ## Known Gaps / Deferred Work
 
 - **Crash detection threshold validation**: No real-world or bench testing has been performed. Current values are literature-based estimates only. This is a **mandatory pre-production task**, requires controlled crash testing or validated simulation data
-- **Mobile safety module**: `mobile/src/safety/` implements crash detection (`CrashDetector` state machine, `CountdownTimer`, `OverrideController`), with configurable detection thresholds via `GET /api/safety/config` (finding 5.5) and sample rate health tracking (finding 5.6)
+- **Mobile safety module**: `mobile/src/safety/` implements crash detection (`CrashDetector` state machine, `CountdownTimer`, `OverrideController`), with configurable detection thresholds via `GET /api/safety/config` (finding 5.5) and sample rate health tracking (finding 5.6). **Integration status**: the safety module is NOT wired into App.tsx — deliberate deferral until Utsuk's SQLite/telemetry module is ready. Two isolated bugs in the safety module (sensor sampling rate mismatch, useOverride stale closure) were fixed independently (Aug 1, 2026) and are no longer blockers for the integration pass
 - **Weather push model**: Server could poll weather per active room and broadcast `weather:update` via Socket.IO — deferred, pull-with-cache is sufficient for v1
 - **Guardian Portal** (web observer UI): Deferred until after midterm defense
 - **Geofences**: CRUD endpoints exist; any authenticated user can create/modify/soft-delete geofences (deliberate scope decision for now, not an oversight — must add role-based restriction before production)
