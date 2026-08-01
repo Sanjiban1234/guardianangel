@@ -91,8 +91,8 @@ Legacy tables still in schema but not used for new paths: `active_riders`, `noti
 | GET | `/api/geofences` | List active geofences |
 | PATCH | `/api/geofences/:id` | Update geofence fields (name, type, is_active) |
 | DELETE | `/api/geofences/:id` | Soft-delete (set is_active=false) |
-| GET | `/api/safety/config` | Retrieve crash detection threshold configuration |
-| GET | `/api/safety/stats` | Retrieve crash outcome analytics and false positive metrics |
+| GET | `/api/safety/config` | Retrieve crash detection threshold configuration (13 tunable parameters — see DetectionConfig in mobile/src/safety/crash/types.ts) |
+| GET | `/api/safety/stats` | Retrieve crash outcome analytics and false positive metrics (admin-only) |
 | POST | `/api/devices/register` | Register/upsert FCM device push token (token, platform) |
 | POST | `/api/users/medical-info` | Upsert authenticated user's medical ID info |
 | GET | `/api/users/medical-info` | Fetch authenticated user's medical ID info |
@@ -217,8 +217,24 @@ All tests use mocked `db.query` via `jest.mock('../src/db')` — no live databas
 - Centroid uses arithmetic mean — accurate for group rides within a few km, but would need a proper geographic centroid for continent-scale spread (not a real scenario)
 - No weather-based alerting or route-hazard logic (future feature — would need its own design)
 
+## Crash Detection Thresholds (Unvalidated)
+
+**CRITICAL:** All crash detection threshold values in this project are **provisional and untested**. No real-world crash testing or bench validation has been performed. The values in `/api/safety/config` and `DEFAULT_DETECTION_CONFIG` are engineering estimates based on literature review, not validated against actual motorcycle crash data.
+
+Current thresholds (from `mobile/src/safety/crash/types.ts` `DEFAULT_DETECTION_CONFIG`):
+- `magnitudeThresholdG: 4.0` — peak acceleration spike in g-forces
+- `jerkThreshold: 150` — rate of acceleration change in m/s³
+- `postEventWindowMs: 4000` — duration to watch for post-impact stillness/tumbling
+- `speedGateKmh: 15` — minimum pre-event speed to consider detection
+- See full config in types.ts for all 13 tunable parameters
+
+**Do not adjust these values without real testing data.** Lowering thresholds increases false positives (alerts during normal riding); raising them risks missing real crashes. Real-world validation is an outstanding task, not yet scheduled.
+
+The backend endpoint `GET /api/safety/config` returns these exact values to allow remote tuning without app updates once validation data is available.
+
 ## Known Gaps / Deferred Work
 
+- **Crash detection threshold validation**: No real-world or bench testing has been performed. Current values are literature-based estimates only. This is a **mandatory pre-production task**, requires controlled crash testing or validated simulation data
 - **Mobile safety module**: `mobile/src/safety/` implements crash detection (`CrashDetector` state machine, `CountdownTimer`, `OverrideController`), with configurable detection thresholds via `GET /api/safety/config` (finding 5.5) and sample rate health tracking (finding 5.6)
 - **Weather push model**: Server could poll weather per active room and broadcast `weather:update` via Socket.IO — deferred, pull-with-cache is sufficient for v1
 - **Guardian Portal** (web observer UI): Deferred until after midterm defense

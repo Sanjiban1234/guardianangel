@@ -42,12 +42,29 @@ describe('Safety Endpoints & Crash Rate Limiting', () => {
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual({
-        impactThreshold: 4.0,
-        stillnessThreshold: 0.5,
-        confirmWindowMs: 15000,
-        telemetrySampleRateMs: 1000,
-        maxBulkBatch: 500
+        speedGateKmh: 15,
+        jerkThreshold: 150,
+        magnitudeThresholdG: 4.0,
+        gyroRotationThresholdDegPerSec: 250,
+        postEventWindowMs: 4000,
+        roughnessRatioThreshold: 2.5,
+        speedCrossCheckToleranceKmh: 10,
+        gravity: 9.8,
+        expectedSampleIntervalMs: 20,
+        sampleIntervalMinMs: 10,
+        sampleIntervalMaxMs: 50,
+        sampleHealthWindowSize: 20,
+        sampleHealthThreshold: 0.6,
       });
+    });
+
+    it('should include gravity field in config response', async () => {
+      const response = await request(app)
+        .get('/api/safety/config')
+        .set('Authorization', `Bearer ${riderToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('gravity', 9.8);
     });
   });
 

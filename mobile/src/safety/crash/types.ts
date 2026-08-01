@@ -45,6 +45,8 @@ export interface DetectionConfig {
   sampleHealthThreshold: number; // fraction of healthy samples required (0–1)
 }
 
+// UNVALIDATED: no real-world or bench crash testing has been performed against these values.
+// Update only after actual testing, not by guessing a "safer-sounding" number.
 export const DEFAULT_DETECTION_CONFIG: DetectionConfig = {
   speedGateKmh: 15,
   jerkThreshold: 150, // tune against real data later

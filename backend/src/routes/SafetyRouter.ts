@@ -27,12 +27,23 @@ export class SafetyRouter {
   }
 
   private handleGetConfig(_req: AuthenticatedRequest, res: Response): void {
+    // UNVALIDATED: no real-world or bench crash testing has been performed against these values.
+    // These are the mobile app's DEFAULT_DETECTION_CONFIG defaults from mobile/src/safety/crash/types.ts.
+    // Update only after actual testing, not by guessing a "safer-sounding" number.
     res.status(200).json({
-      impactThreshold: 4.0,
-      stillnessThreshold: 0.5,
-      confirmWindowMs: 15000,
-      telemetrySampleRateMs: 1000,
-      maxBulkBatch: MAX_BULK_BATCH,
+      speedGateKmh: 15,
+      jerkThreshold: 150,
+      magnitudeThresholdG: 4.0,
+      gyroRotationThresholdDegPerSec: 250,
+      postEventWindowMs: 4000,
+      roughnessRatioThreshold: 2.5,
+      speedCrossCheckToleranceKmh: 10,
+      gravity: 9.8,
+      expectedSampleIntervalMs: 20,
+      sampleIntervalMinMs: 10,
+      sampleIntervalMaxMs: 50,
+      sampleHealthWindowSize: 20,
+      sampleHealthThreshold: 0.6,
     });
   }
 
