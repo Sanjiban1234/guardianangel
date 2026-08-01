@@ -2,6 +2,7 @@ import request from 'supertest';
 import { app } from '../src/index';
 import * as db from '../src/db';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 jest.mock('../src/db', () => ({
   query: jest.fn(),
