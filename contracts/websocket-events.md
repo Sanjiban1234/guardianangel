@@ -117,6 +117,7 @@ This contract defines the real-time communication events between the Guardian An
 
 ### 10. `crash:candidate` (Client → Server)
 - **Description:** Candidate crash event detected on-device. This starts a 15-second grace period timer on the backend before broadcasting an SOS.
+- **Identity:** The backend always attributes this event to the authenticated socket's JWT user. A client-supplied `user_id`, if present, is ignored.
 - **Payload Shape:**
 ```json
 {
@@ -128,6 +129,7 @@ This contract defines the real-time communication events between the Guardian An
 
 ### 11. `crash:countdownExpired` (Client → Server)
 - **Description:** Emitted when the 15-second crash warning countdown expires on-device without manual cancel. Tells the server to broadcast SOS immediately.
+- **Identity:** The backend always attributes this event to the authenticated socket's JWT user. A client-supplied `user_id`, if present, is ignored.
 - **Payload Shape:**
 ```json
 {
@@ -139,6 +141,7 @@ This contract defines the real-time communication events between the Guardian An
 
 ### 12. `crash:cancelled` (Client → Server)
 - **Description:** Emitted when the rider manually dismisses the crash warning during the 15-second grace period. No payload — the server marks the most recent candidate in this room as `false_alarm`.
+- **Identity:** Cancellation always applies to the authenticated socket's JWT user.
 - **Payload Shape:** _(empty object)_
 
 ### 13. `sos:broadcast` (Server → Room Broadcast)

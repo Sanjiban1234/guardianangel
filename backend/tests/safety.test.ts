@@ -16,10 +16,12 @@ const mockedQuery = db.query as jest.MockedFunction<typeof db.query>;
 const JWT_SECRET = process.env.JWT_SECRET || 'test_jwt_secret_value_for_unit_tests_only';
 
 describe('Safety Endpoints & Crash Rate Limiting', () => {
-  let userToken: string;
+  let riderToken: string;
+  let adminToken: string;
 
   beforeAll(() => {
-    userToken = jwt.sign({ id: 'user-uuid-999', name: 'safety_tester' }, JWT_SECRET);
+    riderToken = jwt.sign({ id: 'user-uuid-999', name: 'safety_tester', role: 'rider' }, JWT_SECRET);
+    adminToken = jwt.sign({ id: 'admin-uuid-888', name: 'safety_admin', role: 'admin' }, JWT_SECRET);
   });
 
   beforeEach(() => {
@@ -36,7 +38,7 @@ describe('Safety Endpoints & Crash Rate Limiting', () => {
     it('should return safety configuration for authenticated user', async () => {
       const response = await request(app)
         .get('/api/safety/config')
-        .set('Authorization', `Bearer ${userToken}`);
+        .set('Authorization', `Bearer ${riderToken}`);
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual({
@@ -55,7 +57,16 @@ describe('Safety Endpoints & Crash Rate Limiting', () => {
       expect(response.status).toBe(401);
     });
 
-    it('should return crash outcome analytics', async () => {
+    it('should reject riders from viewing aggregate crash statistics', async () => {
+      const response = await request(app)
+        .get('/api/safety/stats')
+        .set('Authorization', `Bearer ${riderToken}`);
+
+      expect(response.status).toBe(403);
+      expect(mockedQuery).not.toHaveBeenCalled();
+    });
+
+    it('should allow admins to view crash outcome analytics', async () => {
       mockedQuery.mockResolvedValueOnce({
         rows: [
           { total_crashes: 10, confirmed: 2, false_alarms: 8 }
@@ -64,7 +75,7 @@ describe('Safety Endpoints & Crash Rate Limiting', () => {
 
       const response = await request(app)
         .get('/api/safety/stats')
-        .set('Authorization', `Bearer ${userToken}`);
+        .set('Authorization', `Bearer ${adminToken}`);
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual({

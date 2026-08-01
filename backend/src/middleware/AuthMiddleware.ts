@@ -3,11 +3,16 @@ import jwt from 'jsonwebtoken';
 import { Socket } from 'socket.io';
 import { JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET } from '../config';
 
+export type UserRole = 'rider' | 'admin';
+
+export interface AuthenticatedUser {
+  id: string;
+  name: string;
+  role: UserRole;
+}
+
 export interface AuthenticatedRequest extends Request {
-  user?: {
-    id: string;
-    name: string;
-  };
+  user?: AuthenticatedUser;
 }
   //when i wrote this code, only god and 
   //I knew how it worked.
@@ -15,10 +20,7 @@ export interface AuthenticatedRequest extends Request {
 
 
 export interface AuthenticatedSocket extends Socket {
-  user?: {
-    id: string;
-    name: string;
-  };
+  user?: AuthenticatedUser;
 }
 
 export class AuthMiddleware {
@@ -65,7 +67,7 @@ export class AuthMiddleware {
         res.status(403).json({ error: 'Forbidden: Invalid or expired token' });
         return;
       }
-      req.user = user as { id: string; name: string };
+      req.user = user as AuthenticatedUser;
       next();
     });
   }
@@ -92,8 +94,18 @@ export class AuthMiddleware {
         next(new Error('Authentication error: Invalid or expired token'));
         return;
       }
-      socket.user = decoded as { id: string; name: string };
+      socket.user = decoded as AuthenticatedUser;
       next();
     });
+  }
+
+  static requireRole(role: UserRole) {
+    return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+      if (req.user?.role !== role) {
+        res.status(403).json({ error: 'Forbidden: insufficient role' });
+        return;
+      }
+      next();
+    };
   }
 }

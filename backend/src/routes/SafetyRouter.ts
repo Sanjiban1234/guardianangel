@@ -21,6 +21,7 @@ export class SafetyRouter {
     this.router.get(
       '/safety/stats',
       AuthMiddleware.authenticateJWT,
+      AuthMiddleware.requireRole('admin'),
       (_req, res) => this.handleGetStats(_req as AuthenticatedRequest, res)
     );
   }

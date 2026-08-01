@@ -24,13 +24,13 @@ export class CrashHandler {
   register(): void {
     this.socket.on(
       'crash:candidate',
-      (data: { timestamp: number; latitude: number; longitude: number }) =>
+      (data: { timestamp: number; latitude: number; longitude: number; user_id?: unknown }) =>
         this.handleCandidate(data)
     );
 
     this.socket.on(
       'crash:countdownExpired',
-      (data: { timestamp: number; latitude: number; longitude: number }) =>
+      (data: { timestamp: number; latitude: number; longitude: number; user_id?: unknown }) =>
         this.handleCountdownExpired(data)
     );
 
@@ -64,12 +64,13 @@ export class CrashHandler {
     timestamp: number;
     latitude: number;
     longitude: number;
+    user_id?: unknown;
   }): Promise<void> {
     const groupCode = this.roomState.currentGroupCode;
     if (!groupCode) return;
 
-    const userId = this.socket.user!.id;
-    const name = this.socket.user!.name;
+    // Never trust a client-supplied user_id; the JWT-authenticated socket owns this event.
+    const { id: userId, name } = this.socket.user!;
 
     if (this.isRateLimited(userId)) return;
 
@@ -98,12 +99,13 @@ export class CrashHandler {
     timestamp: number;
     latitude: number;
     longitude: number;
+    user_id?: unknown;
   }): Promise<void> {
     const groupCode = this.roomState.currentGroupCode;
     if (!groupCode) return;
 
-    const userId = this.socket.user!.id;
-    const name = this.socket.user!.name;
+    // Never trust a client-supplied user_id; the JWT-authenticated socket owns this event.
+    const { id: userId, name } = this.socket.user!;
 
     try {
       // Single resolution point — used for both outcome update and alert creation.
@@ -158,8 +160,8 @@ export class CrashHandler {
     const groupCode = this.roomState.currentGroupCode;
     if (!groupCode) return;
 
-    const userId = this.socket.user!.id;
-    const name = this.socket.user!.name;
+    // Cancellation applies only to the JWT-authenticated socket user.
+    const { id: userId, name } = this.socket.user!;
 
     try {
       const roomId = await this.crashRepo.resolveRoomId(groupCode);

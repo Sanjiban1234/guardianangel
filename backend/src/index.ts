@@ -98,8 +98,8 @@ app.use(express.json({ limit: MAX_BODY_SIZE }));
 app.use('/api/auth', createAuthRouter(userService));
 app.use('/api',      createRoomRouter(roomService, telemetryRepo));
 app.use('/api',      createGeofenceRouter(queryRunner));
-app.use('/api',      createWeatherRouter(roomService, weatherService));
 app.use('/api',      createSafetyRouter(queryRunner));
+app.use('/api',      createWeatherRouter(roomService, weatherService));
 app.use('/api',      deviceRouter.router);
 app.use('/api',      medicalRouter.router);
 

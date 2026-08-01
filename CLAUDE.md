@@ -16,8 +16,8 @@ Real-time safety platform for group motorcycle rides. Detects crashes via on-dev
 
 ```
 backend/          Node.js server (sessions, sockets, REST, DB)
-mobile/           React Native app (telemetry, safety, UI)
-contracts/        Shared WebSocket event contract (types + docs)
+mobile/           React Native app (telemetry, safety, Post-Ride Summary UI)
+contracts/        Shared WebSocket & REST contract specs (types + docs, ride-summary.ts)
 docs/             Architecture docs, audit reports, ER diagram
 ```
 
@@ -217,35 +217,9 @@ All tests use mocked `db.query` via `jest.mock('../src/db')` — no live databas
 - Centroid uses arithmetic mean — accurate for group rides within a few km, but would need a proper geographic centroid for continent-scale spread (not a real scenario)
 - No weather-based alerting or route-hazard logic (future feature — would need its own design)
 
-## Vehicle Breakdown Module
-
-**Tiering & Isolation:** Rider-initiated manual report (button press). Separate from `emergency_alarms` and `crash_candidates` — breakdown events do NOT inflate crash false-positive-rate analytics (`/api/safety/stats`). Broadcast at informational urgency.
-
-**Push Delivery & FCM:** Uses dual-path notification — Socket.IO room broadcast (`vehicle:breakdownReported`) for active foreground clients and Firebase Cloud Messaging (FCM) push notifications for backgrounded/locked devices. `POST /api/devices/register` upserts device tokens into `device_tokens (user_id, platform)`.
-
-**Isolated Failure Posture:** FCM push send failures (invalid tokens, network errors) are caught and logged silently without interrupting Socket.IO broadcasts or throwing errors.
-
-**Report Payload & Resolution:**
-- Report payload accepts optional `reason` enum (`flat_tire`, `mechanical_failure`, `fuel`, `other`) and optional free-text `note`. Rider identity and location are resolved server-side from auth socket and `rider_current_locations`.
-- Resolution (`vehicle:breakdownResolved`) updates `vehicle_breakdowns.resolved_at` and broadcasts resolution to the room.
-
-**Group Coherence Interaction:** When evaluating room coherence, generic `group:separationAlert` emission is suppressed if either the separated rider or their nearest neighbor currently has an unresolved vehicle breakdown reported.
-
-## Rider Medical ID Module
-
-**Scope & Storage:** Part A (Authenticated Scope). Stores voluntary medical info (`blood_group`, `allergies`, `emergency_contact_name`, `emergency_contact_phone`, `notes`) in a dedicated `medical_info` table (`user_id` PK/FK), isolating health data from `users`.
-
-**Registration Optionality & Self-Service Management:** All fields are optional (nullable). Account creation requires no health disclosure. Riders manage their own record via `POST/GET/DELETE /api/users/medical-info`.
-
-**Strict Alert-Triggered Visibility:** To preserve privacy and prevent ambient health data browsing mid-ride, **no ambient room-query endpoint exists**. `medical_info` snapshots surface ONLY dynamically inside `sos:broadcast` and `vehicle:breakdownReported` WebSocket payloads when an alert actually fires.
-
-**Deferred Paramedic Access:** Public/unauthenticated paramedic lookup is explicitly deferred — no public access route is built in Part A.
-
-
-
 ## Known Gaps / Deferred Work
 
-- **Mobile safety module**: `mobile/src/safety/` is empty (.gitkeep only) — crash detection algorithm not yet implemented
+- **Mobile safety module**: `mobile/src/safety/` implements crash detection (`CrashDetector` state machine, `CountdownTimer`, `OverrideController`), with configurable detection thresholds via `GET /api/safety/config` (finding 5.5) and sample rate health tracking (finding 5.6)
 - **Weather push model**: Server could poll weather per active room and broadcast `weather:update` via Socket.IO — deferred, pull-with-cache is sufficient for v1
 - **Guardian Portal** (web observer UI): Deferred until after midterm defense
 - **Geofences**: CRUD endpoints exist; any authenticated user can create/modify/soft-delete geofences (deliberate scope decision for now, not an oversight — must add role-based restriction before production)
