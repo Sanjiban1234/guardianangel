@@ -1,242 +1,315 @@
 /**
- * Guardian Angel - Core Screen #6: Post-Ride Summary Preview Controller
+ * Guardian Angel - Web Prototype Interactive Controller
+ * Figma File: pkDFVZSUjhwfCPGlJj2iTq
  */
 
-// Data State Definitions
-const MOCK_DATA = {
-  full: {
-    roomCode: 'GA-8821',
-    membersCount: 4,
-    distanceKm: '48.2',
-    actualTime: '1h 12m',
-    benchmarkTime: '1h 04m',
-    paceText: '+8 mins vs standard group pace (45 km/h avg). Accounts for group regrouping stops along route.',
-    maxSpeed: '84 km/h',
-    speedSpikeCount: 1,
-    hasLowData: false,
-    hadEmergency: false,
-    weather: {
-      temp: '24.5°C',
-      cond: 'Clear Sky',
-      sub: 'Wind 14 km/h • Precip 0%'
-    },
-    speedPoints: [
-      { km: 0, speed: 0 },
-      { km: 4.2, speed: 38 },
-      { km: 9.8, speed: 52 },
-      { km: 15.1, speed: 48 },
-      { km: 21.0, speed: 64 },
-      { km: 28.4, speed: 59 },
-      { km: 34.2, speed: 84, isSpike: true },
-      { km: 39.0, speed: 45 },
-      { km: 44.5, speed: 32 },
-      { km: 48.2, speed: 0 }
-    ]
-  },
+let currentScenario = 'map-normal';
+let isSnapshotExpanded = false;
 
-  low: {
-    roomCode: 'GA-3304',
-    membersCount: 3,
-    distanceKm: '350',
-    distanceUnit: 'm',
-    actualTime: '5m',
-    benchmarkTime: 'Unavailable',
-    paceText: 'Short ride distance — pace comparison requires at least 1.0 km recorded data.',
-    maxSpeed: '18 km/h',
-    speedSpikeCount: 0,
-    hasLowData: true,
-    lowDataReason: 'Ride distance was under 500 meters. Speed profiles require a minimum route distance to generate meaningful telemetry graphs.',
-    hadEmergency: false,
-    weather: null,
-    speedPoints: [
-      { km: 0, speed: 0 },
-      { km: 0.35, speed: 18 }
-    ]
-  },
+function switchScenario(scenarioKey) {
+  currentScenario = scenarioKey;
 
-  emergency: {
-    roomCode: 'GA-9912',
-    membersCount: 5,
-    distanceKm: '32.4',
-    actualTime: '58m',
-    benchmarkTime: '43m',
-    paceText: '+15 mins vs standard group pace due to emergency SOS roadside check.',
-    maxSpeed: '76 km/h',
-    speedSpikeCount: 0,
-    hasLowData: false,
-    hadEmergency: true,
-    weather: {
-      temp: '22.0°C',
-      cond: 'Overcast',
-      sub: 'Wind 18 km/h • Precip 20%'
-    },
-    speedPoints: [
-      { km: 0, speed: 0 },
-      { km: 5.0, speed: 42 },
-      { km: 11.2, speed: 58 },
-      { km: 18.4, speed: 0 }, // Emergency halt point
-      { km: 24.1, speed: 62 },
-      { km: 32.4, speed: 0 }
-    ]
-  }
-};
-
-let currentStateKey = 'full';
-
-function switchState(stateKey) {
-  currentStateKey = stateKey;
-  
-  // Update state button styles
+  // Update button active state
   document.querySelectorAll('.state-btn').forEach(btn => btn.classList.remove('active'));
-  if (stateKey === 'full') document.getElementById('btnStateFull').classList.add('active');
-  if (stateKey === 'low') document.getElementById('btnStateLow').classList.add('active');
-  if (stateKey === 'emergency') document.getElementById('btnStateEmergency').classList.add('active');
+  if (scenarioKey === 'map-normal') document.getElementById('btnMapNormal').classList.add('active');
+  if (scenarioKey === 'breakdown') document.getElementById('btnBreakdown').classList.add('active');
+  if (scenarioKey === 'separation-rider') document.getElementById('btnSeparationRider').classList.add('active');
+  if (scenarioKey === 'separation-group') document.getElementById('btnSeparationGroup').classList.add('active');
+  if (scenarioKey === 'profile') document.getElementById('btnProfile').classList.add('active');
+  if (scenarioKey === 'sos') document.getElementById('btnSos').classList.add('active');
 
-  const data = MOCK_DATA[stateKey];
-
-  // Hero Card updates
-  document.getElementById('roomCodeText').innerText = `ROOM #${data.roomCode}`;
-  document.getElementById('heroSubtitleText').innerText = `Group Ride with ${data.membersCount} Riders • Telemetry Recorded`;
-
-  // Emergency banner
-  const emergencyBanner = document.getElementById('emergencyBanner');
-  if (data.hadEmergency) {
-    emergencyBanner.classList.remove('hidden');
-  } else {
-    emergencyBanner.classList.add('hidden');
-  }
-
-  // Distance Metric
-  if (stateKey === 'low') {
-    document.getElementById('distanceValue').innerText = '350';
-    document.getElementById('distanceUnit').innerText = 'm';
-  } else {
-    document.getElementById('distanceValue').innerText = data.distanceKm;
-    document.getElementById('distanceUnit').innerText = 'km';
-  }
-
-  // Time Comparison
-  document.getElementById('actualTimeValue').innerText = data.actualTime;
-  document.getElementById('benchmarkTimeValue').innerText = data.benchmarkTime;
-  document.getElementById('paceExplanationText').innerText = data.paceText;
-
-  // Speed Profile vs Low Data
-  const chartContainer = document.getElementById('chartContainer');
-  const lowDataBanner = document.getElementById('lowDataBanner');
-  const speedPeakBadge = document.getElementById('speedPeakBadge');
-
-  if (data.hasLowData) {
-    chartContainer.classList.add('hidden');
-    lowDataBanner.classList.remove('hidden');
-    speedPeakBadge.classList.add('hidden');
-    document.getElementById('lowDataText').innerText = data.lowDataReason;
-  } else {
-    chartContainer.classList.remove('hidden');
-    lowDataBanner.classList.add('hidden');
-    speedPeakBadge.classList.remove('hidden');
-    document.getElementById('speedPeakText').innerText = `Max: ${data.maxSpeed}`;
-    renderSvgChart(data.speedPoints);
-  }
-
-  // Weather Section
-  const weatherContent = document.getElementById('weatherContent');
-  const weatherEmpty = document.getElementById('weatherEmpty');
-
-  if (data.weather) {
-    weatherContent.classList.remove('hidden');
-    weatherEmpty.classList.add('hidden');
-    document.getElementById('weatherTemp').innerText = data.weather.temp;
-    document.getElementById('weatherCond').innerText = data.weather.cond;
-    document.getElementById('weatherDetails').innerText = data.weather.sub;
-  } else {
-    weatherContent.classList.add('hidden');
-    weatherEmpty.classList.remove('hidden');
-  }
+  renderActiveScreen();
 }
 
-function renderSvgChart(points) {
-  if (!points || points.length === 0) return;
-
-  const width = 340;
-  const height = 110;
-  const maxSpeed = Math.max(...points.map(p => p.speed), 80);
-  const maxKm = points[points.length - 1].km || 1;
-
-  // Compute SVG coordinates
-  const coords = points.map(pt => {
-    const x = (pt.km / maxKm) * width;
-    const y = height - (pt.speed / maxSpeed) * (height - 20) - 10;
-    return { x, y, pt };
-  });
-
-  // Build SVG path string
-  let pathD = `M ${coords[0].x} ${coords[0].y}`;
-  for (let i = 1; i < coords.length; i++) {
-    pathD += ` L ${coords[i].x} ${coords[i].y}`;
-  }
-
-  const areaD = `${pathD} L ${coords[coords.length - 1].x} ${height} L ${coords[0].x} ${height} Z`;
-
-  document.getElementById('speedLinePath').setAttribute('d', pathD);
-  document.getElementById('speedAreaPath').setAttribute('d', areaD);
-
-  // Render SVG nodes
-  const nodesGroup = document.getElementById('svgNodesGroup');
-  nodesGroup.innerHTML = '';
-
-  coords.forEach((coord, idx) => {
-    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('cx', coord.x);
-    circle.setAttribute('cy', coord.y);
-    circle.setAttribute('r', coord.pt.isSpike ? '5.5' : '4');
-    circle.setAttribute('fill', coord.pt.isSpike ? '#F59E0B' : '#2F80ED');
-    circle.setAttribute('stroke', '#0B130E');
-    circle.setAttribute('stroke-width', '1.5');
-    circle.setAttribute('class', 'chart-node');
-
-    circle.onclick = () => selectWaypoint(coord.pt);
-    nodesGroup.appendChild(circle);
-  });
-
-  // Distance axis
-  const axisContainer = document.getElementById('distanceAxis');
-  axisContainer.innerHTML = '';
-  const stepCount = 5;
-  for (let i = 0; i <= stepCount; i++) {
-    const kmVal = ((maxKm / stepCount) * i).toFixed(1);
-    const labelSpan = document.createElement('span');
-    labelSpan.innerText = `${kmVal}k`;
-    axisContainer.appendChild(labelSpan);
-  }
-
-  // Select default highlighted point (e.g. spike point or peak point)
-  const spikePoint = points.find(p => p.isSpike) || points[Math.floor(points.length / 2)];
-  selectWaypoint(spikePoint);
+function toggleSnapshot() {
+  isSnapshotExpanded = !isSnapshotExpanded;
+  renderActiveScreen();
 }
 
-function selectWaypoint(pt) {
-  const kmEl = document.getElementById('tooltipKm');
-  const tagEl = document.getElementById('tooltipTag');
-  const speedEl = document.getElementById('tooltipSpeed');
+function renderActiveScreen() {
+  const container = document.getElementById('activeScreenContent');
+  if (!container) return;
 
-  kmEl.innerText = `Waypoint at ${pt.km} km`;
-  speedEl.innerText = `${pt.speed} km/h`;
+  if (currentScenario === 'map-normal') {
+    container.innerHTML = `
+      <div class="header-row">
+        <div>
+          <span class="eyebrow">GROUP CODE GA-8821</span>
+          <h2 class="page-title">Saturday Valley Loop</h2>
+        </div>
+        <span class="end-link">End ride</span>
+      </div>
 
-  if (pt.isSpike) {
-    tagEl.innerText = 'Speed Spike Flagged';
-    tagEl.className = 'tooltip-tag warning';
-  } else {
-    tagEl.innerText = 'Cruising Telemetry';
-    tagEl.className = 'tooltip-tag';
+      <div class="map-canvas">
+        <span class="road-label">VALLEY HIGHWAY (N-2)</span>
+        <div class="route-line-1"></div>
+        <div class="route-line-2"></div>
+        <div class="marker you">YOU</div>
+        <div class="marker m">M</div>
+        <div class="marker j">J</div>
+      </div>
+
+      <div class="roster-card">
+        <span class="roster-title">Ride Group Members (4 Riders)</span>
+        <div class="roster-item">
+          <div class="dot green"></div>
+          <div class="roster-col">
+            <div class="roster-name">Alex Vance (You)</div>
+            <div class="roster-vehicle">Bajaj Pulsar 150 · BA 2 PA 1234</div>
+          </div>
+        </div>
+        <div class="roster-item">
+          <div class="dot green"></div>
+          <div class="roster-col">
+            <div class="roster-name">Jordan Lee</div>
+            <div class="roster-vehicle">KTM Duke 390 · BA 1 PA 9901</div>
+          </div>
+        </div>
+        <div class="roster-item">
+          <div class="dot green"></div>
+          <div class="roster-col">
+            <div class="roster-name">Maya Lin</div>
+            <div class="roster-vehicle">Yamaha MT-07 · BA 4 PA 4410</div>
+          </div>
+        </div>
+        <div class="roster-item">
+          <div class="dot gray"></div>
+          <div class="roster-col">
+            <div class="roster-name">Sam Miller</div>
+            <div class="roster-vehicle">Royal Enfield Interceptor 650 (Cached)</div>
+          </div>
+        </div>
+      </div>
+
+      <button class="action-btn" style="background:#2B2008; border:1px solid #F59E0B; color:#F59E0B;" onclick="switchScenario('breakdown')">
+        ⚠️ Report Breakdown (Press & Hold)
+      </button>
+    `;
+  }
+
+  else if (currentScenario === 'breakdown') {
+    container.innerHTML = `
+      <div class="header-row">
+        <div>
+          <span class="eyebrow">GROUP CODE GA-8821</span>
+          <h2 class="page-title">Saturday Valley Loop</h2>
+        </div>
+        <span class="end-link">End ride</span>
+      </div>
+
+      <!-- BREAKDOWN ALERT BANNER (#F59E0B) -->
+      <div class="breakdown-banner">
+        <div class="breakdown-header">
+          <div>
+            <span class="badge-warning">⚠️ VEHICLE BREAKDOWN</span>
+            <div class="breakdown-title">Jordan Lee's KTM Duke 390</div>
+          </div>
+          <button class="resolve-btn" onclick="switchScenario('map-normal')">Clear / Rejoined</button>
+        </div>
+        <div class="breakdown-reason-text">REASON: 🛞 Flat Tire</div>
+        <div class="breakdown-meta">Plate: BA 1 PA 9901 · Color: Obsidian Black</div>
+        <div class="breakdown-note">"Rear tire punctured on gravel segment near KM 18."</div>
+
+        <!-- PRIVACY-GATED MEDICAL SNAPSHOT -->
+        <div class="medical-snapshot-box">
+          <div class="snapshot-toggle" onclick="toggleSnapshot()">
+            <span class="snapshot-toggle-text">🩸 Emergency Medical ID Snapshot ${isSnapshotExpanded ? '▲ Hide' : '▼ View'}</span>
+            <span style="font-size:9px; color:#A3B8A8;">Gated Payload</span>
+          </div>
+          ${isSnapshotExpanded ? `
+            <div class="snapshot-body">
+              <div><strong>Blood Group:</strong> O+</div>
+              <div><strong>Allergies:</strong> Penicillin</div>
+              <div><strong>Emergency Contact:</strong> Sarah Vance +1-555-0199</div>
+              <div><strong>Notes:</strong> Wears prescription glasses under visor.</div>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+
+      <div class="map-canvas">
+        <span class="road-label">VALLEY HIGHWAY (N-2)</span>
+        <div class="route-line-1"></div>
+        <div class="route-line-2"></div>
+        <div class="marker you">YOU</div>
+        <div class="breakdown-pin">⚠️ REPAIR</div>
+      </div>
+
+      <div class="roster-card">
+        <span class="roster-title">Group Roster</span>
+        <div class="roster-item">
+          <div class="dot amber"></div>
+          <div class="roster-col">
+            <div class="roster-name">Jordan Lee</div>
+            <div class="roster-vehicle">KTM Duke 390 (BREAKDOWN REPORTED)</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  else if (currentScenario === 'separation-rider') {
+    container.innerHTML = `
+      <div class="header-row">
+        <div>
+          <span class="eyebrow">GROUP CODE GA-8821</span>
+          <h2 class="page-title">Saturday Valley Loop</h2>
+        </div>
+        <span class="end-link">End ride</span>
+      </div>
+
+      <!-- SEPARATION BANNER (RIDER VIEW) -->
+      <div class="separation-banner">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="badge-warning">📍 GROUP SEPARATION (>500m)</span>
+          <span style="font-size:10px; color:#A3B8A8;">Auto-clears on reunite</span>
+        </div>
+        <div style="font-size:14px; font-weight:800; margin-top:2px;">You are lagging behind the main group.</div>
+        <div class="speedGuidancePill speed-guidance-pill">
+          ⚡ SUGGESTED TARGET SPEED: 45–55 km/h (Capped Catch-up)
+        </div>
+        <div class="midpoint-text">📍 Meeting Area: Approximate straight-line midpoint ahead (KM 14.2)</div>
+      </div>
+
+      <div class="map-canvas">
+        <span class="road-label">VALLEY HIGHWAY (N-2)</span>
+        <div class="route-line-1"></div>
+        <div class="route-line-2"></div>
+        <div class="marker you">YOU</div>
+        <div class="midpoint-marker">
+          <div class="midpoint-circle"></div>
+          <div class="midpoint-label">APPROXIMATE MEETING AREA</div>
+        </div>
+      </div>
+    `;
+  }
+
+  else if (currentScenario === 'separation-group') {
+    container.innerHTML = `
+      <div class="header-row">
+        <div>
+          <span class="eyebrow">GROUP CODE GA-8821</span>
+          <h2 class="page-title">Saturday Valley Loop</h2>
+        </div>
+        <span class="end-link">End ride</span>
+      </div>
+
+      <!-- SEPARATION BANNER (GROUP VIEW) -->
+      <div class="separation-banner">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="badge-warning">📍 GROUP SEPARATION (>500m)</span>
+          <span style="font-size:10px; color:#A3B8A8;">Auto-clears on reunite</span>
+        </div>
+        <div style="font-size:14px; font-weight:800; margin-top:2px;">Rider Jordan Lee separated from group.</div>
+        <div class="speed-guidance-pill group-slow">
+          🐢 SUGGESTED TARGET SPEED: 30–40 km/h (Capped Slow Down)
+        </div>
+        <div class="midpoint-text">📍 Meeting Area: Approximate straight-line midpoint ahead (KM 14.2)</div>
+      </div>
+
+      <div class="map-canvas">
+        <span class="road-label">VALLEY HIGHWAY (N-2)</span>
+        <div class="route-line-1"></div>
+        <div class="route-line-2"></div>
+        <div class="marker you">YOU</div>
+        <div class="midpoint-marker">
+          <div class="midpoint-circle"></div>
+          <div class="midpoint-label">APPROXIMATE MEETING AREA</div>
+        </div>
+      </div>
+    `;
+  }
+
+  else if (currentScenario === 'profile') {
+    container.innerHTML = `
+      <div>
+        <span class="eyebrow">RIDER PROFILE & SETTINGS</span>
+        <h2 class="page-title">Vehicle & Medical ID</h2>
+      </div>
+
+      <div class="profile-card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:14px; font-weight:800;">🏍️ Vehicle Details</span>
+          <span style="font-size:9px; color:#A3B8A8;">AMBIENT / VISIBLE TO GROUP</span>
+        </div>
+        
+        <div class="field-group">
+          <label class="field-label">VEHICLE MAKE & MODEL</label>
+          <input type="text" class="input-field" value="Bajaj Pulsar 150">
+        </div>
+        <div class="field-group">
+          <label class="field-label">LICENSE PLATE NUMBER</label>
+          <input type="text" class="input-field" value="BA 2 PA 1234">
+        </div>
+        <div class="field-group">
+          <label class="field-label">VEHICLE COLOR</label>
+          <input type="text" class="input-field" value="Matte Black">
+        </div>
+      </div>
+
+      <div class="profile-card medical">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:14px; font-weight:800;">🩸 Rider Medical ID</span>
+          <span style="font-size:9px; color:#F59E0B; background:#382606; padding:2px 6px; border-radius:4px;">GATED — SOS & BREAKDOWN ONLY</span>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">BLOOD GROUP</label>
+          <div class="picker-row">
+            <span class="chip active">O+</span>
+            <span class="chip">O-</span>
+            <span class="chip">A+</span>
+            <span class="chip">B+</span>
+            <span class="chip">AB+</span>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">ALLERGIES (OPTIONAL)</label>
+          <input type="text" class="input-field" value="Penicillin">
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">EMERGENCY CONTACT</label>
+          <input type="text" class="input-field" value="Sarah Vance (Sister) +1-555-0199">
+        </div>
+      </div>
+
+      <button class="action-btn" onclick="switchScenario('map-normal')">Save Rider Profile & Settings</button>
+    `;
+  }
+
+  else if (currentScenario === 'sos') {
+    container.innerHTML = `
+      <div class="sos-page">
+        <div class="sos-badge">!</div>
+        <span class="eyebrow">SOS SENT</span>
+        <h2 class="page-title">Help is being notified.</h2>
+        <p style="font-size:13px; color:#A3B8A8;">Your ride group and listed guardians received your last known location.</p>
+
+        <div class="sos-medical-box">
+          <div style="display:flex; justify-content:space-between;">
+            <strong style="color:#FCA5A5;">🩸 Attached Medical ID Snapshot</strong>
+            <span style="font-size:9px; background:#4D1B1E; padding:2px 6px; border-radius:4px; color:#FCA5A5;">Gated Payload</span>
+          </div>
+          <div><strong>Blood Group:</strong> O+</div>
+          <div><strong>Allergies:</strong> Penicillin</div>
+          <div><strong>Emergency Contact:</strong> Sarah Vance +1-555-0199</div>
+          <div><strong>Vehicle:</strong> Bajaj Pulsar 150 (BA 2 PA 1234)</div>
+        </div>
+
+        <button class="action-btn" style="width:100%;" onclick="switchScenario('map-normal')">Return to Live Map</button>
+      </div>
+    `;
   }
 }
 
 function toggleHandoffModal() {
   const modal = document.getElementById('handoffModal');
-  modal.classList.toggle('hidden');
+  if (modal) modal.classList.toggle('hidden');
 }
 
-// Initial setup on DOM ready
+// Initial render
 document.addEventListener('DOMContentLoaded', () => {
-  switchState('full');
+  renderActiveScreen();
 });

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Guardian Angel — Ride Summary Screen (Core Screen #6)</title>
+  <title>Guardian Angel — UI/UX New Features Interactive Prototype</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
@@ -21,332 +21,88 @@
         </svg>
         <div class="brand-text">
           <span class="brand-name">GUARDIAN ANGEL</span>
-          <span class="screen-label">Core Screen #6 — Post-Ride Summary</span>
+          <span class="screen-label">UI/UX Handoff — Breakdown, Medical ID, Separation & Vehicle Info</span>
         </div>
       </div>
 
-      <!-- STATE CONTROLS -->
+      <!-- STATE SWITCHER -->
       <div class="state-controls">
-        <span class="controls-label">PREVIEW STATE:</span>
-        <button id="btnStateFull" class="state-btn active" onclick="switchState('full')">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-          Full Telemetry Data
+        <span class="controls-label">PREVIEW SCENARIO:</span>
+        <button id="btnMapNormal" class="state-btn active" onclick="switchScenario('map-normal')">
+          1. Map (Normal + Ambient Roster)
         </button>
-        <button id="btnStateLow" class="state-btn" onclick="switchState('low')">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          Low-Data / Telemetry Gap
+        <button id="btnBreakdown" class="state-btn" onclick="switchScenario('breakdown')">
+          2. Vehicle Breakdown (#F59E0B)
         </button>
-        <button id="btnStateEmergency" class="state-btn" onclick="switchState('emergency')">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          Emergency Incident Ride
+        <button id="btnSeparationRider" class="state-btn" onclick="switchScenario('separation-rider')">
+          3. Separation (Rider View)
+        </button>
+        <button id="btnSeparationGroup" class="state-btn" onclick="switchScenario('separation-group')">
+          4. Separation (Group View)
+        </button>
+        <button id="btnProfile" class="state-btn" onclick="switchScenario('profile')">
+          5. Rider Profile & Medical ID
+        </button>
+        <button id="btnSos" class="state-btn" onclick="switchScenario('sos')">
+          6. SOS Emergency (+ Medical ID)
         </button>
         <button class="handoff-btn" onclick="toggleHandoffModal()">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          Person 4 Dev Specs
+          📐 Figma & Dev Specs
         </button>
       </div>
     </div>
   </header>
 
-  <!-- MAIN APP PROTOTYPE CONTAINER -->
+  <!-- MAIN PROTOTYPE CONTAINER -->
   <main class="prototype-wrapper">
     <div class="device-frame">
-
-      <!-- MOBILE SCREEN CONTAINER -->
+      
+      <!-- MOBILE PHONE SCREEN CONTAINER -->
       <div id="screenContainer" class="mobile-screen">
 
-        <!-- 1. HERO HEADER BLOCK -->
-        <section class="hero-card">
-          <div class="status-bar-row">
-            <div class="status-pill">
-              <span class="status-dot"></span>
-              <span class="status-text">RIDE COMPLETED SAFELY</span>
-            </div>
-            <span class="room-code-tag" id="roomCodeText">ROOM #GA-8821</span>
-          </div>
-
-          <h1 class="hero-title">Post-Ride Summary</h1>
-          <p class="hero-subtitle" id="heroSubtitleText">
-            Group Ride with 4 Riders • Telemetry Recorded
-          </p>
-
-          <!-- Emergency Banner (Hidden by default) -->
-          <div id="emergencyBanner" class="emergency-banner hidden">
-            <div class="emergency-header">
-              <svg class="emergency-icon" viewBox="0 0 24 24" fill="none" stroke="#DC2626" stroke-width="2"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              <span class="emergency-title">SOS Incident Recorded & Resolved</span>
-            </div>
-            <p class="emergency-desc">
-              An emergency alert was triggered at km 18.4 during this ride. Your ride group acknowledged the incident and confirmed rider safety.
-            </p>
-          </div>
-        </section>
-
-        <!-- 2. ASYMMETRICAL RHYTHM METRICS STACK -->
-        <section class="metrics-stack">
-
-          <!-- Total Distance Hero Metric -->
-          <div class="distance-metric-card">
-            <div class="metric-label-group">
-              <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2"><path d="M18 6L6 18"/><path d="M8 6h10v10"/></svg>
-              <span class="metric-label">TOTAL DISTANCE COVERED</span>
-            </div>
-            <div class="distance-display">
-              <span id="distanceValue" class="distance-num">48.2</span>
-              <span id="distanceUnit" class="distance-unit">km</span>
-            </div>
-            <span class="metric-foot-note">Verified via spatial PostGIS telemetry</span>
-          </div>
-
-          <!-- Expected vs Actual Honest Pace Comparison -->
-          <div class="pace-benchmark-card">
-            <span class="metric-label">ACTUAL DURATION vs PACE BENCHMARK</span>
-            
-            <div class="time-comparison-grid">
-              <div class="time-stat-box">
-                <span class="time-stat-label">Actual Time</span>
-                <span id="actualTimeValue" class="time-stat-value">1h 12m</span>
-              </div>
-
-              <div class="time-divider"></div>
-
-              <div class="time-stat-box">
-                <span class="time-stat-label">Pace Benchmark</span>
-                <span id="benchmarkTimeValue" class="time-stat-value">1h 04m</span>
-              </div>
-            </div>
-
-            <!-- Honest Pace Explanation -->
-            <div id="paceExplanationBox" class="pace-explanation-box">
-              <svg class="info-icon" viewBox="0 0 24 24" fill="none" stroke="#A3B8A8" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-              <p id="paceExplanationText" class="pace-text">
-                +8 mins vs standard group pace (45 km/h avg). Accounts for group regrouping stops along the route.
-              </p>
-            </div>
-          </div>
-
-        </section>
-
-        <!-- 3. SPEED PROFILE SECTION (Downsampled Chart vs Low-Data Banner) -->
-        <section class="speed-profile-section">
-          <div class="section-header">
-            <div>
-              <h2 class="section-title">Route Speed Profile</h2>
-              <span class="section-subtitle">Downsampled telemetry trace • Bounded GPS points</span>
-            </div>
-            <div id="speedPeakBadge" class="peak-badge">
-              <span id="speedPeakText">Max: 84 km/h</span>
-            </div>
-          </div>
-
-          <!-- DOWNSAMPLED CHART VIEW -->
-          <div id="chartContainer" class="chart-view">
-            <div class="chart-legend">
-              <span class="legend-item">
-                <span class="legend-dot normal"></span> Cruising Pace
-              </span>
-              <span id="spikeLegendItem" class="legend-item">
-                <span class="legend-dot warning"></span> 1 Speed Spike Flagged
-              </span>
-            </div>
-
-            <!-- Interactive SVG Speed Curve & Waypoint Nodes -->
-            <div class="svg-chart-wrapper">
-              <svg id="speedSvgChart" viewBox="0 0 340 120" preserveAspectRatio="none">
-                <defs>
-                  <linearGradient id="speedGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="#2F80ED" stop-opacity="0.35"/>
-                    <stop offset="100%" stop-color="#2F80ED" stop-opacity="0.0"/>
-                  </linearGradient>
-                </defs>
-                <path id="speedAreaPath" fill="url(#speedGrad)" d=""/>
-                <path id="speedLinePath" fill="none" stroke="#2F80ED" stroke-width="2.5" d=""/>
-                <g id="svgNodesGroup"></g>
-              </svg>
-            </div>
-
-            <!-- Distance Axis Labels -->
-            <div id="distanceAxis" class="distance-axis"></div>
-
-            <!-- Interactive Waypoint Tooltip Callout -->
-            <div id="chartTooltip" class="chart-tooltip">
-              <div class="tooltip-header">
-                <span id="tooltipKm" class="tooltip-km">Waypoint at 34.2 km</span>
-                <span id="tooltipTag" class="tooltip-tag warning">Speed Spike</span>
-              </div>
-              <div class="tooltip-body">
-                Recorded Speed: <strong id="tooltipSpeed">84 km/h</strong> (Exceeded 75 km/h route threshold)
-              </div>
-            </div>
-            <span class="chart-hint">Tap any waypoint node on the curve to inspect telemetry speed</span>
-          </div>
-
-          <!-- LOW DATA STATE BANNER (Shown when low-data state is active) -->
-          <div id="lowDataBanner" class="low-data-banner hidden">
-            <div class="low-data-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            </div>
-            <h3 class="low-data-title">Speed Chart Unavailable</h3>
-            <p id="lowDataText" class="low-data-desc">
-              Ride distance was under 500 meters. Speed profiles require a minimum route distance to generate meaningful telemetry graphs.
-            </p>
-          </div>
-
-        </section>
-
-        <!-- 4. SIDEBAR & FUTURE-READY SLOTS -->
-        <section class="context-grid">
-
-          <!-- Group Context Slot -->
-          <div class="context-card">
-            <span class="context-title">RIDE GROUP CONTEXT</span>
-            <div class="group-member-item">
-              <div class="member-avatar">YOU</div>
-              <div class="member-details">
-                <span class="member-name">Alex Vance</span>
-                <span class="member-status">Completed ride with group</span>
-              </div>
-            </div>
-            <div class="group-pace-note">
-              <span>All 4 group members arrived at destination safely.</span>
-            </div>
-          </div>
-
-          <!-- Reserved Weather Retrospective Slot -->
-          <div class="context-card">
-            <span class="context-title">RIDE CONDITIONS</span>
-            <div id="weatherContent" class="weather-content">
-              <div class="weather-temp-badge">
-                <span id="weatherTemp">24.5°C</span>
-              </div>
-              <div class="weather-meta">
-                <span id="weatherCond" class="weather-cond">Clear Sky</span>
-                <span id="weatherDetails" class="weather-sub">Wind 14 km/h • Precip 0%</span>
-              </div>
-            </div>
-            <div id="weatherEmpty" class="weather-empty hidden">
-              <span>Weather telemetry unavailable for this ride timeframe.</span>
-            </div>
-          </div>
-
-        </section>
-
-        <!-- 5. SPECIFIC CTAs -->
-        <section class="action-footer">
-          <button class="btn-primary-action" onclick="alert('Navigating to Session Portal...')">
-            Return to Session Portal
-          </button>
-          <button class="btn-secondary-action" onclick="alert('Exporting GPX Track Log...')">
-            Export GPX Track Log
-          </button>
-        </section>
+        <!-- CONTENT WILL BE INJECTED DYNAMICALLY BY APP.JS -->
+        <div id="activeScreenContent"></div>
 
       </div>
+
     </div>
-
-    <!-- DESIGN JUSTIFICATION & COPY AUDIT SIDEBAR -->
-    <aside class="design-side-panel">
-
-      <!-- PALETTE JUSTIFICATION CARD -->
-      <div class="side-card">
-        <h3 class="side-title">
-          <svg class="side-icon" viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
-          Brand Palette Rationale
-        </h3>
-        <ul class="palette-list">
-          <li>
-            <span class="color-swatch bg-forest"></span>
-            <div>
-              <strong>#14532D (Primary Green):</strong> Cards, header structure & calm grounding.
-            </div>
-          </li>
-          <li>
-            <span class="color-swatch bg-success"></span>
-            <div>
-              <strong>#16A34A (Success Green):</strong> Primary accent, ride completion & distance hero.
-            </div>
-          </li>
-          <li>
-            <span class="color-swatch bg-blue"></span>
-            <div>
-              <strong>#2F80ED (Marker Blue):</strong> Route speed trace & active telemetry waypoints.
-            </div>
-          </li>
-          <li>
-            <span class="color-swatch bg-amber"></span>
-            <div>
-              <strong>#F59E0B (Warning Amber):</strong> Speed spike alerts & low telemetry warnings.
-            </div>
-          </li>
-          <li>
-            <span class="color-swatch bg-red"></span>
-            <div>
-              <strong>#DC2626 (Emergency Red):</strong> SOS incident callout (if triggered).
-            </div>
-          </li>
-        </ul>
-      </div>
-
-      <!-- COPY AUDIT & ANTI-SLAAS CHECKLIST -->
-      <div class="side-card">
-        <h3 class="side-title">
-          <svg class="side-icon" viewBox="0 0 24 24" fill="none" stroke="#2F80ED" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          Copywriting & UX Quality Audit
-        </h3>
-        <div class="audit-checklist">
-          <div class="audit-item pass">
-            <span class="check-mark">✓</span>
-            <span><strong>No Inflated SaaS Buzzwords:</strong> Banned "seamless", "unlock", "empower", "revolutionize".</span>
-          </div>
-          <div class="audit-item pass">
-            <span class="check-mark">✓</span>
-            <span><strong>Honest Pace Estimate:</strong> Labeled as post-hoc distance benchmark, not predictive ETA.</span>
-          </div>
-          <div class="audit-item pass">
-            <span class="check-mark">✓</span>
-            <span><strong>Concrete Action CTAs:</strong> "Return to Session Portal" & "Export GPX Track Log" instead of generic "Get Started".</span>
-          </div>
-          <div class="audit-item pass">
-            <span class="check-mark">✓</span>
-            <span><strong>Zero Emojis:</strong> All UI elements use vector SVG iconography with clear hierarchy.</span>
-          </div>
-        </div>
-      </div>
-
-    </aside>
   </main>
 
-  <!-- PERSON 4 DEV HANDOFF MODAL -->
-  <div id="handoffModal" class="modal-overlay hidden" onclick="if(event.target===this) toggleHandoffModal()">
-    <div class="modal-card">
+  <!-- DEV SPECS HANDOFF MODAL -->
+  <div id="handoffModal" class="modal-backdrop hidden">
+    <div class="modal-window">
       <div class="modal-header">
-        <h2 class="modal-title">Person 4 — React Native Implementation Specs</h2>
-        <button class="modal-close" onclick="toggleHandoffModal()">✕</button>
+        <div class="modal-title-group">
+          <h3>Guardian Angel Design System & Contract Specs</h3>
+          <span class="modal-subtitle">Figma File: pkDFVZSUjhwfCPGlJj2iTq · Color Tokens & Hierarchy</span>
+        </div>
+        <button class="close-btn" onclick="toggleHandoffModal()">✕</button>
       </div>
       <div class="modal-body">
-        <h3>1. Component Path & Interface</h3>
-        <p class="code-filepath">mobile/src/ui/RideSummaryScreen.tsx</p>
-        <pre class="code-block"><code>import { RideSummaryScreen } from './src/ui/RideSummaryScreen';
+        
+        <h4>1. Color System Compliance</h4>
+        <div class="spec-grid">
+          <div class="spec-card"><span class="swatch" style="background:#14532D"></span><code>#14532D</code> Primary / Map Forest</div>
+          <div class="spec-card"><span class="swatch" style="background:#2F80ED"></span><code>#2F80ED</code> Active Markers & Route Tracks</div>
+          <div class="spec-card"><span class="swatch" style="background:#F59E0B"></span><code>#F59E0B</code> Offline / Breakdown / Separation</div>
+          <div class="spec-card"><span class="swatch" style="background:#DC2626"></span><code>#DC2626</code> SOS Emergency Broadcasts</div>
+          <div class="spec-card"><span class="swatch" style="background:#16A34A"></span><code>#16A34A</code> Connected / Success Tier</div>
+        </div>
 
-// Accept data contract payload
-&lt;RideSummaryScreen 
-  data={summaryData} 
-  onReturnToPortal={() => navigation.navigate('SessionPortal')}
-  onExportGpx={() => handleExportGpx(summaryData.room_id)}
-/&gt;</code></pre>
-
-        <h3>2. Chart Interaction Guidelines</h3>
-        <ul>
-          <li><strong>Downsampled Bounded Array:</strong> The backend returns 12–25 downsampled telemetry points. Do not render hundreds of raw GPS pings.</li>
-          <li><strong>Static Curve + Tap Target:</strong> Keep chart static (non-scrollable). Each waypoint node has a minimum touch target size of 32x32dp.</li>
-          <li><strong>Speed Spike Logic:</strong> Render point in Amber (<code>#F59E0B</code>) if <code>is_speed_spike: true</code>.</li>
+        <h4 style="margin-top:16px;">2. Stacked Alert Visual Hierarchy</h4>
+        <ul class="spec-list">
+          <li><strong>Tier 1 (SOS `#DC2626`):</strong> Always at top. Full-screen countdown / broadcast modal.</li>
+          <li><strong>Tier 2 (Breakdown `#F59E0B`):</strong> Vehicle issue banner. Suppresses generic separation for that rider.</li>
+          <li><strong>Tier 3 (Separation `#F59E0B`):</strong> Distance >500m for ≥30s. Shows capped target speed + approximate midpoint.</li>
         </ul>
 
-        <h3>3. Graceful Unavailable / Low-Data Logic</h3>
-        <ul>
-          <li>If <code>total_distance_meters &lt; 500</code> or <code>speed_profile.length &lt; 3</code>, set <code>has_low_data: true</code>.</li>
-          <li>Do not throw error or display empty chart container—render the low-data banner.</li>
-        </ul>
+        <h4 style="margin-top:16px;">3. Privacy-First Medical ID Rule</h4>
+        <p class="spec-text">
+          Medical fields (Blood group, allergies, emergency contact) are <strong>never</strong> displayed ambiently in group rosters.
+          They are only snapshot-attached to <code>sos:broadcast</code> and <code>vehicle:breakdownReported</code> payloads.
+          If medical fields are omitted by the user, empty placeholder cards are strictly suppressed.
+        </p>
+
       </div>
     </div>
   </div>
