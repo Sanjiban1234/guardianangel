@@ -10,7 +10,7 @@ export interface RegisterResult {
 
 export interface LoginResult {
   token: string;
-  user: { id: string; name: string };
+  user: { id: string; name: string; profile_complete: boolean };
 }
 
 export class UserService {
@@ -35,7 +35,7 @@ export class UserService {
     const passwordHash = await bcrypt.hash(password, salt);
 
     const result = await this.db.run(
-      'INSERT INTO users (name, password_hash, phone) VALUES ($1, $2, $3) RETURNING id, name',
+      'INSERT INTO users (name, password_hash, phone, profile_complete) VALUES ($1, $2, $3, true) RETURNING id, name',
       [name, passwordHash, phone]
     );
 
@@ -71,7 +71,7 @@ export class UserService {
 
     return {
       token,
-      user: { id: user.id, name: user.name },
+      user: { id: user.id, name: user.name, profile_complete: user.profile_complete !== false },
     };
   }
 

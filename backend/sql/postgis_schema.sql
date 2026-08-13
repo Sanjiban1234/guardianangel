@@ -15,6 +15,9 @@ CREATE TABLE IF NOT EXISTS ride_rooms (
   token_hash TEXT NOT NULL UNIQUE,
   creator_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  destination_latitude DOUBLE PRECISION,
+  destination_longitude DOUBLE PRECISION,
+  destination_label TEXT,
   status TEXT NOT NULL DEFAULT 'active'
     CHECK (status IN ('active', 'ended')),
   ended_at TIMESTAMPTZ
@@ -23,14 +26,24 @@ CREATE TABLE IF NOT EXISTS ride_rooms (
 CREATE TABLE IF NOT EXISTS room_members (
   room_id UUID NOT NULL REFERENCES ride_rooms(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role TEXT NOT NULL DEFAULT 'rider'
-    CHECK (role IN ('rider', 'guardian')),
+  role TEXT NOT NULL DEFAULT 'member'
+    CHECK (role IN ('owner', 'member', 'guardian')),
   joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (room_id, user_id)
 );
 
 CREATE INDEX IF NOT EXISTS room_members_user_room_idx
   ON room_members (user_id, room_id);
+
+CREATE TABLE IF NOT EXISTS refill_notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id UUID NOT NULL REFERENCES ride_rooms(id) ON DELETE CASCADE,
+  rider_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  note TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS refill_notifications_room_created_idx
+  ON refill_notifications (room_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS telemetry_readings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

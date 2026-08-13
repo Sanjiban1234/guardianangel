@@ -1,6 +1,6 @@
 // mobile/src/safety/crash/useCrashDetection.ts
 import { useEffect, useRef, useState } from 'react';
-import { accelerometer, gyroscope, setUpdateIntervalForType, SensorTypes } from 'react-native-sensors';
+import { accelerometer, gyroscope, setUpdateIntervalForType, SensorTypes, type SensorData } from 'react-native-sensors';
 import { CrashDetector } from './crashDetector';
 import { fetchDetectionConfig } from './fetchDetectionConfig';
 import { CrashCandidateEvent, CrashDetectorState, TelemetryReading, DEFAULT_DETECTION_CONFIG } from './types';
@@ -46,10 +46,10 @@ export function useCrashDetection(options: UseCrashDetectionOptions = {}) {
     const unsubState = detector.onStateChange(setState);
     const unsubCandidate = detector.onCandidate(setLastCandidate);
 
-    const accelSub = accelerometer.subscribe(({ x, y, z, timestamp }) =>
+    const accelSub = accelerometer.subscribe(({ x, y, z, timestamp }: SensorData) =>
       detector.feedAccelerometer({ x, y, z, timestamp })
     );
-    const gyroSub = gyroscope.subscribe(({ x, y, z, timestamp }) =>
+    const gyroSub = gyroscope.subscribe(({ x, y, z, timestamp }: SensorData) =>
       detector.feedGyroscope({ x, y, z, timestamp })
     );
     const telemetrySub = telemetryStream$?.subscribe((r) => detector.feedTelemetry(r));

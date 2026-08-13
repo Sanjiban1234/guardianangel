@@ -41,12 +41,17 @@ export const initDb = async (): Promise<void> => {
         geohash VARCHAR(20),
         password_hash VARCHAR(255) NOT NULL,
         role TEXT NOT NULL DEFAULT 'rider' CHECK (role IN ('rider', 'admin')),
+        profile_complete BOOLEAN NOT NULL DEFAULT true,
         created_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(name)
       )
     `);
     // Existing installations predate the application-level admin role.
     await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'rider'");
+    // Registration already requires name, password, and E.164 phone. Existing
+    // users therefore remain complete; the flag supports a safe gate if a
+    // legacy/imported account is deliberately marked incomplete.
+    await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_complete BOOLEAN NOT NULL DEFAULT true");
 
     // Active Riders table (ER: GroupCode, IncludeID, GeoHash, type of Operation)
     await client.query(`
@@ -130,22 +135,32 @@ export const initDb = async (): Promise<void> => {
         token_hash TEXT NOT NULL UNIQUE,
         creator_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        destination_latitude DOUBLE PRECISION,
+        destination_longitude DOUBLE PRECISION,
+        destination_label TEXT,
         status TEXT NOT NULL DEFAULT 'active'
           CHECK (status IN ('active', 'ended')),
         ended_at TIMESTAMPTZ
       )
     `);
+    await client.query('ALTER TABLE ride_rooms ADD COLUMN IF NOT EXISTS destination_latitude DOUBLE PRECISION');
+    await client.query('ALTER TABLE ride_rooms ADD COLUMN IF NOT EXISTS destination_longitude DOUBLE PRECISION');
+    await client.query('ALTER TABLE ride_rooms ADD COLUMN IF NOT EXISTS destination_label TEXT');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS room_members (
         room_id UUID NOT NULL REFERENCES ride_rooms(id) ON DELETE CASCADE,
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        role TEXT NOT NULL DEFAULT 'rider'
-          CHECK (role IN ('rider', 'guardian')),
+        role TEXT NOT NULL DEFAULT 'member'
+          CHECK (role IN ('owner', 'member', 'guardian')),
         joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY (room_id, user_id)
       )
     `);
+    await client.query('ALTER TABLE room_members DROP CONSTRAINT IF EXISTS room_members_role_check');
+    await client.query("ALTER TABLE room_members ALTER COLUMN role SET DEFAULT 'member'");
+    await client.query("UPDATE room_members SET role = 'member' WHERE role = 'rider'");
+    await client.query("ALTER TABLE room_members ADD CONSTRAINT room_members_role_check CHECK (role IN ('owner', 'member', 'guardian'))");
     await client.query('CREATE INDEX IF NOT EXISTS room_members_user_room_idx ON room_members (user_id, room_id)');
 
     // Add room_id FK to emergency_alarms now that ride_rooms exists
@@ -260,6 +275,17 @@ export const initDb = async (): Promise<void> => {
       )
     `);
     await client.query('CREATE INDEX IF NOT EXISTS vehicle_breakdowns_room_user_idx ON vehicle_breakdowns (room_id, user_id, reported_at DESC)');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS refill_notifications (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        room_id UUID NOT NULL REFERENCES ride_rooms(id) ON DELETE CASCADE,
+        rider_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        note TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS refill_notifications_room_created_idx ON refill_notifications (room_id, created_at DESC)');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS device_tokens (

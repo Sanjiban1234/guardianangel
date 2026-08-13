@@ -38,6 +38,7 @@ describe('Ride Room REST Endpoints & Access Control', () => {
     });
 
     it('should create room and auto-join the creator', async () => {
+      mockedQuery.mockResolvedValueOnce({ rows: [{ profile_complete: true }] } as any);
       mockedQuery.mockResolvedValueOnce({
         rows: [{ id: mockRoomId }]
       } as any);
@@ -46,21 +47,25 @@ describe('Ride Room REST Endpoints & Access Control', () => {
       const response = await request(app)
         .post('/api/rooms')
         .set('Authorization', `Bearer ${userToken}`)
-        .send({});
+        .send({ destination: { latitude: 28.2096, longitude: 83.9856, label: 'Pokhara' } });
 
       expect(response.status).toBe(201);
       expect(response.body).toHaveProperty('room_id', mockRoomId);
       expect(response.body).toHaveProperty('group_code');
       expect(response.body).toHaveProperty('creator_id', mockUser.id);
-      expect(mockedQuery).toHaveBeenCalledTimes(2);
+      expect(response.body.destination).toEqual({ latitude: 28.2096, longitude: 83.9856, label: 'Pokhara' });
+      expect(mockedQuery).toHaveBeenCalledTimes(3);
     });
   });
 
   describe('POST /api/rooms/join (Join Room)', () => {
     it('should join an active room successfully', async () => {
+      mockedQuery.mockResolvedValueOnce({ rows: [{ profile_complete: true }] } as any);
       mockedQuery.mockResolvedValueOnce({
-        rows: [{ id: mockRoomId, status: 'active' }]
+        rows: [{ id: mockRoomId, status: 'active', expires_at: new Date(Date.now() + 3600000).toISOString() }]
       } as any);
+      mockedQuery.mockResolvedValueOnce({ rows: [] } as any);
+      mockedQuery.mockResolvedValueOnce({ rows: [{ count: 1 }] } as any);
       mockedQuery.mockResolvedValueOnce({ rows: [] } as any);
 
       const response = await request(app)
@@ -74,6 +79,7 @@ describe('Ride Room REST Endpoints & Access Control', () => {
     });
 
     it('should block joining ended rooms', async () => {
+      mockedQuery.mockResolvedValueOnce({ rows: [{ profile_complete: true }] } as any);
       mockedQuery.mockResolvedValueOnce({
         rows: [{ id: mockRoomId, status: 'ended' }]
       } as any);
@@ -88,6 +94,7 @@ describe('Ride Room REST Endpoints & Access Control', () => {
     });
 
     it('should return 404 for invalid token', async () => {
+      mockedQuery.mockResolvedValueOnce({ rows: [{ profile_complete: true }] } as any);
       mockedQuery.mockResolvedValueOnce({ rows: [] } as any);
 
       const response = await request(app)

@@ -105,4 +105,32 @@ export class FcmPushService {
       );
     }
   }
+
+  /** Send an informational petrol-refill request to the other room riders. */
+  async sendRefillPush(
+    targetUserIds: string[],
+    payload: { refill_id: string; user_id: string; name: string; group_code: string; note?: string; created_at: number }
+  ): Promise<void> {
+    if (!targetUserIds || targetUserIds.length === 0) return;
+    try {
+      const result = await this.db.run(
+        `SELECT token FROM device_tokens WHERE user_id = ANY($1)`,
+        [targetUserIds]
+      );
+      const tokens: string[] = result.rows.map((r) => r.token).filter(Boolean);
+      if (tokens.length === 0) return;
+      const body = payload.note
+        ? `${payload.name} requested a petrol refill: ${payload.note}`
+        : `${payload.name} requested a petrol refill`;
+      const data: Record<string, string> = {
+        type: 'petrol_refill', refill_id: payload.refill_id, user_id: payload.user_id,
+        name: payload.name, group_code: payload.group_code, created_at: String(payload.created_at),
+      };
+      if (payload.note) data.note = payload.note;
+      if (this.fcmSender) await this.fcmSender.sendMulticast(tokens, { title: 'Petrol Refill Requested', body }, data);
+      else console.log(`FcmPushService: [MOCK/LOG] Push titled "Petrol Refill Requested" sent to ${tokens.length} device(s)`);
+    } catch (err) {
+      console.error('FcmPushService.sendRefillPush: push send failed (isolated error):', err);
+    }
+  }
 }

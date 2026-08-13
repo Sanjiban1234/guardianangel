@@ -14,6 +14,8 @@ import { BulkSyncHandler } from '../handlers/BulkSyncHandler';
 import { CrashHandler } from '../handlers/CrashHandler';
 import { DisconnectHandler } from '../handlers/DisconnectHandler';
 import { VehicleBreakdownHandler } from '../handlers/VehicleBreakdownHandler';
+import { RefillNotificationHandler } from '../handlers/RefillNotificationHandler';
+import { RefillNotificationService } from '../services/RefillNotificationService';
 
 export class RideSocketController {
   constructor(
@@ -24,7 +26,8 @@ export class RideSocketController {
     private readonly crashRepo: CrashCandidateRepository,
     private readonly coherenceService?: GroupCoherenceService,
     private readonly breakdownService?: VehicleBreakdownService,
-    private readonly medicalService?: MedicalInfoService
+    private readonly medicalService?: MedicalInfoService,
+    private readonly refillService?: RefillNotificationService
   ) {}
 
   register(io: Server): void {
@@ -52,6 +55,7 @@ export class RideSocketController {
       if (this.breakdownService) {
         new VehicleBreakdownHandler(io, socket, roomState, this.breakdownService, this.medicalService).register();
       }
+      if (this.refillService) new RefillNotificationHandler(io, socket, this.refillService).register();
     });
   }
 }

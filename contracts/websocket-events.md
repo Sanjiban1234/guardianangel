@@ -255,3 +255,18 @@ This contract defines the real-time communication events between the Guardian An
   "resolved_at": 1720958500000
 }
 ```
+
+### 20. `refill:requested` (Client → Server)
+- **Description:** A manual, informational petrol-refill request. It has no fuel sensor data, escalation, or alert-suppression effect.
+- **Identity:** The backend uses the authenticated socket identity; client-supplied user IDs are ignored.
+- **Payload Shape:**
+```json
+{ "group_code": "RIDE11ABCDEF", "note": "Stopping for fuel" }
+```
+
+### 21. `refill:notified` (Server → Room Broadcast)
+- **Description:** One-shot notification to the room after membership validation and logging.
+- **Payload Shape:**
+```json
+{ "refill_id": "uuid-string", "user_id": "uuid-string", "name": "sanjiban", "group_code": "RIDE11ABCDEF", "note": "Stopping for fuel", "timestamp": 1720958500000 }
+```

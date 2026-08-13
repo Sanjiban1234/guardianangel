@@ -18,6 +18,7 @@ import { GroupCoherenceService } from './services/GroupCoherenceService';
 import { FcmPushService } from './services/FcmPushService';
 import { VehicleBreakdownService } from './services/VehicleBreakdownService';
 import { MedicalInfoService } from './services/MedicalInfoService';
+import { RefillNotificationService } from './services/RefillNotificationService';
 import { PostgisTelemetryRepository } from './repositories/PostgisTelemetryRepository';
 import { CrashCandidateRepository } from './repositories/CrashCandidateRepository';
 
@@ -49,6 +50,7 @@ const coherenceService   = new GroupCoherenceService(queryRunner);
 const fcmPushService     = new FcmPushService(queryRunner);
 const breakdownService   = new VehicleBreakdownService(queryRunner, fcmPushService);
 const medicalService     = new MedicalInfoService(queryRunner);
+const refillService      = new RefillNotificationService(queryRunner, fcmPushService);
 const telemetryRepo      = new PostgisTelemetryRepository(pool);
 const crashRepo          = new CrashCandidateRepository(queryRunner);
 
@@ -63,7 +65,8 @@ const socketController = new RideSocketController(
   crashRepo,
   coherenceService,
   breakdownService,
-  medicalService
+  medicalService,
+  refillService
 );
 
 // ─── Express + Socket.io setup ─────────────────────────────────────────────

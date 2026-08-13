@@ -232,4 +232,20 @@ export interface VehicleBreakdownResolvedPayload {
   resolved_at: number;
 }
 
+/** 20. refill:requested (Client -> Server), a manual petrol-refill request. */
+export interface RefillRequestedPayload {
+  group_code: string;
+  note?: string;
+}
+
+/** 21. refill:notified (Server -> Room Broadcast), informational only. */
+export interface RefillNotifiedPayload {
+  refill_id: string;
+  user_id: string;
+  name: string;
+  group_code: string;
+  note?: string;
+  timestamp: number;
+}
+
 

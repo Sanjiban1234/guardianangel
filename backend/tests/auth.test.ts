@@ -159,7 +159,7 @@ describe('Authentication REST Endpoints & Security Controls', () => {
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('token');
-      expect(response.body.user).toEqual({ id: 'user-uuid-123', name: 'testrider' });
+      expect(response.body.user).toEqual({ id: 'user-uuid-123', name: 'testrider', profile_complete: true });
       expect(jwt.decode(response.body.token)).toMatchObject({ role: 'rider' });
     });
 

@@ -5,11 +5,21 @@ export interface CreateRoomResult {
   room_id: string;
   group_code: string;
   creator_id: string;
+  destination: Destination;
 }
 
 export interface JoinRoomResult {
   room_id: string;
 }
+
+export interface Destination {
+  latitude: number;
+  longitude: number;
+  label?: string;
+}
+
+const ROOM_EXPIRY_HOURS = 24;
+const MAX_ROOM_MEMBERS = 20;
 
 export interface RoomMember {
   user_id: string;
@@ -32,22 +42,24 @@ export class RoomService {
     return crypto.createHash('sha256').update(token).digest('hex');
   }
 
-  async createRoom(userId: string): Promise<CreateRoomResult> {
+  async createRoom(userId: string, destination: Destination): Promise<CreateRoomResult> {
+    await this.assertProfileComplete(userId);
     const groupCode = this.generateGroupCode();
     const tokenHash = this.hashToken(groupCode);
 
     const result = await this.db.run(
-      `INSERT INTO ride_rooms (token_hash, creator_id)
-       VALUES ($1, $2)
+      `INSERT INTO ride_rooms
+         (token_hash, creator_id, destination_latitude, destination_longitude, destination_label)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING id`,
-      [tokenHash, userId]
+      [tokenHash, userId, destination.latitude, destination.longitude, destination.label || null]
     );
 
     const roomId = result.rows[0].id;
 
     await this.db.run(
       `INSERT INTO room_members (room_id, user_id, role)
-       VALUES ($1, $2, 'rider')`,
+       VALUES ($1, $2, 'owner')`,
       [roomId, userId]
     );
 
@@ -55,14 +67,18 @@ export class RoomService {
       room_id: roomId,
       group_code: groupCode,
       creator_id: userId,
+      destination,
     };
   }
 
   async joinRoom(userId: string, groupCode: string): Promise<JoinRoomResult> {
+    await this.assertProfileComplete(userId);
     const tokenHash = this.hashToken(groupCode.toUpperCase());
 
     const existing = await this.db.run(
-      "SELECT id, status FROM ride_rooms WHERE token_hash = $1 LIMIT 1",
+      `SELECT id, status, created_at,
+              created_at + INTERVAL '${ROOM_EXPIRY_HOURS} hours' AS expires_at
+       FROM ride_rooms WHERE token_hash = $1 LIMIT 1`,
       [tokenHash]
     );
 
@@ -80,14 +96,51 @@ export class RoomService {
       throw err;
     }
 
+    if (new Date(room.expires_at).getTime() <= Date.now()) {
+      const err = new Error('This ride group has expired');
+      (err as any).code = 'ROOM_EXPIRED';
+      throw err;
+    }
+
+    const memberCheck = await this.db.run(
+      'SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2 LIMIT 1',
+      [room.id, userId]
+    );
+    if (memberCheck.rows.length > 0) {
+      const err = new Error('You are already a member of this ride group');
+      (err as any).code = 'ALREADY_MEMBER';
+      throw err;
+    }
+
+    const memberCount = await this.db.run(
+      'SELECT COUNT(*)::int AS count FROM room_members WHERE room_id = $1',
+      [room.id]
+    );
+    if (Number(memberCount.rows[0]?.count ?? 0) >= MAX_ROOM_MEMBERS) {
+      const err = new Error('This ride group is full');
+      (err as any).code = 'ROOM_FULL';
+      throw err;
+    }
+
     await this.db.run(
       `INSERT INTO room_members (room_id, user_id, role)
-       VALUES ($1, $2, 'rider')
-       ON CONFLICT (room_id, user_id) DO NOTHING`,
+       VALUES ($1, $2, 'member')`,
       [room.id, userId]
     );
 
     return { room_id: room.id };
+  }
+
+  private async assertProfileComplete(userId: string): Promise<void> {
+    const result = await this.db.run(
+      'SELECT profile_complete FROM users WHERE id = $1 LIMIT 1',
+      [userId]
+    );
+    if (result.rows[0]?.profile_complete === false) {
+      const err = new Error('Complete registration before creating or joining a ride');
+      (err as any).code = 'PROFILE_INCOMPLETE';
+      throw err;
+    }
   }
 
   async isMember(groupCode: string, userId: string): Promise<boolean> {

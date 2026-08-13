@@ -63,9 +63,18 @@ export class RoomRouter {
     }
 
     try {
-      const result = await this.roomService.createRoom(userId);
+      const destination = this.parseDestination(req.body);
+      if (!destination) {
+        res.status(400).json({ error: 'A valid destination latitude and longitude are required' });
+        return;
+      }
+      const result = await this.roomService.createRoom(userId, destination);
       res.status(201).json(result);
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.code === 'PROFILE_INCOMPLETE') {
+        res.status(403).json({ error: err.message, code: err.code });
+        return;
+      }
       console.error('RoomRouter.createRoom error:', err);
       res.status(500).json({ error: 'Internal server error while creating ride room' });
     }
@@ -99,11 +108,29 @@ export class RoomRouter {
         res.status(404).json({ error: 'Ride group not found' });
       } else if (err?.code === 'ROOM_ENDED') {
         res.status(400).json({ error: 'This ride group has already ended' });
+      } else if (err?.code === 'ROOM_EXPIRED') {
+        res.status(410).json({ error: 'This ride group has expired', code: err.code });
+      } else if (err?.code === 'ROOM_FULL') {
+        res.status(409).json({ error: 'This ride group is full', code: err.code });
+      } else if (err?.code === 'ALREADY_MEMBER') {
+        res.status(409).json({ error: 'You are already a member of this ride group', code: err.code });
+      } else if (err?.code === 'PROFILE_INCOMPLETE') {
+        res.status(403).json({ error: err.message, code: err.code });
       } else {
         console.error('RoomRouter.joinRoom error:', err);
         res.status(500).json({ error: 'Internal server error while joining ride group' });
       }
     }
+  }
+
+  private parseDestination(body: unknown): { latitude: number; longitude: number; label?: string } | null {
+    const destination = (body as any)?.destination;
+    if (!destination || typeof destination !== 'object') return null;
+    const { latitude, longitude, label } = destination;
+    if (typeof latitude !== 'number' || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+        typeof longitude !== 'number' || !Number.isFinite(longitude) || longitude < -180 || longitude > 180 ||
+        (label !== undefined && (typeof label !== 'string' || label.length > 255))) return null;
+    return { latitude, longitude, ...(label ? { label } : {}) };
   }
 
   private async handleGetHistory(
