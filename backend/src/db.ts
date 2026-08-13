@@ -247,6 +247,43 @@ export const initDb = async (): Promise<void> => {
     `);
     await client.query('CREATE INDEX IF NOT EXISTS crash_candidates_room_user_idx ON crash_candidates (room_id, user_id, device_timestamp_ms DESC)');
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS vehicle_breakdowns (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        room_id UUID REFERENCES ride_rooms(id) ON DELETE SET NULL,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        reason TEXT CHECK (reason IN ('flat_tire', 'mechanical_failure', 'fuel', 'other')),
+        note TEXT,
+        location GEOGRAPHY(POINT, 4326) NOT NULL,
+        reported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        resolved_at TIMESTAMPTZ
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS vehicle_breakdowns_room_user_idx ON vehicle_breakdowns (room_id, user_id, reported_at DESC)');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS device_tokens (
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token TEXT NOT NULL,
+        platform TEXT NOT NULL CHECK (platform IN ('ios', 'android')),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (user_id, platform)
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS device_tokens_token_idx ON device_tokens (token)');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS medical_info (
+        user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        blood_group VARCHAR(10) CHECK (blood_group IN ('A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-')),
+        allergies TEXT,
+        emergency_contact_name VARCHAR(100),
+        emergency_contact_phone VARCHAR(20),
+        notes TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+
     await client.query('COMMIT');
     console.log('db: PostgreSQL + PostGIS schema initialised.');
   } catch (error) {

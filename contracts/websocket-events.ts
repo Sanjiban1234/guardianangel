@@ -123,6 +123,14 @@ export interface CrashCountdownExpiredPayload {
  */
 export type CrashCancelledPayload = Record<string, never>;
 
+export interface MedicalInfoSnapshot {
+  blood_group?: string;
+  allergies?: string;
+  emergency_contact_name?: string;
+  emergency_contact_phone?: string;
+  notes?: string;
+}
+
 /**
  * 13. sos:broadcast (Server -> Room Broadcast)
  * Emergency broadcast alert forwarded to riders and family web observer portals.
@@ -134,6 +142,7 @@ export interface SosBroadcastPayload {
   timestamp: number; // SOS event timestamp
   latitude: number;
   longitude: number;
+  medical_info?: MedicalInfoSnapshot;
 }
 
 /**
@@ -147,3 +156,80 @@ export interface PeerLastKnownPayload {
   latitude: number;
   longitude: number;
 }
+
+/**
+ * 15. group:separationAlert (Server -> Room Broadcast)
+ * Emitted when a rider is detected as separated from the ride group.
+ */
+export interface GroupSeparationAlertPayload {
+  separated_rider: {
+    user_id: string;
+    name: string;
+    current_speed: number;
+    recommended_speed: number | null;
+    distance_from_nearest_meters: number;
+  };
+  meeting_point: {
+    latitude: number;
+    longitude: number;
+    is_approximate: boolean;
+  };
+  group_recommendation: {
+    recommended_speed: number | null;
+  };
+  timestamp: number;
+}
+
+/**
+ * 16. group:reunited (Server -> Room Broadcast)
+ * Emitted when a previously separated rider has reunited with the group.
+ */
+export interface GroupReunitedPayload {
+  user_id: string;
+  name: string;
+  timestamp: number;
+}
+
+export type VehicleBreakdownReason =
+  | 'flat_tire'
+  | 'mechanical_failure'
+  | 'fuel'
+  | 'other';
+
+/**
+ * 17. vehicle:breakdown (Client -> Server)
+ * Emitted when a rider manually reports a vehicle breakdown.
+ */
+export interface VehicleBreakdownPayload {
+  reason?: VehicleBreakdownReason;
+  note?: string;
+}
+
+/**
+ * 18. vehicle:breakdownReported (Server -> Room Broadcast)
+ * Emitted to room members when a rider has reported a breakdown.
+ */
+export interface VehicleBreakdownReportedPayload {
+  breakdown_id: string;
+  user_id: string;
+  name: string;
+  reason?: VehicleBreakdownReason;
+  note?: string;
+  latitude: number;
+  longitude: number;
+  reported_at: number;
+  medical_info?: MedicalInfoSnapshot;
+}
+
+/**
+ * 19. vehicle:breakdownResolved (Server -> Room Broadcast)
+ * Emitted when a rider marks their breakdown as resolved.
+ */
+export interface VehicleBreakdownResolvedPayload {
+  breakdown_id: string;
+  user_id: string;
+  name: string;
+  resolved_at: number;
+}
+
+

@@ -2,7 +2,7 @@
 
 > [!WARNING]
 > **SHARED CONTRACT — FLAG BEFORE CHANGING**
-> This file is a shared contract that multiple modules (telemetry, crash detection, UI/weather) depend on. Any changes to event names, directions, or payload structures must be discussed and flagged with the team before merging.
+> This file is a shared contract that multiple modules (telemetry, crash detection, UI/weather, breakdown, medical ID) depend on. Any changes to event names, directions, or payload structures must be discussed and flagged with the team before merging.
 
 This contract defines the real-time communication events between the Guardian Angel mobile client and the Node.js backend server.
 
@@ -145,7 +145,7 @@ This contract defines the real-time communication events between the Guardian An
 - **Payload Shape:** _(empty object)_
 
 ### 13. `sos:broadcast` (Server → Room Broadcast)
-- **Description:** Maximum priority emergency SOS broadcast sent to all members in the Ride Room and observers.
+- **Description:** Maximum priority emergency SOS broadcast sent to all members in the Ride Room and observers. Includes optional rider `medical_info` snapshot.
 - **Payload Shape:**
 ```json
 {
@@ -154,11 +154,17 @@ This contract defines the real-time communication events between the Guardian An
   "name": "sanjiban",
   "timestamp": 1720958420000,
   "latitude": 28.2096,
-  "longitude": 83.9856
+  "longitude": 83.9856,
+  "medical_info": {
+    "blood_group": "O+",
+    "allergies": "Penicillin",
+    "emergency_contact_name": "Jane Doe",
+    "emergency_contact_phone": "+1234567890"
+  }
 }
 ```
 
-### 13. `peer:lastKnown` (Server → Room Broadcast)
+### 14. `peer:lastKnown` (Server → Room Broadcast)
 - **Description:** Broadcast when a rider suddenly disconnects from the WebSocket connection, supplying their last known location coordinates.
 - **Payload Shape:**
 ```json
@@ -168,5 +174,84 @@ This contract defines the real-time communication events between the Guardian An
   "timestamp": 1720958400000,
   "latitude": 28.2096,
   "longitude": 83.9856
+}
+```
+
+### 15. `group:separationAlert` (Server → Room Broadcast)
+- **Description:** Emitted when a rider's distance to the nearest other group member exceeds threshold (500m) for over 30 seconds. Includes approximate straight-line meeting point and safe speed adjustment recommendations.
+- **Payload Shape:**
+```json
+{
+  "separated_rider": {
+    "user_id": "uuid-string",
+    "name": "utsuk",
+    "current_speed": 15.0,
+    "recommended_speed": 17.25,
+    "distance_from_nearest_meters": 650.0
+  },
+  "meeting_point": {
+    "latitude": 28.2120,
+    "longitude": 83.9870,
+    "is_approximate": true
+  },
+  "group_recommendation": {
+    "recommended_speed": 13.5
+  },
+  "timestamp": 1720958430000
+}
+```
+
+### 16. `group:reunited` (Server → Room Broadcast)
+- **Description:** Emitted when a previously separated rider's distance to the nearest group member drops below 300m for 15 seconds.
+- **Payload Shape:**
+```json
+{
+  "user_id": "uuid-string",
+  "name": "utsuk",
+  "timestamp": 1720958460000
+}
+```
+
+### 17. `vehicle:breakdown` (Client → Server)
+- **Description:** Emitted when a rider manually reports a vehicle breakdown mid-ride.
+- **Payload Shape:**
+```json
+{
+  "reason": "flat_tire",
+  "note": "Rear tire punctured near petrol station"
+}
+```
+
+### 18. `vehicle:breakdownReported` (Server → Room Broadcast)
+- **Description:** Broadcast to room members when a rider has reported a breakdown. Includes optional rider `medical_info` snapshot.
+- **Payload Shape:**
+```json
+{
+  "breakdown_id": "uuid-string",
+  "user_id": "uuid-string",
+  "name": "utsuk",
+  "reason": "flat_tire",
+  "note": "Rear tire punctured near petrol station",
+  "latitude": 28.2096,
+  "longitude": 83.9856,
+  "reported_at": 1720958460000,
+  "medical_info": {
+    "blood_group": "O+",
+    "allergies": "Penicillin",
+    "emergency_contact_name": "Jane Doe",
+    "emergency_contact_phone": "+1234567890"
+  }
+}
+```
+
+### 19. `vehicle:breakdownResolved` (Server → Room Broadcast)
+- **Description:** Broadcast to room members when a rider marks their breakdown as resolved.
+- **Payload Shape:**
+```json
+{
+  "breakdown_id": "uuid-string",
+  "user_id": "uuid-string",
+  "name": "utsuk",
+  "resolved_at": 1720958500000
 }
 ```

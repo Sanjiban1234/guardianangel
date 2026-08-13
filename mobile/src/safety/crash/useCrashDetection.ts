@@ -3,10 +3,12 @@ import { useEffect, useRef, useState } from 'react';
 import { accelerometer, gyroscope, setUpdateIntervalForType, SensorTypes } from 'react-native-sensors';
 import { CrashDetector } from './crashDetector';
 import { fetchDetectionConfig } from './fetchDetectionConfig';
-import { CrashCandidateEvent, CrashDetectorState, TelemetryReading } from './types';
+import { CrashCandidateEvent, CrashDetectorState, TelemetryReading, DEFAULT_DETECTION_CONFIG } from './types';
 
-setUpdateIntervalForType(SensorTypes.accelerometer, 100);
-setUpdateIntervalForType(SensorTypes.gyroscope, 100);
+// Set sensor sampling interval to match expectedSampleIntervalMs from DEFAULT_DETECTION_CONFIG (20ms = 50Hz).
+// This ensures sample rate health checks pass and detections aren't incorrectly marked lowConfidence.
+setUpdateIntervalForType(SensorTypes.accelerometer, DEFAULT_DETECTION_CONFIG.expectedSampleIntervalMs);
+setUpdateIntervalForType(SensorTypes.gyroscope, DEFAULT_DETECTION_CONFIG.expectedSampleIntervalMs);
 
 interface UseCrashDetectionOptions {
   telemetryStream$?: { subscribe: (cb: (r: TelemetryReading) => void) => { unsubscribe: () => void } };

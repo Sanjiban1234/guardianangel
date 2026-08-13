@@ -18,7 +18,7 @@ describe('Geofence CRUD Endpoints', () => {
   let adminToken: string;
   let riderToken: string;
   const mockUser = { id: 'user-uuid-100', name: 'fence_admin' };
-  const mockGeofenceId = 'geofence-uuid-001';
+  const mockGeofenceId = '11111111-2222-3333-4444-555555555555';
 
   const validArea = [
     { latitude: 28.20, longitude: 83.98 },
@@ -219,7 +219,7 @@ describe('Geofence CRUD Endpoints', () => {
       mockedQuery.mockResolvedValueOnce({ rows: [] });
 
       const response = await request(app)
-        .patch('/api/geofences/nonexistent-uuid')
+        .patch(`/api/geofences/${mockGeofenceId}`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ name: 'Updated' });
 
@@ -280,10 +280,19 @@ describe('Geofence CRUD Endpoints', () => {
       mockedQuery.mockResolvedValueOnce({ rows: [] });
 
       const response = await request(app)
-        .delete('/api/geofences/nonexistent-uuid')
+        .delete(`/api/geofences/${mockGeofenceId}`)
         .set('Authorization', `Bearer ${adminToken}`);
 
       expect(response.status).toBe(404);
+    });
+
+    it('should return 400 for malformed non-UUID parameter', async () => {
+      const response = await request(app)
+        .delete('/api/geofences/not-a-valid-uuid')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toContain('Invalid UUID format');
     });
   });
 

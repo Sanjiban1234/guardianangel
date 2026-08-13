@@ -4,13 +4,11 @@ dotenv.config();
 
 const configuredJwtSecret = process.env.JWT_SECRET;
 
-if (!configuredJwtSecret && process.env.NODE_ENV !== 'test') {
+if (!configuredJwtSecret) {
   throw new Error('FATAL: JWT_SECRET environment variable is required');
 }
 
-const fallbackJwtSecret = configuredJwtSecret || 'super_secret_jwt_key_change_me_in_production';
-
-export const JWT_SECRET = fallbackJwtSecret;
+export const JWT_SECRET = configuredJwtSecret;
 export const JWT_ISSUER = process.env.JWT_ISSUER || 'guardian-angel';
 export const JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'guardian-angel-api';
 export const PORT = Number(process.env.PORT || 3000);

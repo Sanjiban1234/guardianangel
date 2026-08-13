@@ -1,12 +1,14 @@
 import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { TelemetryService, TelemetryReading } from '../services/TelemetryService';
+import { GroupCoherenceService } from '../services/GroupCoherenceService';
 import { RoomState } from './SessionHandler';
 
 export class LocationHandler {
   constructor(
     private readonly socket: AuthenticatedSocket,
     private readonly roomState: RoomState,
-    private readonly telemetryService: TelemetryService
+    private readonly telemetryService: TelemetryService,
+    private readonly coherenceService?: GroupCoherenceService
   ) {}
 
   register(): void {
@@ -46,6 +48,21 @@ export class LocationHandler {
     } catch (err) {
       console.error('LocationHandler: broadcast error:', err);
     }
+
+    if (this.coherenceService) {
+      try {
+        const { alerts, reunions } = await this.coherenceService.evaluateRoomCoherence(groupCode);
+
+        for (const alert of alerts) {
+          this.socket.nsp.to(`group:${groupCode}`).emit('group:separationAlert', alert);
+        }
+        for (const reunion of reunions) {
+          this.socket.nsp.to(`group:${groupCode}`).emit('group:reunited', reunion);
+        }
+      } catch (coherenceErr) {
+        console.error('LocationHandler: group coherence evaluation failed:', coherenceErr);
+      }
+    }
   }
 
   private isValidReading(reading: TelemetryReading): boolean {
@@ -63,16 +80,19 @@ export class LocationHandler {
     if (
       reading.latitude < -90 || reading.latitude > 90 ||
       reading.longitude < -180 || reading.longitude > 180 ||
-      reading.speed < 0 ||
+      reading.speed < 0 || reading.speed > 200 ||
       reading.accuracy < 0
     ) {
-      this.socket.emit('error', { message: 'Invalid coordinate values' });
+      this.socket.emit('error', { message: 'Invalid coordinate or speed values' });
       return false;
     }
 
     const now = Date.now();
-    if (reading.timestamp > now + 300_000 || reading.timestamp < 1_600_000_000_000) {
-      this.socket.emit('error', { message: 'Invalid timestamp' });
+    const twentyFourHoursAgo = now - 24 * 60 * 60 * 1000;
+    const fiveMinutesFuture = now + 5 * 60 * 1000;
+
+    if (reading.timestamp < twentyFourHoursAgo || reading.timestamp > fiveMinutesFuture) {
+      this.socket.emit('error', { message: 'Timestamp out of acceptable bounds' });
       return false;
     }
 

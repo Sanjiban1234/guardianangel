@@ -1,0 +1,7 @@
+{
+  "name": "@guardian-angel/contracts",
+  "version": "1.0.0",
+  "private": true,
+  "main": "websocket-events.ts",
+  "types": "websocket-events.ts"
+}

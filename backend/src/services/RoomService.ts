@@ -25,7 +25,7 @@ export class RoomService {
   constructor(private readonly db: QueryRunner) {}
 
   private generateGroupCode(): string {
-    return crypto.randomBytes(8).toString('hex').toUpperCase();
+    return crypto.randomBytes(6).toString('hex').toUpperCase();
   }
 
   private hashToken(token: string): string {

@@ -2,15 +2,23 @@ import { Server } from 'socket.io';
 import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { EmergencyAlertService } from '../services/EmergencyAlertService';
 import { CrashCandidateRepository } from '../repositories/CrashCandidateRepository';
+import { MedicalInfoService } from '../services/MedicalInfoService';
 import { RoomState } from './SessionHandler';
 
 export class CrashHandler {
+  private static readonly userCrashTimestamps: Map<string, number[]> = new Map();
+
+  static resetRateLimits(): void {
+    CrashHandler.userCrashTimestamps.clear();
+  }
+
   constructor(
     private readonly io: Server,
     private readonly socket: AuthenticatedSocket,
     private readonly roomState: RoomState,
     private readonly alertService: EmergencyAlertService,
-    private readonly crashRepo: CrashCandidateRepository
+    private readonly crashRepo: CrashCandidateRepository,
+    private readonly medicalService?: MedicalInfoService
   ) {}
 
   register(): void {
@@ -32,6 +40,26 @@ export class CrashHandler {
     );
   }
 
+  private isRateLimited(userId: string): boolean {
+    const now = Date.now();
+    const windowMs = 60_000;
+    const maxEvents = 3;
+
+    const timestamps = CrashHandler.userCrashTimestamps.get(userId) || [];
+    const recent = timestamps.filter((ts) => now - ts < windowMs);
+
+    if (recent.length >= maxEvents) {
+      this.socket.emit('error', {
+        message: 'Rate limit exceeded: too many crash events',
+      });
+      return true;
+    }
+
+    recent.push(now);
+    CrashHandler.userCrashTimestamps.set(userId, recent);
+    return false;
+  }
+
   private async handleCandidate(data: {
     timestamp: number;
     latitude: number;
@@ -43,6 +71,8 @@ export class CrashHandler {
 
     // Never trust a client-supplied user_id; the JWT-authenticated socket owns this event.
     const { id: userId, name } = this.socket.user!;
+
+    if (this.isRateLimited(userId)) return;
 
     try {
       const roomId = await this.crashRepo.resolveRoomId(groupCode);
@@ -108,6 +138,10 @@ export class CrashHandler {
         roomId
       );
 
+      const medicalInfo = this.medicalService
+        ? await this.medicalService.getMedicalInfoSnapshot(userId)
+        : undefined;
+
       this.io.to(`group:${groupCode}`).emit('sos:broadcast', {
         alarm_no: alert.alarm_no,
         user_id: userId,
@@ -115,6 +149,7 @@ export class CrashHandler {
         timestamp: data.timestamp,
         latitude: data.latitude,
         longitude: data.longitude,
+        medical_info: medicalInfo,
       });
     } catch (err) {
       console.error('CrashHandler.handleCountdownExpired: alert insert/broadcast failed:', err);

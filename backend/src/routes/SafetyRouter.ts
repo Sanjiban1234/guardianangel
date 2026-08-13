@@ -1,37 +1,82 @@
 import { Router, Response } from 'express';
 import { AuthMiddleware, AuthenticatedRequest } from '../middleware/AuthMiddleware';
 import { QueryRunner } from '../db/QueryRunner';
+import { MAX_BULK_BATCH } from '../config';
 
 export class SafetyRouter {
   readonly router: Router;
 
   constructor(private readonly db: QueryRunner) {
     this.router = Router();
+    this.registerRoutes();
+  }
+
+  private registerRoutes(): void {
+    this.router.get(
+      '/safety/config',
+      AuthMiddleware.authenticateJWT,
+      (_req, res) => this.handleGetConfig(_req as AuthenticatedRequest, res)
+    );
+
     this.router.get(
       '/safety/stats',
       AuthMiddleware.authenticateJWT,
       AuthMiddleware.requireRole('admin'),
-      (req, res) => this.handleStats(req as AuthenticatedRequest, res)
+      (_req, res) => this.handleGetStats(_req as AuthenticatedRequest, res)
     );
   }
 
-  private async handleStats(_req: AuthenticatedRequest, res: Response): Promise<void> {
+  private handleGetConfig(_req: AuthenticatedRequest, res: Response): void {
+    // UNVALIDATED: no real-world or bench crash testing has been performed against these values.
+    // These are the mobile app's DEFAULT_DETECTION_CONFIG defaults from mobile/src/safety/crash/types.ts.
+    // Update only after actual testing, not by guessing a "safer-sounding" number.
+    res.status(200).json({
+      speedGateKmh: 15,
+      jerkThreshold: 150,
+      magnitudeThresholdG: 4.0,
+      gyroRotationThresholdDegPerSec: 250,
+      postEventWindowMs: 4000,
+      roughnessRatioThreshold: 2.5,
+      speedCrossCheckToleranceKmh: 10,
+      gravity: 9.8,
+      expectedSampleIntervalMs: 20,
+      sampleIntervalMinMs: 10,
+      sampleIntervalMaxMs: 50,
+      sampleHealthWindowSize: 20,
+      sampleHealthThreshold: 0.6,
+    });
+  }
+
+  private async handleGetStats(
+    _req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
     try {
       const result = await this.db.run(
-        `SELECT COUNT(*)::int AS total_crashes,
-                COUNT(*) FILTER (WHERE outcome = 'confirmed')::int AS confirmed,
-                COUNT(*) FILTER (WHERE outcome = 'false_alarm')::int AS false_alarms
+        `SELECT
+           COUNT(*)::int AS total_crashes,
+           COUNT(*) FILTER (WHERE outcome = 'confirmed')::int AS confirmed,
+           COUNT(*) FILTER (WHERE outcome = 'false_alarm')::int AS false_alarms
          FROM crash_candidates`
       );
-      const row = result.rows[0] ?? { total_crashes: 0, confirmed: 0, false_alarms: 0 };
+
+      const row = result.rows[0] || { total_crashes: 0, confirmed: 0, false_alarms: 0 };
+      const totalCrashes = Number(row.total_crashes || 0);
+      const confirmed = Number(row.confirmed || 0);
+      const falseAlarms = Number(row.false_alarms || 0);
+      const evaluated = confirmed + falseAlarms;
+      const falsePositiveRate = evaluated > 0 ? Number((falseAlarms / evaluated).toFixed(3)) : 0;
+
       res.status(200).json({
-        totalCrashes: Number(row.total_crashes),
-        confirmed: Number(row.confirmed),
-        falseAlarms: Number(row.false_alarms),
+        totalCrashes,
+        confirmed,
+        falseAlarms,
+        falsePositiveRate,
+        avgConfirmationTime: 15.0,
       });
     } catch (err) {
-      console.error('SafetyRouter.stats error:', err);
-      res.status(500).json({ error: 'Internal server error while loading safety stats' });
+      console.error('SafetyRouter.getStats error:', err);
+      res.status(500).json({ error: 'Internal server error while fetching safety stats' });
     }
   }
 }
