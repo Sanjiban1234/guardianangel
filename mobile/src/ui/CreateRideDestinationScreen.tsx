@@ -41,6 +41,9 @@ export interface CreatedRoomData {
 
 interface CreateRideDestinationScreenProps {
   creatorName: string;
+  apiBaseUrl: string;
+  authToken: string;
+  isOnline: boolean;
   onCancel: () => void;
   onConfirmAndStartRide: (roomData: CreatedRoomData) => void;
 }
@@ -66,17 +69,11 @@ const PRESET_DESTINATIONS: RideDestination[] = [
   },
 ];
 
-function generateGroupCode(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let code = 'GA-';
-  for (let i = 0; i < 4; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
-}
-
 export function CreateRideDestinationScreen({
   creatorName,
+  apiBaseUrl,
+  authToken,
+  isOnline,
   onCancel,
   onConfirmAndStartRide,
 }: CreateRideDestinationScreenProps) {
@@ -93,7 +90,7 @@ export function CreateRideDestinationScreen({
     setSelectedDestination(dest);
   };
 
-  const handleConfirmDestination = () => {
+  const handleConfirmDestination = async () => {
     let finalDest = selectedDestination;
     if (isCustomMode) {
       if (!customTitle.trim()) {
@@ -108,15 +105,32 @@ export function CreateRideDestinationScreen({
       };
     }
 
-    const code = generateGroupCode();
-    const url = `https://guardianangel.app/ride/${code}`;
-
-    setGeneratedRoom({
-      groupCode: code,
-      shareableUrl: url,
-      destination: finalDest,
-      creatorName,
-    });
+    if (!isOnline) {
+      Alert.alert('Offline', 'Creating a ride requires a live connection. Please reconnect and try again.');
+      return;
+    }
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/rooms`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ destination: {
+          latitude: finalDest.latitude,
+          longitude: finalDest.longitude,
+          label: finalDest.locationName,
+        } }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Unable to create ride room');
+      setGeneratedRoom({
+        groupCode: body.group_code,
+        // Share-code only: no deep-link/App Link contract exists.
+        shareableUrl: body.group_code,
+        destination: finalDest,
+        creatorName,
+      });
+    } catch (error) {
+      Alert.alert('Create Ride Failed', error instanceof Error ? error.message : 'Unable to create ride room.');
+    }
   };
 
   const handleNativeShare = async () => {

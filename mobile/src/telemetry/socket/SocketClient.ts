@@ -71,6 +71,14 @@ export class MockSocketClient implements ISocketClient {
     return () => this.disconnectListeners.delete(listener);
   }
 
+  emitEvent(_event: string, _payload?: Record<string, unknown>): void {
+    if (!this.connected) throw new Error('Socket not connected');
+  }
+
+  onEvent(_event: string, _listener: (payload: any) => void): () => void {
+    return () => undefined;
+  }
+
   /**
    * Helper method for testing socket disconnect event
    */
@@ -199,5 +207,16 @@ export class SocketClient implements ISocketClient {
   onDisconnect(listener: () => void): () => void {
     this.disconnectListeners.add(listener);
     return () => this.disconnectListeners.delete(listener);
+  }
+
+  emitEvent(event: string, payload?: Record<string, unknown>): void {
+    if (!this.socket || !this.connected) throw new Error('Socket is not connected');
+    this.socket.emit(event, payload);
+  }
+
+  onEvent(event: string, listener: (payload: any) => void): () => void {
+    if (!this.socket) return () => undefined;
+    this.socket.on(event, listener);
+    return () => this.socket?.off(event, listener);
   }
 }

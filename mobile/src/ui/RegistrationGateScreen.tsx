@@ -30,15 +30,20 @@ export interface RegistrationData {
   vehicleModel: string;
   plateNumber: string;
   vehicleColor: string;
+  password: string;
 }
 
 interface RegistrationGateScreenProps {
   initialData?: Partial<RegistrationData>;
+  apiBaseUrl: string;
+  isOnline: boolean;
   onCompleteRegistration: (data: RegistrationData) => void;
 }
 
 export function RegistrationGateScreen({
   initialData,
+  apiBaseUrl,
+  isOnline,
   onCompleteRegistration,
 }: RegistrationGateScreenProps) {
   const [fullName, setFullName] = useState(initialData?.fullName || '');
@@ -47,6 +52,7 @@ export function RegistrationGateScreen({
   const [vehicleModel, setVehicleModel] = useState(initialData?.vehicleModel || '');
   const [plateNumber, setPlateNumber] = useState(initialData?.plateNumber || '');
   const [vehicleColor, setVehicleColor] = useState(initialData?.vehicleColor || '');
+  const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const validate = (): boolean => {
@@ -75,16 +81,33 @@ export function RegistrationGateScreen({
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (validate()) {
-      onCompleteRegistration({
+      if (!isOnline) {
+        setErrors({ submit: 'Registration requires a live connection. Please reconnect and try again.' });
+        return;
+      }
+      const data: RegistrationData = {
         fullName: fullName.trim(),
         phoneNumber: phoneNumber.trim(),
         emergencyContact: emergencyContact.trim(),
         vehicleModel: vehicleModel.trim(),
         plateNumber: plateNumber.trim(),
         vehicleColor: vehicleColor.trim(),
-      });
+        password,
+      };
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: data.fullName, password: data.password, phone: data.phoneNumber }),
+        });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || 'Registration failed');
+        onCompleteRegistration(data);
+      } catch (error) {
+        setErrors({ submit: error instanceof Error ? error.message : 'Registration failed' });
+      }
     }
   };
 
@@ -128,6 +151,16 @@ export function RegistrationGateScreen({
             keyboardType="phone-pad"
           />
           {errors.phoneNumber ? <Text style={styles.errorText}>{errors.phoneNumber}</Text> : null}
+
+          <Text style={styles.fieldLabel}>PASSWORD *</Text>
+          <TextInput
+            value={password}
+            onChangeText={setPassword}
+            placeholder="At least 8 characters, upper/lowercase and a number"
+            placeholderTextColor="#5C7062"
+            style={styles.input}
+            secureTextEntry
+          />
 
           <Text style={styles.fieldLabel}>EMERGENCY CONTACT NAME & PHONE *</Text>
           <TextInput
@@ -185,6 +218,7 @@ export function RegistrationGateScreen({
             💡 Medical details (blood group, allergies) can be added later in settings and remain strictly private during normal riding.
           </Text>
         </View>
+        {errors.submit ? <Text style={styles.errorText}>{errors.submit}</Text> : null}
 
         {/* SUBMIT BUTTON */}
         <Pressable onPress={handleSubmit} style={styles.submitBtn}>

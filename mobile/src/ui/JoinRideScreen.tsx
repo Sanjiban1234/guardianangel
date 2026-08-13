@@ -35,41 +35,24 @@ export interface RoomPreviewDetails {
 
 interface JoinRideScreenProps {
   initialCode?: string;
+  apiBaseUrl: string;
+  authToken: string;
+  isOnline: boolean;
   onCancel: () => void;
   onConfirmJoin: (preview: RoomPreviewDetails) => void;
 }
 
-const MOCK_ROOM_DATABASE: Record<string, RoomPreviewDetails> = {
-  'GA-8821': {
-    groupCode: 'GA-8821',
-    destinationTitle: 'Saturday Valley Loop — Nagarkot Viewpoint',
-    locationName: 'Nagarkot Top Road, Bhaktapur',
-    hostName: 'Alex Vance',
-    activeRiderCount: 3,
-    routeDistanceKm: 42.5,
-  },
-  'GA-9482': {
-    groupCode: 'GA-9482',
-    destinationTitle: 'Kakani Hill Ridge Run',
-    locationName: 'Trishuli Highway, Nuwakot',
-    hostName: 'Jordan Lee',
-    activeRiderCount: 2,
-    routeDistanceKm: 28.0,
-  },
-};
-
 export function JoinRideScreen({
   initialCode = '',
+  apiBaseUrl,
+  authToken,
+  isOnline,
   onCancel,
   onConfirmJoin,
 }: JoinRideScreenProps) {
   const [inputCode, setInputCode] = useState(initialCode);
   const [parsedUrl, setParsedUrl] = useState('');
-  const [preview, setPreview] = useState<RoomPreviewDetails | null>(
-    initialCode && MOCK_ROOM_DATABASE[initialCode.toUpperCase()]
-      ? MOCK_ROOM_DATABASE[initialCode.toUpperCase()]
-      : null
-  );
+  const [preview, setPreview] = useState<RoomPreviewDetails | null>(null);
 
   const cleanCode = (raw: string): string => {
     // Extracts GA-XXXX or 6-char code from URLs or direct strings
@@ -89,33 +72,38 @@ export function JoinRideScreen({
       return;
     }
 
-    if (MOCK_ROOM_DATABASE[code]) {
-      setPreview(MOCK_ROOM_DATABASE[code]);
-    } else {
-      // Fallback dynamic preview for demo custom codes
-      setPreview({
-        groupCode: code,
-        destinationTitle: 'Group Ride Endpoint',
-        locationName: 'Destination set by host',
-        hostName: 'Ride Creator',
-        activeRiderCount: 1,
-        routeDistanceKm: 35.0,
-      });
-    }
+    setPreview(null);
   };
 
-  const handlePasteSharedLink = () => {
-    const sampleLink = 'https://guardianangel.app/ride/GA-8821';
-    setParsedUrl(sampleLink);
-    handleLookupRoom(sampleLink);
-  };
-
-  const handleConfirm = () => {
-    if (!preview) {
+  const handleConfirm = async () => {
+    const groupCode = cleanCode(inputCode);
+    if (!groupCode) {
       Alert.alert('Invalid Code', 'Please enter a valid ride room group code.');
       return;
     }
-    onConfirmJoin(preview);
+    if (!isOnline) {
+      Alert.alert('Offline', 'Joining a ride requires a live connection. Please reconnect and try again.');
+      return;
+    }
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/rooms/join`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ group_code: groupCode }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Unable to join ride room');
+      onConfirmJoin({
+        groupCode,
+        destinationTitle: 'Active ride destination',
+        locationName: `Room ${body.room_id}`,
+        hostName: 'Ride group',
+        activeRiderCount: 0,
+        routeDistanceKm: 0,
+      });
+    } catch (error) {
+      Alert.alert('Join Ride Failed', error instanceof Error ? error.message : 'Unable to join ride room.');
+    }
   };
 
   return (
@@ -145,10 +133,6 @@ export function JoinRideScreen({
             autoCapitalize="characters"
           />
 
-          {/* SIMULATED DEEP LINK PASTE BUTTON */}
-          <Pressable onPress={handlePasteSharedLink} style={styles.pasteBtn}>
-            <Text style={styles.pasteBtnText}>🔗 Simulate Deep-Link Paste (GA-8821)</Text>
-          </Pressable>
         </View>
 
         {/* ROOM DESTINATION PREVIEW CARD */}

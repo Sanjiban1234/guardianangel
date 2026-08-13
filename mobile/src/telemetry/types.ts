@@ -72,6 +72,8 @@ export interface ISocketClient {
   emitBulkSync(readings: TelemetryReading[]): Promise<{ confirmedClientReadingIds: string[] }>;
   onConnect(listener: () => void): () => void;
   onDisconnect(listener: () => void): () => void;
+  emitEvent(event: string, payload?: Record<string, unknown>): void;
+  onEvent(event: string, listener: (payload: any) => void): () => void;
 }
 
 /**

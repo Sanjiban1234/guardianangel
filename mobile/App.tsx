@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -29,6 +29,9 @@ import RiderProfileScreen, {
   INITIAL_PROFILE_DATA,
   RiderProfileData,
 } from './src/ui/RiderProfileScreen';
+import { SocketClient } from './src/telemetry/socket/SocketClient';
+import { useCrashDetection } from './src/safety/crash/useCrashDetection';
+import { useCountdown } from './src/safety/countdown/useCountdown';
 
 type Screen =
   | 'login'
@@ -67,10 +70,35 @@ const REASON_LABELS: Record<BreakdownReason, string> = {
   other: '⚠️ Other Mechanical Issue',
 };
 
+// Configure this per deployment; Android emulator callers normally use 10.0.2.2.
+const API_BASE_URL = 'http://10.0.2.2:3000';
+
+type DeviceGeolocation = {
+  getCurrentPosition: (
+    success: (position: { coords: { latitude: number; longitude: number } }) => void,
+    failure: () => void,
+    options?: { enableHighAccuracy?: boolean; timeout?: number; maximumAge?: number },
+  ) => void;
+};
+
+function readCurrentLocation(): Promise<{ latitude: number; longitude: number }> {
+  const geolocation = (globalThis as unknown as { navigator?: { geolocation?: DeviceGeolocation } }).navigator?.geolocation;
+  if (!geolocation) return Promise.reject(new Error('Device location is unavailable'));
+  return new Promise((resolve, reject) => geolocation.getCurrentPosition(
+    ({ coords }) => resolve({ latitude: coords.latitude, longitude: coords.longitude }),
+    () => reject(new Error('Unable to obtain current location')),
+    { enableHighAccuracy: true, timeout: 10_000, maximumAge: 10_000 },
+  ));
+}
+
 function App() {
   const [screen, setScreen] = useState<Screen>('login');
   const [connection, setConnection] = useState<Connection>('live');
-  const [seconds, setSeconds] = useState(15);
+  const [authToken, setAuthToken] = useState('');
+  const socketRef = useRef(new SocketClient());
+  const lastCrashLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  const { lastCandidate } = useCrashDetection({ apiBaseUrl: API_BASE_URL });
+  const countdown = useCountdown({ durationMs: 15_000 });
 
   // Registration gate state
   const [hasCompletedRegistration, setHasCompletedRegistration] = useState(false);
@@ -80,7 +108,7 @@ function App() {
   const [profile, setProfile] = useState<RiderProfileData>(INITIAL_PROFILE_DATA);
 
   // Room / Destination state
-  const [activeRoomCode, setActiveRoomCode] = useState<string>('GA-8821');
+  const [activeRoomCode, setActiveRoomCode] = useState<string>('');
   const [destinationTitle, setDestinationTitle] = useState<string>('Saturday Valley Loop');
 
   // Refuel alert state
@@ -101,25 +129,65 @@ function App() {
   const [separationRole, setSeparationRole] = useState<'rider' | 'group'>('rider');
 
   useEffect(() => {
-    if (screen !== 'countdown') return;
-    if (seconds === 0) {
-      setScreen('sos');
-      return;
-    }
-    const timer = setTimeout(() => setSeconds(value => value - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [screen, seconds]);
+    if (!authToken) return;
+    const unsubscribe = socketRef.current.onConnect(() => {
+      setConnection('live');
+      if (activeRoomCode) socketRef.current.joinSession(activeRoomCode).catch(() => setConnection('offline'));
+      socketRef.current.onEvent('refill:notified', (payload) => {
+        setRefuelRiderName(payload.name);
+        setRefuelNote(payload.note || 'Need petrol stop soon.');
+        setRefuelActive(true);
+      });
+    });
+    socketRef.current.connect(API_BASE_URL, authToken).catch(() => setConnection('offline'));
+    return () => {
+      unsubscribe();
+      socketRef.current.disconnect();
+    };
+  }, [authToken, activeRoomCode]);
 
-  const handleLoginContinue = (name: string) => {
-    setRiderName(name);
-    if (!hasCompletedRegistration) {
-      setScreen('registration');
-    } else {
-      setScreen('portal');
+  useEffect(() => {
+    if (!lastCandidate || !socketRef.current.isConnected()) return;
+    readCurrentLocation().then((location) => {
+      lastCrashLocationRef.current = location;
+      socketRef.current.emitEvent('crash:candidate', {
+        timestamp: lastCandidate.detectedAt,
+        latitude: location.latitude,
+        longitude: location.longitude,
+      });
+      countdown.start();
+      setScreen('countdown');
+    }).catch((error) => Alert.alert('Crash location unavailable', error.message));
+  }, [lastCandidate]);
+
+  useEffect(() => countdown.onExpire(() => {
+    const location = lastCrashLocationRef.current;
+    if (location && socketRef.current.isConnected()) {
+      socketRef.current.emitEvent('crash:countdownExpired', {
+        timestamp: Date.now(), latitude: location.latitude, longitude: location.longitude,
+      });
+    }
+    setScreen('sos');
+  }), []);
+
+  const handleLoginContinue = async (name: string, password: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, password }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Sign in failed');
+      setAuthToken(body.token);
+      setRiderName(body.user.name);
+      setHasCompletedRegistration(body.user.profile_complete !== false);
+      setScreen(body.user.profile_complete === false ? 'registration' : 'portal');
+    } catch (error) {
+      Alert.alert('Sign in failed', error instanceof Error ? error.message : 'Unable to sign in.');
     }
   };
 
-  const handleRegistrationComplete = (data: RegistrationData) => {
+  const handleRegistrationComplete = async (data: RegistrationData) => {
     setHasCompletedRegistration(true);
     setRiderName(data.fullName);
     setProfile(prev => ({
@@ -129,7 +197,7 @@ function App() {
       vehicleColor: data.vehicleColor,
       emergencyContact: data.emergencyContact,
     }));
-    setScreen('portal');
+    await handleLoginContinue(data.fullName, data.password);
   };
 
   const handleCreatedRoomStart = (roomData: CreatedRoomData) => {
@@ -145,15 +213,21 @@ function App() {
   };
 
   const handleSendRefuelAlert = (payload: RefuelAlertPayload) => {
-    setRefuelRiderName(payload.riderName);
-    setRefuelNote(payload.note || 'Need petrol stop soon.');
-    setRefuelActive(true);
-    setShowRefuelModal(false);
+    try {
+      socketRef.current.emitEvent('refill:requested', {
+        group_code: activeRoomCode,
+        note: payload.note || 'Need petrol stop soon.',
+      });
+      setShowRefuelModal(false);
+    } catch (error) {
+      Alert.alert('Refill request failed', error instanceof Error ? error.message : 'Reconnect and try again.');
+    }
   };
 
-  const beginCrashCountdown = () => {
-    setSeconds(15);
-    setScreen('countdown');
+  const cancelCrashCountdown = () => {
+    countdown.cancel();
+    if (socketRef.current.isConnected()) socketRef.current.emitEvent('crash:cancelled');
+    setScreen('map');
   };
 
   const triggerBreakdownReport = (reason: BreakdownReason, note: string) => {
@@ -181,6 +255,8 @@ function App() {
             vehicleColor: profile.vehicleColor,
             emergencyContact: profile.emergencyContact,
           }}
+          apiBaseUrl={API_BASE_URL}
+          isOnline={connection === 'live'}
           onCompleteRegistration={handleRegistrationComplete}
         />
       )}
@@ -199,6 +275,9 @@ function App() {
       {screen === 'create_destination' && (
         <CreateRideDestinationScreen
           creatorName={riderName}
+          apiBaseUrl={API_BASE_URL}
+          authToken={authToken}
+          isOnline={connection === 'live'}
           onCancel={() => setScreen('portal')}
           onConfirmAndStartRide={handleCreatedRoomStart}
         />
@@ -207,6 +286,9 @@ function App() {
       {screen === 'join' && (
         <JoinRideScreen
           initialCode={activeRoomCode}
+          apiBaseUrl={API_BASE_URL}
+          authToken={authToken}
+          isOnline={connection === 'live'}
           onCancel={() => setScreen('portal')}
           onConfirmJoin={handleJoinedRoomConfirm}
         />
@@ -215,6 +297,9 @@ function App() {
       {screen === 'profile' && (
         <RiderProfileScreen
           initialData={profile}
+          apiBaseUrl={API_BASE_URL}
+          authToken={authToken}
+          isOnline={connection === 'live'}
           onSave={data => {
             setProfile(data);
             setScreen('portal');
@@ -240,7 +325,7 @@ function App() {
           separationActive={separationActive}
           separationRole={separationRole}
           onToggleConnection={() => setConnection(v => (v === 'live' ? 'offline' : 'live'))}
-          onCrash={beginCrashCountdown}
+          onCrash={() => Alert.alert('Crash monitoring active', 'Crash alerts are started only by the sensor state machine.')}
           onEnd={() => setScreen('summary')}
           onOpenProfile={() => setScreen('profile')}
           onOpenRefuelModal={() => setShowRefuelModal(true)}
@@ -264,7 +349,7 @@ function App() {
       )}
 
       {screen === 'countdown' && (
-        <CrashCountdown seconds={seconds} onCancel={() => setScreen('map')} />
+        <CrashCountdown seconds={Math.ceil(countdown.remainingMs / 1000)} onCancel={cancelCrashCountdown} />
       )}
 
       {screen === 'sos' && (
@@ -289,6 +374,7 @@ function App() {
       <RefuelNotificationModal
         visible={showRefuelModal}
         riderName={riderName}
+        isOnline={connection === 'live' && socketRef.current.isConnected()}
         onClose={() => setShowRefuelModal(false)}
         onSendRefuelAlert={handleSendRefuelAlert}
       />
@@ -341,7 +427,7 @@ function Button({
   );
 }
 
-function Login({ onContinue }: { onContinue: (name: string) => void }) {
+function Login({ onContinue }: { onContinue: (name: string, password: string) => void }) {
   const [name, setName] = useState('Alex Vance');
   const [password, setPassword] = useState('guardian1');
   return (
@@ -370,7 +456,7 @@ function Login({ onContinue }: { onContinue: (name: string) => void }) {
           style={styles.input}
           secureTextEntry
         />
-        <Button label="Sign in →" onPress={() => onContinue(name)} />
+        <Button label="Sign in →" onPress={() => onContinue(name, password)} />
         <Text style={styles.helper}>JWT sign-in uses your name and password. No social accounts required.</Text>
       </View>
     </Shell>

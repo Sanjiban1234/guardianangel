@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Alert,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -47,12 +48,18 @@ const BLOOD_GROUPS = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'Skip / 
 
 interface RiderProfileScreenProps {
   initialData?: RiderProfileData;
+  apiBaseUrl: string;
+  authToken: string;
+  isOnline: boolean;
   onSave: (data: RiderProfileData) => void;
   onCancel: () => void;
 }
 
 export function RiderProfileScreen({
   initialData = INITIAL_PROFILE_DATA,
+  apiBaseUrl,
+  authToken,
+  isOnline,
   onSave,
   onCancel,
 }: RiderProfileScreenProps) {
@@ -64,8 +71,8 @@ export function RiderProfileScreen({
   const [emergencyContact, setEmergencyContact] = useState(initialData.emergencyContact);
   const [medicalNotes, setMedicalNotes] = useState(initialData.medicalNotes);
 
-  const handleSave = () => {
-    onSave({
+  const handleSave = async () => {
+    const data = {
       vehicleModel,
       plateNumber,
       vehicleColor,
@@ -73,7 +80,30 @@ export function RiderProfileScreen({
       allergies,
       emergencyContact,
       medicalNotes,
-    });
+    };
+    if (!isOnline) {
+      Alert.alert('Offline', 'Medical ID changes require a live connection. Vehicle fields remain local until a vehicle-profile API is available.');
+      return;
+    }
+    const phoneMatch = emergencyContact.match(/(\+[1-9]\d{1,14})\s*$/);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/users/medical-info`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          blood_group: bloodGroup === 'Skip / Unknown' ? undefined : bloodGroup,
+          allergies: allergies || undefined,
+          emergency_contact_name: phoneMatch ? emergencyContact.slice(0, phoneMatch.index).trim() : emergencyContact || undefined,
+          emergency_contact_phone: phoneMatch?.[1],
+          notes: medicalNotes || undefined,
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Unable to save medical ID');
+      onSave(data);
+    } catch (error) {
+      Alert.alert('Save Failed', error instanceof Error ? error.message : 'Unable to save medical ID.');
+    }
   };
 
   const handleClearMedical = () => {

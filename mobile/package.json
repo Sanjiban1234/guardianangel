@@ -14,7 +14,8 @@
     "react": "19.2.3",
     "react-native": "0.86.0",
     "react-native-safe-area-context": "^5.5.2",
-    "react-native-sensors": "^7.3.6"
+    "react-native-sensors": "^7.3.6",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Alert,
   Modal,
   Pressable,
   StyleSheet,
@@ -31,6 +32,7 @@ export interface RefuelAlertPayload {
 interface RefuelNotificationModalProps {
   visible: boolean;
   riderName: string;
+  isOnline: boolean;
   onClose: () => void;
   onSendRefuelAlert: (payload: RefuelAlertPayload) => void;
 }
@@ -38,12 +40,17 @@ interface RefuelNotificationModalProps {
 export function RefuelNotificationModal({
   visible,
   riderName,
+  isOnline,
   onClose,
   onSendRefuelAlert,
 }: RefuelNotificationModalProps) {
   const [note, setNote] = useState('');
 
   const handleInstantSend = () => {
+    if (!isOnline) {
+      Alert.alert('Offline', 'Refill requests require a live group connection.');
+      return;
+    }
     onSendRefuelAlert({
       riderName,
       note: note.trim() || 'Need petrol stop soon.',
