@@ -40,10 +40,13 @@ export const initDb = async (): Promise<void> => {
         phone VARCHAR(20) NOT NULL,
         geohash VARCHAR(20),
         password_hash VARCHAR(255) NOT NULL,
+        role TEXT NOT NULL DEFAULT 'rider' CHECK (role IN ('rider', 'admin')),
         created_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(name)
       )
     `);
+    // Existing installations predate the application-level admin role.
+    await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'rider'");
 
     // Active Riders table (ER: GroupCode, IncludeID, GeoHash, type of Operation)
     await client.query(`

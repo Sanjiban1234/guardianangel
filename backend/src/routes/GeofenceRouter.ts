@@ -20,6 +20,7 @@ export class GeofenceRouter {
     this.router.post(
       '/geofences',
       AuthMiddleware.authenticateJWT,
+      AuthMiddleware.requireRole('admin'),
       (req, res) => this.handleCreate(req as AuthenticatedRequest, res)
     );
 
@@ -32,12 +33,14 @@ export class GeofenceRouter {
     this.router.patch(
       '/geofences/:id',
       AuthMiddleware.authenticateJWT,
+      AuthMiddleware.requireRole('admin'),
       (req, res) => this.handleUpdate(req as AuthenticatedRequest, res)
     );
 
     this.router.delete(
       '/geofences/:id',
       AuthMiddleware.authenticateJWT,
+      AuthMiddleware.requireRole('admin'),
       (req, res) => this.handleDelete(req as AuthenticatedRequest, res)
     );
   }

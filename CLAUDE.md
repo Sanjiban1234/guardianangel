@@ -252,7 +252,7 @@ Login -> Session portal -> Live map
 
 ## Known Gaps / Deferred Work
 
-- **Mobile safety module**: `mobile/src/safety/` is empty (.gitkeep only) — crash detection algorithm not yet implemented
+- **Mobile safety module**: `mobile/src/safety/` implements crash detection (`CrashDetector` state machine, `CountdownTimer`, `OverrideController`), with configurable detection thresholds via `GET /api/safety/config` (finding 5.5) and sample rate health tracking (finding 5.6)
 - **Weather push model**: Server could poll weather per active room and broadcast `weather:update` via Socket.IO — deferred, pull-with-cache is sufficient for v1
 - **Guardian Portal** (web observer UI): Deferred until after midterm defense
 - **Geofences**: CRUD endpoints exist; any authenticated user can create/modify/soft-delete geofences (deliberate scope decision for now, not an oversight — must add role-based restriction before production)

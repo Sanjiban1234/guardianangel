@@ -64,7 +64,7 @@ export class UserService {
     }
 
     const token = jwt.sign(
-      { id: user.id, name: user.name },
+      { id: user.id, name: user.name, role: user.role === 'admin' ? 'admin' : 'rider' },
       JWT_SECRET,
       { expiresIn: '24h', issuer: JWT_ISSUER, audience: JWT_AUDIENCE }
     );
