@@ -12,6 +12,16 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import CreateRideDestinationScreen, {
+  CreatedRoomData,
+} from './src/ui/CreateRideDestinationScreen';
+import JoinRideScreen, { RoomPreviewDetails } from './src/ui/JoinRideScreen';
+import RefuelNotificationModal, {
+  RefuelAlertPayload,
+} from './src/ui/RefuelNotificationModal';
+import RegistrationGateScreen, {
+  RegistrationData,
+} from './src/ui/RegistrationGateScreen';
 import RideSummaryScreen, {
   MOCK_FULL_RIDE_SUMMARY,
 } from './src/ui/RideSummaryScreen';
@@ -20,7 +30,18 @@ import RiderProfileScreen, {
   RiderProfileData,
 } from './src/ui/RiderProfileScreen';
 
-type Screen = 'login' | 'portal' | 'map' | 'countdown' | 'sos' | 'summary' | 'profile';
+type Screen =
+  | 'login'
+  | 'registration'
+  | 'portal'
+  | 'create_destination'
+  | 'join'
+  | 'map'
+  | 'countdown'
+  | 'sos'
+  | 'summary'
+  | 'profile';
+
 type Connection = 'live' | 'offline';
 type BreakdownReason = 'flat_tire' | 'mechanical_failure' | 'fuel' | 'other';
 
@@ -51,8 +72,22 @@ function App() {
   const [connection, setConnection] = useState<Connection>('live');
   const [seconds, setSeconds] = useState(15);
 
+  // Registration gate state
+  const [hasCompletedRegistration, setHasCompletedRegistration] = useState(false);
+  const [riderName, setRiderName] = useState('Alex Vance');
+
   // Profile data state
   const [profile, setProfile] = useState<RiderProfileData>(INITIAL_PROFILE_DATA);
+
+  // Room / Destination state
+  const [activeRoomCode, setActiveRoomCode] = useState<string>('GA-8821');
+  const [destinationTitle, setDestinationTitle] = useState<string>('Saturday Valley Loop');
+
+  // Refuel alert state
+  const [refuelActive, setRefuelActive] = useState<boolean>(false);
+  const [refuelRiderName, setRefuelRiderName] = useState<string>('');
+  const [refuelNote, setRefuelNote] = useState<string>('');
+  const [showRefuelModal, setShowRefuelModal] = useState<boolean>(false);
 
   // Breakdown state
   const [breakdownActive, setBreakdownActive] = useState<boolean>(false);
@@ -75,6 +110,47 @@ function App() {
     return () => clearTimeout(timer);
   }, [screen, seconds]);
 
+  const handleLoginContinue = (name: string) => {
+    setRiderName(name);
+    if (!hasCompletedRegistration) {
+      setScreen('registration');
+    } else {
+      setScreen('portal');
+    }
+  };
+
+  const handleRegistrationComplete = (data: RegistrationData) => {
+    setHasCompletedRegistration(true);
+    setRiderName(data.fullName);
+    setProfile(prev => ({
+      ...prev,
+      vehicleModel: data.vehicleModel,
+      plateNumber: data.plateNumber,
+      vehicleColor: data.vehicleColor,
+      emergencyContact: data.emergencyContact,
+    }));
+    setScreen('portal');
+  };
+
+  const handleCreatedRoomStart = (roomData: CreatedRoomData) => {
+    setActiveRoomCode(roomData.groupCode);
+    setDestinationTitle(roomData.destination.title);
+    setScreen('map');
+  };
+
+  const handleJoinedRoomConfirm = (preview: RoomPreviewDetails) => {
+    setActiveRoomCode(preview.groupCode);
+    setDestinationTitle(preview.destinationTitle);
+    setScreen('map');
+  };
+
+  const handleSendRefuelAlert = (payload: RefuelAlertPayload) => {
+    setRefuelRiderName(payload.riderName);
+    setRefuelNote(payload.note || 'Need petrol stop soon.');
+    setRefuelActive(true);
+    setShowRefuelModal(false);
+  };
+
   const beginCrashCountdown = () => {
     setSeconds(15);
     setScreen('countdown');
@@ -83,7 +159,7 @@ function App() {
   const triggerBreakdownReport = (reason: BreakdownReason, note: string) => {
     setBreakdownReason(reason);
     setBreakdownNote(note);
-    setBreakdownRiderName('Alex Vance (You)');
+    setBreakdownRiderName(`${riderName} (You)`);
     setBreakdownActive(true);
     setShowReasonModal(false);
   };
@@ -91,14 +167,48 @@ function App() {
   return (
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.ink} />
-      {screen === 'login' && <Login onContinue={() => setScreen('portal')} />}
+
+      {screen === 'login' && (
+        <Login onContinue={handleLoginContinue} />
+      )}
+
+      {screen === 'registration' && (
+        <RegistrationGateScreen
+          initialData={{
+            fullName: riderName,
+            vehicleModel: profile.vehicleModel,
+            plateNumber: profile.plateNumber,
+            vehicleColor: profile.vehicleColor,
+            emergencyContact: profile.emergencyContact,
+          }}
+          onCompleteRegistration={handleRegistrationComplete}
+        />
+      )}
 
       {screen === 'portal' && (
         <Portal
+          riderName={riderName}
           connection={connection}
           profile={profile}
-          onStart={() => setScreen('map')}
+          onCreateRide={() => setScreen('create_destination')}
+          onJoinRide={() => setScreen('join')}
           onOpenProfile={() => setScreen('profile')}
+        />
+      )}
+
+      {screen === 'create_destination' && (
+        <CreateRideDestinationScreen
+          creatorName={riderName}
+          onCancel={() => setScreen('portal')}
+          onConfirmAndStartRide={handleCreatedRoomStart}
+        />
+      )}
+
+      {screen === 'join' && (
+        <JoinRideScreen
+          initialCode={activeRoomCode}
+          onCancel={() => setScreen('portal')}
+          onConfirmJoin={handleJoinedRoomConfirm}
         />
       )}
 
@@ -115,8 +225,14 @@ function App() {
 
       {screen === 'map' && (
         <LiveMap
+          roomCode={activeRoomCode}
+          destinationTitle={destinationTitle}
+          riderName={riderName}
           connection={connection}
           profile={profile}
+          refuelActive={refuelActive}
+          refuelRiderName={refuelRiderName}
+          refuelNote={refuelNote}
           breakdownActive={breakdownActive}
           breakdownReason={breakdownReason}
           breakdownNote={breakdownNote}
@@ -127,6 +243,8 @@ function App() {
           onCrash={beginCrashCountdown}
           onEnd={() => setScreen('summary')}
           onOpenProfile={() => setScreen('profile')}
+          onOpenRefuelModal={() => setShowRefuelModal(true)}
+          onResolveRefuel={() => setRefuelActive(false)}
           onOpenBreakdownModal={() => setShowReasonModal(true)}
           onResolveBreakdown={() => setBreakdownActive(false)}
           onToggleSeparation={() => setSeparationActive(v => !v)}
@@ -136,6 +254,11 @@ function App() {
             setBreakdownReason('mechanical_failure');
             setBreakdownNote('Chain snapped on hill incline.');
             setBreakdownActive(true);
+          }}
+          onSimulateOtherRefuel={() => {
+            setRefuelRiderName('Maya Lin');
+            setRefuelNote('Fuel light turned on, looking for gas station.');
+            setRefuelActive(true);
           }}
         />
       )}
@@ -162,7 +285,14 @@ function App() {
         />
       )}
 
-      {/* REASON SELECTION MODAL POST-TRIGGER */}
+      {/* MODALS */}
+      <RefuelNotificationModal
+        visible={showRefuelModal}
+        riderName={riderName}
+        onClose={() => setShowRefuelModal(false)}
+        onSendRefuelAlert={handleSendRefuelAlert}
+      />
+
       <BreakdownReasonModal
         visible={showReasonModal}
         onClose={() => setShowReasonModal(false)}
@@ -183,7 +313,7 @@ function Button({
 }: {
   label: string;
   onPress: () => void;
-  tone?: 'primary' | 'secondary' | 'danger' | 'warning';
+  tone?: 'primary' | 'secondary' | 'danger' | 'warning' | 'success';
 }) {
   return (
     <Pressable
@@ -194,6 +324,7 @@ function Button({
         tone === 'secondary' && styles.secondaryButton,
         tone === 'danger' && styles.dangerButton,
         tone === 'warning' && styles.warningButton,
+        tone === 'success' && styles.successButton,
       ]}
     >
       <Text
@@ -201,6 +332,7 @@ function Button({
           styles.buttonText,
           tone === 'secondary' && styles.secondaryButtonText,
           tone === 'warning' && styles.warningButtonText,
+          tone === 'success' && styles.successButtonText,
         ]}
       >
         {label}
@@ -209,7 +341,7 @@ function Button({
   );
 }
 
-function Login({ onContinue }: { onContinue: () => void }) {
+function Login({ onContinue }: { onContinue: (name: string) => void }) {
   const [name, setName] = useState('Alex Vance');
   const [password, setPassword] = useState('guardian1');
   return (
@@ -238,7 +370,7 @@ function Login({ onContinue }: { onContinue: () => void }) {
           style={styles.input}
           secureTextEntry
         />
-        <Button label="Sign in" onPress={onContinue} />
+        <Button label="Sign in →" onPress={() => onContinue(name)} />
         <Text style={styles.helper}>JWT sign-in uses your name and password. No social accounts required.</Text>
       </View>
     </Shell>
@@ -246,14 +378,18 @@ function Login({ onContinue }: { onContinue: () => void }) {
 }
 
 function Portal({
+  riderName,
   connection,
   profile,
-  onStart,
+  onCreateRide,
+  onJoinRide,
   onOpenProfile,
 }: {
+  riderName: string;
   connection: Connection;
   profile: RiderProfileData;
-  onStart: () => void;
+  onCreateRide: () => void;
+  onJoinRide: () => void;
   onOpenProfile: () => void;
 }) {
   return (
@@ -261,7 +397,7 @@ function Portal({
       <ScrollView contentContainerStyle={styles.page}>
         <View style={styles.portalHeaderRow}>
           <View>
-            <Text style={styles.eyebrow}>WELCOME BACK, ALEX</Text>
+            <Text style={styles.eyebrow}>WELCOME BACK, {riderName.toUpperCase()}</Text>
             <Text style={styles.title}>Ready for the next ride?</Text>
           </View>
           <Pressable onPress={onOpenProfile} style={styles.profileBadgeBtn}>
@@ -294,21 +430,18 @@ function Portal({
           </View>
         </Pressable>
 
+        {/* CREATE RIDE CARD */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Start a group ride</Text>
-          <Text style={styles.copy}>Create a room and share its group code with your riders.</Text>
-          <Button label="Create ride room" onPress={onStart} />
+          <Text style={styles.copy}>Select a destination, generate a room code and share with your riders.</Text>
+          <Button label="Create ride room & set destination →" onPress={onCreateRide} />
         </View>
 
+        {/* JOIN RIDE CARD */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Join a group ride</Text>
-          <TextInput
-            placeholder="Enter group code"
-            placeholderTextColor="#5C7062"
-            style={styles.input}
-            autoCapitalize="characters"
-          />
-          <Button label="Join with group code" tone="secondary" onPress={onStart} />
+          <Text style={styles.copy}>Enter a 6-character room code or open a shared invite link.</Text>
+          <Button label="Join ride with group code / link →" tone="secondary" onPress={onJoinRide} />
         </View>
 
         <Pressable onPress={() => Alert.alert('Past rides', 'Ride history will appear here when browsing is added.')}>
@@ -337,8 +470,14 @@ function ConnectionBanner({ connection }: { connection: Connection }) {
 }
 
 function LiveMap({
+  roomCode,
+  destinationTitle,
+  riderName,
   connection,
   profile,
+  refuelActive,
+  refuelRiderName,
+  refuelNote,
   breakdownActive,
   breakdownReason,
   breakdownNote,
@@ -349,14 +488,23 @@ function LiveMap({
   onCrash,
   onEnd,
   onOpenProfile,
+  onOpenRefuelModal,
+  onResolveRefuel,
   onOpenBreakdownModal,
   onResolveBreakdown,
   onToggleSeparation,
   onToggleSeparationRole,
   onSimulateOtherBreakdown,
+  onSimulateOtherRefuel,
 }: {
+  roomCode: string;
+  destinationTitle: string;
+  riderName: string;
   connection: Connection;
   profile: RiderProfileData;
+  refuelActive: boolean;
+  refuelRiderName: string;
+  refuelNote: string;
   breakdownActive: boolean;
   breakdownReason: BreakdownReason;
   breakdownNote: string;
@@ -367,16 +515,19 @@ function LiveMap({
   onCrash: () => void;
   onEnd: () => void;
   onOpenProfile: () => void;
+  onOpenRefuelModal: () => void;
+  onResolveRefuel: () => void;
   onOpenBreakdownModal: () => void;
   onResolveBreakdown: () => void;
   onToggleSeparation: () => void;
   onToggleSeparationRole: () => void;
   onSimulateOtherBreakdown: () => void;
+  onSimulateOtherRefuel: () => void;
 }) {
   const [showMedicalSnapshot, setShowMedicalSnapshot] = useState(false);
   const [holdProgress, setHoldProgress] = useState(0);
 
-  // Press-and-hold trigger handler
+  // Press-and-hold trigger handler for breakdown
   const handleHoldStart = () => {
     let current = 0;
     const interval = setInterval(() => {
@@ -394,7 +545,6 @@ function LiveMap({
     setHoldProgress(0);
   };
 
-  // Suppression logic: Breakdown suppresses generic separation alert for that rider
   const showSeparationBanner = separationActive && !breakdownActive;
 
   return (
@@ -403,8 +553,8 @@ function LiveMap({
         {/* HEADER */}
         <View style={styles.mapHeader}>
           <View>
-            <Text style={styles.eyebrow}>GROUP CODE GA-8821</Text>
-            <Text style={styles.mapTitle}>Saturday Valley Loop</Text>
+            <Text style={styles.eyebrow}>GROUP CODE {roomCode}</Text>
+            <Text style={styles.mapTitle}>{destinationTitle}</Text>
           </View>
           <View style={styles.headerRightActions}>
             <Pressable onPress={onOpenProfile} style={styles.headerProfileBtn}>
@@ -418,9 +568,26 @@ function LiveMap({
 
         <ConnectionBanner connection={connection} />
 
-        {/* STACKED ALERT VISUAL HIERARCHY */}
+        {/* REFUEL NOTIFICATION BANNER (#16A34A - NEUTRAL / LOW URGENCY) */}
+        {refuelActive && (
+          <View style={styles.refuelBanner}>
+            <View style={styles.refuelHeaderRow}>
+              <View style={styles.refuelBadge}>
+                <Text style={styles.refuelBadgeText}>⛽ REFUEL / PETROL REQUEST</Text>
+              </View>
+              <Pressable onPress={onResolveRefuel} style={styles.resolveRefuelBtn}>
+                <Text style={styles.resolveRefuelBtnText}>Dismiss / Refueled</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.refuelRiderText}>
+              {refuelRiderName || 'Rider'} needs petrol stop.
+            </Text>
+            {refuelNote ? <Text style={styles.refuelNoteText}>&quot;{refuelNote}&quot;</Text> : null}
+            <Text style={styles.refuelLowUrgencyTag}>Informational only · Not an emergency</Text>
+          </View>
+        )}
 
-        {/* 1. VEHICLE BREAKDOWN ALERT BANNER (#F59E0B - TIER 2 WARNING) */}
+        {/* VEHICLE BREAKDOWN ALERT BANNER (#F59E0B - TIER 2 WARNING) */}
         {breakdownActive && (
           <View style={styles.breakdownBanner}>
             <View style={styles.breakdownHeaderRow}>
@@ -450,7 +617,7 @@ function LiveMap({
               <Text style={styles.breakdownNoteText}>&quot;{breakdownNote}&quot;</Text>
             ) : null}
 
-            {/* PRIVACY-GATED MEDICAL ID SNAPSHOT (IF PRESENT) */}
+            {/* PRIVACY-GATED MEDICAL ID SNAPSHOT */}
             {profile.bloodGroup || profile.emergencyContact ? (
               <View style={styles.medicalSnapshotBox}>
                 <Pressable
@@ -486,7 +653,7 @@ function LiveMap({
           </View>
         )}
 
-        {/* 2. GROUP SEPARATION ALERT BANNER (#F59E0B - TIER 3 INFORMATIONAL) */}
+        {/* GROUP SEPARATION ALERT BANNER (#F59E0B - TIER 3 INFORMATIONAL) */}
         {showSeparationBanner && (
           <View style={styles.separationBanner}>
             <View style={styles.separationHeaderRow}>
@@ -536,7 +703,6 @@ function LiveMap({
           <Marker label="M" style={styles.markerOne} />
           <Marker label="J" style={styles.markerTwo} />
 
-          {/* APPROXIMATE MIDPOINT MARKER (WHEN SEPARATION ACTIVE) */}
           {separationActive && (
             <View style={styles.approxMidpointMarker}>
               <View style={styles.approxMidpointCircle} />
@@ -544,10 +710,15 @@ function LiveMap({
             </View>
           )}
 
-          {/* BREAKDOWN PIN MARKER */}
           {breakdownActive && (
             <View style={styles.breakdownMapPin}>
               <Text style={styles.breakdownMapPinText}>⚠️ REPAIR</Text>
+            </View>
+          )}
+
+          {refuelActive && (
+            <View style={styles.refuelMapPin}>
+              <Text style={styles.refuelMapPinText}>⛽ REFUEL</Text>
             </View>
           )}
 
@@ -557,7 +728,7 @@ function LiveMap({
           </View>
         </View>
 
-        {/* AMBIENT GROUP MEMBER ROSTER WITH VEHICLE INFO */}
+        {/* ROSTER */}
         <View style={styles.memberCard}>
           <View style={styles.memberRowHeader}>
             <Text style={styles.cardTitle}>Ride Group Roster (4 Riders)</Text>
@@ -568,9 +739,9 @@ function LiveMap({
             <View style={styles.rosterItem}>
               <View style={[styles.rosterDot, { backgroundColor: COLORS.green }]} />
               <View style={styles.rosterTextCol}>
-                <Text style={styles.rosterNameText}>Alex Vance (You)</Text>
+                <Text style={styles.rosterNameText}>{riderName} (You)</Text>
                 <Text style={styles.rosterVehicleText}>
-                  {profile.vehicleModel} · {profile.plateNumber}
+                  {profile.vehicleModel || 'Royal Enfield Himalayan'} · {profile.plateNumber || 'BA 2 PA 1234'}
                 </Text>
               </View>
               <Text style={styles.rosterRoleBadge}>Lead</Text>
@@ -597,7 +768,10 @@ function LiveMap({
               <View style={[styles.rosterDot, { backgroundColor: COLORS.green }]} />
               <View style={styles.rosterTextCol}>
                 <Text style={styles.rosterNameText}>Maya Lin</Text>
-                <Text style={styles.rosterVehicleText}>Yamaha MT-07 · BA 4 PA 4410</Text>
+                <Text style={styles.rosterVehicleText}>
+                  Yamaha MT-07 · BA 4 PA 4410
+                  {refuelActive && refuelRiderName === 'Maya Lin' ? ' (REFUEL)' : ''}
+                </Text>
               </View>
             </View>
 
@@ -616,7 +790,12 @@ function LiveMap({
         <View style={styles.controlsSection}>
           <Text style={styles.fieldLabel}>RIDE & SAFETY CONTROLS</Text>
 
-          {/* DELIBERATE BREAKDOWN TRIGGER (PRESS & HOLD OR TAP) */}
+          {/* PETROL REFILL NOTIFICATION BUTTON */}
+          <Pressable onPress={onOpenRefuelModal} style={styles.refuelTriggerBtn}>
+            <Text style={styles.refuelTriggerBtnText}>⛽ Need Fuel / Request Petrol Stop</Text>
+          </Pressable>
+
+          {/* DELIBERATE BREAKDOWN TRIGGER */}
           <Pressable
             onPressIn={handleHoldStart}
             onPressOut={handleHoldEnd}
@@ -639,22 +818,16 @@ function LiveMap({
             tone="secondary"
             onPress={onToggleConnection}
           />
-          <Button
-            label="Manual traffic override"
-            tone="secondary"
-            onPress={() =>
-              Alert.alert(
-                'Traffic override',
-                'This deliberate control would send a route hazard to your group.',
-              )
-            }
-          />
         </View>
 
         {/* DEMO / TEST STATE TOGGLES */}
         <View style={styles.demoControlsBox}>
           <Text style={styles.demoBoxTitle}>TEST DEMO CONTROLS</Text>
           <View style={styles.demoBtnGrid}>
+            <Pressable onPress={onSimulateOtherRefuel} style={styles.demoMiniBtn}>
+              <Text style={styles.demoMiniBtnText}>Simulate Maya Refuel Alert</Text>
+            </Pressable>
+
             <Pressable onPress={onToggleSeparation} style={styles.demoMiniBtn}>
               <Text style={styles.demoMiniBtnText}>
                 {separationActive ? 'Clear Separation' : 'Trigger Separation'}
@@ -798,46 +971,23 @@ function SosConfirmation({
     <Shell>
       <ScrollView contentContainerStyle={styles.emergencyPage}>
         <View style={styles.sosIcon}>
-          <Text style={styles.sosIconText}>!</Text>
+          <Text style={styles.sosIconText}>🆘</Text>
         </View>
-        <Text style={styles.eyebrow}>SOS SENT</Text>
-        <Text style={styles.emergencyTitle}>Help is being notified.</Text>
+        <Text style={styles.emergencyTitle}>SOS Alert Broadcast</Text>
         <Text style={styles.emergencyCopy}>
-          Your ride group and listed guardians received your last known location. Stay where you are if it is safe.
+          Emergency signals dispatched to group members and saved to server log.
         </Text>
 
-        <View style={styles.notifiedCard}>
-          <Text style={styles.cardTitle}>Alert recipients</Text>
-          <Text style={styles.copy}>Maya, Jordan, Sam and 2 guardians</Text>
-          <Text style={styles.sentAt}>Sent now · live location attached</Text>
-        </View>
-
-        {/* PRIVACY-GATED MEDICAL ID SNAPSHOT (SHOWN ONLY IF PRESENT) */}
         {hasMedical ? (
           <View style={styles.sosMedicalCard}>
-            <View style={styles.sosMedicalHeader}>
-              <Text style={styles.sosMedicalTitle}>🩸 Attached Medical ID Snapshot</Text>
-              <Text style={styles.sosMedicalBadge}>Gated Payload</Text>
-            </View>
-            <View style={styles.sosMedicalGrid}>
-              <Text style={styles.sosMedicalText}>
-                <Text style={styles.boldText}>Blood Group:</Text> {profile.bloodGroup}
-              </Text>
-              <Text style={styles.sosMedicalText}>
-                <Text style={styles.boldText}>Allergies:</Text> {profile.allergies || 'None listed'}
-              </Text>
-              <Text style={styles.sosMedicalText}>
-                <Text style={styles.boldText}>Emergency Contact:</Text> {profile.emergencyContact || 'None listed'}
-              </Text>
-              <Text style={styles.sosMedicalText}>
-                <Text style={styles.boldText}>Vehicle:</Text> {profile.vehicleModel} ({profile.plateNumber})
-              </Text>
-            </View>
+            <Text style={styles.sosMedicalTitle}>🩸 Medical Snapshot Attached</Text>
+            <Text style={styles.sosMedicalText}>Blood Group: {profile.bloodGroup}</Text>
+            <Text style={styles.sosMedicalText}>Emergency Contact: {profile.emergencyContact}</Text>
           </View>
         ) : null}
 
-        <Button label="Return to live map" onPress={onReturn} />
-        <Button label="End ride and view summary" tone="secondary" onPress={onEnd} />
+        <Button label="Return to map" onPress={onReturn} />
+        <Button label="End ride" tone="danger" onPress={onEnd} />
       </ScrollView>
     </Shell>
   );
@@ -845,106 +995,36 @@ function SosConfirmation({
 
 const styles = StyleSheet.create({
   shell: { flex: 1, backgroundColor: COLORS.ink },
-  page: { padding: 24, gap: 16 },
-  loginContent: { flex: 1, padding: 28, justifyContent: 'center', gap: 12 },
+  page: { padding: 20, gap: 16 },
+  loginContent: { flex: 1, justifyContent: 'center', padding: 24, gap: 12 },
   shield: {
-    width: 58,
-    height: 58,
-    borderRadius: 18,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: COLORS.forest,
+    borderColor: '#4ADE80',
+    borderWidth: 2,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
-  shieldText: { color: COLORS.text, fontWeight: '900', fontSize: 20 },
-  brand: { color: COLORS.text, fontSize: 31, fontWeight: '800' },
-  lead: { color: COLORS.muted, fontSize: 16, marginBottom: 22 },
-  eyebrow: { color: '#86EFAC', fontWeight: '800', fontSize: 11, letterSpacing: 1.1 },
-  title: { color: COLORS.text, fontSize: 28, fontWeight: '800', marginBottom: 6 },
-  fieldLabel: { color: COLORS.muted, fontSize: 11, fontWeight: '800', letterSpacing: 0.8, marginTop: 6 },
+  shieldText: { color: COLORS.text, fontWeight: '900', fontSize: 24 },
+  brand: { color: COLORS.text, fontSize: 32, fontWeight: '900' },
+  lead: { color: COLORS.muted, fontSize: 15, marginBottom: 12 },
+  fieldLabel: { color: COLORS.muted, fontSize: 11, fontWeight: '800', letterSpacing: 0.8 },
   input: {
-    backgroundColor: '#0F1A12',
+    backgroundColor: COLORS.darkInput,
     borderColor: COLORS.line,
     borderWidth: 1,
     color: COLORS.text,
     borderRadius: 12,
     paddingHorizontal: 14,
-    height: 50,
-    fontSize: 15,
+    height: 48,
+    fontSize: 14,
   },
-  button: {
-    backgroundColor: COLORS.green,
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  buttonText: { color: COLORS.ink, fontWeight: '900', fontSize: 14, letterSpacing: 0.2 },
-  secondaryButton: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.line },
-  secondaryButtonText: { color: COLORS.text },
-  dangerButton: { backgroundColor: COLORS.red },
-  warningButton: { backgroundColor: COLORS.amber },
-  warningButtonText: { color: COLORS.ink },
-  helper: { color: '#5C7062', fontSize: 12, textAlign: 'center', lineHeight: 18, marginTop: 8 },
-  card: {
-    backgroundColor: COLORS.card,
-    padding: 18,
-    borderColor: COLORS.line,
-    borderWidth: 1,
-    borderRadius: 16,
-    gap: 10,
-  },
-  cardTitle: { color: COLORS.text, fontSize: 17, fontWeight: '800' },
-  copy: { color: COLORS.muted, fontSize: 13, lineHeight: 19 },
-  link: { color: '#60A5FA', fontWeight: '700', textAlign: 'center', marginTop: 4 },
-  connection: {
-    backgroundColor: COLORS.card,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  dot: { width: 10, height: 10, borderRadius: 5 },
-  connectionText: { flex: 1 },
-  connectionTitle: { color: COLORS.text, fontWeight: '800', fontSize: 12 },
-  connectionDetail: { color: COLORS.muted, fontSize: 12, marginTop: 2 },
+  helper: { color: COLORS.muted, fontSize: 12, marginTop: 4 },
   portalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   profileBadgeBtn: {
-    backgroundColor: COLORS.card,
-    borderColor: COLORS.line,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-  },
-  profileBadgeBtnText: { color: COLORS.text, fontSize: 12, fontWeight: '700' },
-  profileSummaryCard: {
-    backgroundColor: '#0E1D13',
-    borderColor: '#23442D',
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 14,
-    gap: 6,
-  },
-  profileSummaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  profileEditLink: { color: '#60A5FA', fontWeight: '700', fontSize: 12 },
-  profileSummaryMeta: { color: COLORS.text, fontSize: 13, fontWeight: '600' },
-  medicalPillRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
-  medicalPill: {
-    backgroundColor: '#162C1D',
-    borderColor: COLORS.line,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  medicalPillText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
-  mapPage: { padding: 18, gap: 12 },
-  mapHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  headerRightActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  headerProfileBtn: {
     backgroundColor: COLORS.card,
     borderColor: COLORS.line,
     borderWidth: 1,
@@ -952,9 +1032,111 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 8,
   },
+  profileBadgeBtnText: { color: COLORS.text, fontSize: 12, fontWeight: '700' },
+  eyebrow: { color: '#86EFAC', fontWeight: '800', fontSize: 11, letterSpacing: 1.1 },
+  title: { color: COLORS.text, fontSize: 26, fontWeight: '800' },
+  connection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: COLORS.card,
+  },
+  dot: { width: 10, height: 10, borderRadius: 5 },
+  connectionText: { flex: 1 },
+  connectionTitle: { color: COLORS.text, fontWeight: '800', fontSize: 13 },
+  connectionDetail: { color: COLORS.muted, fontSize: 12 },
+  profileSummaryCard: {
+    backgroundColor: COLORS.card,
+    borderColor: COLORS.line,
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    gap: 8,
+  },
+  profileSummaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  profileEditLink: { color: COLORS.blue, fontSize: 12, fontWeight: '700' },
+  profileSummaryMeta: { color: COLORS.text, fontSize: 14, fontWeight: '700' },
+  medicalPillRow: { flexDirection: 'row', gap: 8, marginTop: 2 },
+  medicalPill: {
+    backgroundColor: COLORS.darkInput,
+    borderColor: COLORS.line,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  medicalPillText: { color: COLORS.muted, fontSize: 11, fontWeight: '600' },
+  card: {
+    backgroundColor: COLORS.card,
+    borderColor: COLORS.line,
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 18,
+    gap: 10,
+  },
+  cardTitle: { color: COLORS.text, fontSize: 17, fontWeight: '800' },
+  copy: { color: COLORS.muted, fontSize: 13, lineHeight: 18 },
+  link: { color: COLORS.blue, fontWeight: '700', textDecorationLine: 'underline', marginTop: 4 },
+  button: {
+    backgroundColor: COLORS.green,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  buttonText: { color: COLORS.ink, fontWeight: '900', fontSize: 15 },
+  secondaryButton: { backgroundColor: COLORS.card, borderColor: COLORS.line, borderWidth: 1 },
+  secondaryButtonText: { color: COLORS.text, fontWeight: '700' },
+  dangerButton: { backgroundColor: COLORS.red },
+  warningButton: { backgroundColor: COLORS.amber },
+  warningButtonText: { color: COLORS.ink, fontWeight: '900' },
+  successButton: { backgroundColor: COLORS.green },
+  successButtonText: { color: COLORS.ink, fontWeight: '900' },
+
+  // Live Map styles
+  mapPage: { padding: 16, gap: 12 },
+  mapHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headerRightActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerProfileBtn: {
+    backgroundColor: COLORS.card,
+    borderColor: COLORS.line,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
   headerProfileBtnText: { color: COLORS.text, fontSize: 11, fontWeight: '700' },
-  mapTitle: { color: COLORS.text, fontSize: 21, fontWeight: '800' },
-  endRide: { color: '#FCA5A5', fontWeight: '800', fontSize: 13 },
+  mapTitle: { color: COLORS.text, fontSize: 22, fontWeight: '800' },
+  endRide: { color: COLORS.red, fontWeight: '700', fontSize: 13 },
+
+  // REFUEL BANNER (#16A34A)
+  refuelBanner: {
+    backgroundColor: '#0A2414',
+    borderColor: COLORS.green,
+    borderWidth: 1.5,
+    borderRadius: 14,
+    padding: 14,
+    gap: 6,
+  },
+  refuelHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  refuelBadge: {
+    backgroundColor: '#0F381F',
+    borderColor: COLORS.green,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  refuelBadgeText: { color: COLORS.green, fontSize: 10, fontWeight: '800' },
+  resolveRefuelBtn: { paddingHorizontal: 6, paddingVertical: 2 },
+  resolveRefuelBtnText: { color: COLORS.muted, fontSize: 11, fontWeight: '700', textDecorationLine: 'underline' },
+  refuelRiderText: { color: COLORS.text, fontSize: 15, fontWeight: '800' },
+  refuelNoteText: { color: '#BBF7D0', fontSize: 13, fontStyle: 'italic' },
+  refuelLowUrgencyTag: { color: COLORS.muted, fontSize: 10, fontWeight: '600' },
+
+  // BREAKDOWN BANNER
   breakdownBanner: {
     backgroundColor: COLORS.warningBg,
     borderColor: COLORS.amber,
@@ -967,258 +1149,277 @@ const styles = StyleSheet.create({
   breakdownTitleGroup: { flex: 1, gap: 2 },
   breakdownBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: COLORS.amber,
+    backgroundColor: '#4A3300',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
-  breakdownBadgeText: { color: COLORS.ink, fontWeight: '900', fontSize: 10 },
-  breakdownRiderTitle: { color: COLORS.text, fontSize: 16, fontWeight: '800', marginTop: 2 },
+  breakdownBadgeText: { color: COLORS.amber, fontSize: 10, fontWeight: '800' },
+  breakdownRiderTitle: { color: COLORS.text, fontSize: 16, fontWeight: '800' },
   resolveBtn: {
-    backgroundColor: COLORS.card,
+    backgroundColor: '#382606',
     borderColor: COLORS.amber,
     borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
-  resolveBtnText: { color: COLORS.amber, fontWeight: '800', fontSize: 11 },
+  resolveBtnText: { color: COLORS.amber, fontSize: 11, fontWeight: '800' },
   breakdownDetailRow: { gap: 2 },
-  breakdownDetailTag: { color: COLORS.amber, fontWeight: '800', fontSize: 12 },
+  breakdownDetailTag: { color: COLORS.amber, fontSize: 12, fontWeight: '800' },
   breakdownDetailMeta: { color: COLORS.muted, fontSize: 12 },
-  breakdownNoteText: { color: COLORS.text, fontStyle: 'italic', fontSize: 12, backgroundColor: '#1A1406', padding: 8, borderRadius: 6 },
+  breakdownNoteText: { color: '#FDE68A', fontSize: 12, fontStyle: 'italic' },
   medicalSnapshotBox: {
-    backgroundColor: '#1E1708',
-    borderColor: '#42320E',
+    backgroundColor: '#17271B',
+    borderColor: COLORS.line,
     borderWidth: 1,
     borderRadius: 8,
     padding: 8,
     marginTop: 4,
   },
   medicalSnapshotToggle: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  medicalSnapshotToggleText: { color: COLORS.amber, fontWeight: '700', fontSize: 12 },
-  medicalPrivacyLabel: { color: COLORS.muted, fontSize: 9, fontWeight: '800' },
-  medicalSnapshotBody: { marginTop: 8, gap: 4, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#36290C' },
-  medicalSnapshotItem: { color: COLORS.text, fontSize: 12 },
-  boldText: { fontWeight: '800', color: COLORS.muted },
+  medicalSnapshotToggleText: { color: '#86EFAC', fontSize: 11, fontWeight: '800' },
+  medicalPrivacyLabel: { color: COLORS.amber, fontSize: 9, fontWeight: '700' },
+  medicalSnapshotBody: { marginTop: 6, gap: 2, borderTopWidth: 1, borderTopColor: COLORS.line, paddingTop: 6 },
+  medicalSnapshotItem: { color: COLORS.text, fontSize: 11 },
+  boldText: { fontWeight: '700' },
+
+  // SEPARATION BANNER
   separationBanner: {
-    backgroundColor: '#261F0A',
-    borderColor: COLORS.amber,
+    backgroundColor: '#1C291F',
+    borderColor: '#34D399',
     borderWidth: 1,
     borderRadius: 14,
     padding: 14,
     gap: 6,
   },
   separationHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  separationBadge: { backgroundColor: '#42330A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  separationBadgeText: { color: COLORS.amber, fontWeight: '800', fontSize: 10 },
+  separationBadge: {
+    backgroundColor: '#064E3B',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  separationBadgeText: { color: '#6EE7B7', fontSize: 10, fontWeight: '800' },
   separationAutoClearText: { color: COLORS.muted, fontSize: 10 },
-  separationRoleBlock: { gap: 6 },
+  separationRoleBlock: { gap: 4 },
   separationMainTitle: { color: COLORS.text, fontSize: 14, fontWeight: '800' },
   speedGuidancePill: {
-    backgroundColor: COLORS.forest,
-    borderColor: '#4ADE80',
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    backgroundColor: '#065F46',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     alignSelf: 'flex-start',
   },
-  speedGuidancePillText: { color: COLORS.text, fontWeight: '800', fontSize: 11 },
-  slowDownPill: { backgroundColor: '#3D2D0C', borderColor: COLORS.amber },
-  slowDownPillText: { color: COLORS.amber },
-  midpointNotice: { color: COLORS.muted, fontSize: 11, fontStyle: 'italic' },
+  speedGuidancePillText: { color: '#A7F3D0', fontSize: 11, fontWeight: '800' },
+  slowDownPill: { backgroundColor: '#374151' },
+  slowDownPillText: { color: '#E5E7EB' },
+  midpointNotice: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
+
+  // MAP CANVAS
   mapCanvas: {
-    height: 280,
-    backgroundColor: '#183327',
-    borderRadius: 18,
-    borderColor: '#28523B',
+    height: 220,
+    backgroundColor: '#0F1A12',
+    borderColor: COLORS.line,
     borderWidth: 1,
-    overflow: 'hidden',
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
     position: 'relative',
+    overflow: 'hidden',
   },
-  mapRoad: {
-    color: '#73947F',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1,
-    position: 'absolute',
-    top: 46,
-    left: 100,
-  },
+  mapRoad: { color: '#2B4A34', fontWeight: '800', letterSpacing: 2, fontSize: 11 },
   routeOne: {
-    height: 9,
-    width: 340,
-    borderRadius: 10,
-    backgroundColor: COLORS.blue,
-    transform: [{ rotate: '-24deg' }],
     position: 'absolute',
-    top: 130,
-    left: -25,
+    width: '80%',
+    height: 3,
+    backgroundColor: COLORS.blue,
+    transform: [{ rotate: '-12deg' }],
+    opacity: 0.6,
   },
   routeTwo: {
-    height: 9,
-    width: 280,
-    borderRadius: 10,
-    backgroundColor: COLORS.blue,
-    transform: [{ rotate: '38deg' }],
     position: 'absolute',
-    top: 150,
-    right: -40,
+    width: '60%',
+    height: 3,
+    backgroundColor: COLORS.blue,
+    transform: [{ rotate: '25deg' }],
+    opacity: 0.4,
   },
   marker: {
     position: 'absolute',
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: COLORS.blue,
-    borderWidth: 3,
-    borderColor: '#DCEBFF',
-    alignItems: 'center',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
   },
-  youMarker: { top: 115, left: '45%', backgroundColor: COLORS.forest },
-  markerOne: { top: 75, left: '25%' },
-  markerTwo: { top: 195, left: '18%' },
-  markerText: { color: '#FFF', fontSize: 11, fontWeight: '900' },
+  markerText: { color: COLORS.text, fontWeight: '800', fontSize: 10 },
+  youMarker: { backgroundColor: COLORS.forest, borderColor: COLORS.green, top: 40, left: 60 },
+  markerOne: { backgroundColor: COLORS.blue, borderColor: '#60A5FA', top: 120, left: 180 },
+  markerTwo: { backgroundColor: COLORS.blue, borderColor: '#60A5FA', top: 160, right: 50 },
+
   approxMidpointMarker: {
     position: 'absolute',
-    top: 155,
-    left: '52%',
+    top: 90,
+    left: 120,
     alignItems: 'center',
+    gap: 2,
   },
   approxMidpointCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: COLORS.amber,
+    borderColor: COLORS.text,
     borderWidth: 2,
-    borderColor: COLORS.amber,
-    borderStyle: 'dashed',
-    backgroundColor: 'rgba(245, 158, 11, 0.2)',
   },
-  approxMidpointText: { color: COLORS.amber, fontSize: 8, fontWeight: '900', marginTop: 2, textAlign: 'center' },
+  approxMidpointText: { color: COLORS.amber, fontSize: 8, fontWeight: '800', backgroundColor: COLORS.ink, paddingHorizontal: 4 },
+
   breakdownMapPin: {
     position: 'absolute',
-    top: 70,
-    left: '22%',
-    backgroundColor: COLORS.amber,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 6,
+    top: 110,
+    left: 170,
+    backgroundColor: COLORS.red,
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
   },
-  breakdownMapPinText: { color: COLORS.ink, fontWeight: '900', fontSize: 9 },
+  breakdownMapPinText: { color: COLORS.text, fontSize: 8, fontWeight: '800' },
+
+  refuelMapPin: {
+    position: 'absolute',
+    top: 50,
+    left: 90,
+    backgroundColor: COLORS.green,
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  refuelMapPinText: { color: COLORS.ink, fontSize: 8, fontWeight: '900' },
+
   weatherSlot: {
     position: 'absolute',
-    top: 12,
-    right: 12,
-    backgroundColor: '#102015',
-    borderColor: COLORS.line,
-    borderWidth: 1,
-    padding: 8,
-    borderRadius: 10,
+    bottom: 8,
+    left: 12,
+    backgroundColor: 'rgba(11, 19, 14, 0.8)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   weatherLabel: { color: COLORS.muted, fontSize: 8, fontWeight: '800' },
-  weatherCopy: { color: COLORS.text, fontSize: 10, fontWeight: '600', marginTop: 2 },
+  weatherCopy: { color: COLORS.text, fontSize: 10, fontWeight: '700' },
+
+  // ROSTER
   memberCard: {
     backgroundColor: COLORS.card,
     borderColor: COLORS.line,
     borderWidth: 1,
     borderRadius: 16,
     padding: 16,
-    gap: 12,
+    gap: 10,
   },
   memberRowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  memberCountText: { color: COLORS.muted, fontSize: 12 },
-  rosterList: { gap: 10 },
+  memberCountText: { color: COLORS.green, fontSize: 11, fontWeight: '800' },
+  rosterList: { gap: 8 },
   rosterItem: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  rosterDot: { width: 10, height: 10, borderRadius: 5 },
+  rosterDot: { width: 8, height: 8, borderRadius: 4 },
   rosterTextCol: { flex: 1 },
-  rosterNameText: { color: COLORS.text, fontWeight: '700', fontSize: 13 },
-  rosterVehicleText: { color: COLORS.muted, fontSize: 11, marginTop: 1 },
-  rosterRoleBadge: { color: '#86EFAC', fontWeight: '800', fontSize: 10 },
+  rosterNameText: { color: COLORS.text, fontSize: 13, fontWeight: '700' },
+  rosterVehicleText: { color: COLORS.muted, fontSize: 11 },
+  rosterRoleBadge: { color: COLORS.green, fontSize: 10, fontWeight: '800' },
   rosterOfflineText: { color: COLORS.muted, fontSize: 10 },
-  breakdownTagSmall: { color: COLORS.amber, fontWeight: '800', fontSize: 10 },
-  controlsSection: { gap: 8 },
+  breakdownTagSmall: { color: COLORS.amber, fontSize: 10, fontWeight: '800' },
+
+  // CONTROLS & TRIGGERS
+  controlsSection: { gap: 10, marginTop: 4 },
+  refuelTriggerBtn: {
+    backgroundColor: COLORS.green,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  refuelTriggerBtnText: { color: COLORS.ink, fontWeight: '900', fontSize: 15 },
   breakdownTriggerBtn: {
-    backgroundColor: COLORS.warningBg,
+    backgroundColor: '#2A1C06',
     borderColor: COLORS.amber,
     borderWidth: 1.5,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
-    position: 'relative',
     overflow: 'hidden',
+    position: 'relative',
   },
   holdProgressBar: {
     position: 'absolute',
     left: 0,
     top: 0,
     bottom: 0,
-    backgroundColor: 'rgba(245, 158, 11, 0.35)',
+    backgroundColor: COLORS.amber,
+    opacity: 0.3,
   },
-  breakdownTriggerBtnText: { color: COLORS.amber, fontWeight: '900', fontSize: 13 },
+  breakdownTriggerBtnText: { color: COLORS.amber, fontWeight: '900', fontSize: 14 },
+
+  // DEMO CONTROLS
   demoControlsBox: {
-    backgroundColor: '#0F1812',
+    backgroundColor: COLORS.card,
     borderColor: COLORS.line,
     borderWidth: 1,
     borderRadius: 14,
-    padding: 12,
+    padding: 14,
     gap: 8,
     marginTop: 8,
   },
   demoBoxTitle: { color: COLORS.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
   demoBtnGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   demoMiniBtn: {
-    backgroundColor: COLORS.card,
+    backgroundColor: COLORS.darkInput,
     borderColor: COLORS.line,
     borderWidth: 1,
+    borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 6,
   },
   demoMiniBtnText: { color: COLORS.text, fontSize: 11, fontWeight: '700' },
-  demoCrash: { alignItems: 'center', padding: 8, marginTop: 4 },
-  demoCrashText: { color: '#FCA5A5', fontWeight: '700', fontSize: 12 },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    justifyContent: 'flex-end',
-  },
+  demoCrash: { marginTop: 4, alignSelf: 'center' },
+  demoCrashText: { color: COLORS.red, fontSize: 12, fontWeight: '700', textDecorationLine: 'underline' },
+
+  // MODAL STYLES FOR BREAKDOWN REASON
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(5, 12, 7, 0.85)', justifyContent: 'flex-end' },
   modalCard: {
     backgroundColor: COLORS.card,
     borderColor: COLORS.line,
-    borderWidth: 1,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopWidth: 2,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     padding: 22,
     gap: 12,
   },
   modalTitle: { color: COLORS.text, fontSize: 22, fontWeight: '800' },
   modalCopy: { color: COLORS.muted, fontSize: 13, lineHeight: 18 },
-  reasonOptionList: { gap: 8, marginVertical: 4 },
+  reasonOptionList: { gap: 8 },
   reasonOptionBtn: {
     backgroundColor: COLORS.darkInput,
     borderColor: COLORS.line,
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
+    borderRadius: 10,
+    padding: 12,
   },
-  reasonOptionBtnSelected: {
-    backgroundColor: '#33260A',
-    borderColor: COLORS.amber,
-  },
+  reasonOptionBtnSelected: { backgroundColor: '#382606', borderColor: COLORS.amber, borderWidth: 1.5 },
   reasonOptionText: { color: COLORS.muted, fontSize: 14, fontWeight: '700' },
-  reasonOptionTextSelected: { color: COLORS.amber, fontWeight: '800' },
-  modalActionRow: { gap: 10, marginTop: 8 },
+  reasonOptionTextSelected: { color: COLORS.text, fontWeight: '900' },
+  modalActionRow: { flexDirection: 'row', gap: 10, marginTop: 6 },
   confirmBreakdownBtn: {
+    flex: 2,
     backgroundColor: COLORS.amber,
     borderRadius: 12,
-    paddingVertical: 16,
+    paddingVertical: 14,
     alignItems: 'center',
   },
   confirmBreakdownBtnText: { color: COLORS.ink, fontWeight: '900', fontSize: 14 },
   cancelBreakdownBtn: {
-    backgroundColor: COLORS.card,
+    flex: 1,
+    backgroundColor: COLORS.darkInput,
     borderColor: COLORS.line,
     borderWidth: 1,
     borderRadius: 12,
@@ -1226,57 +1427,46 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancelBreakdownBtnText: { color: COLORS.muted, fontWeight: '700', fontSize: 14 },
-  emergencyPage: { padding: 28, alignItems: 'center', justifyContent: 'center', gap: 18 },
-  emergencyTitle: { color: COLORS.text, fontSize: 29, fontWeight: '900', textAlign: 'center', lineHeight: 35 },
-  emergencyCopy: { color: COLORS.muted, textAlign: 'center', lineHeight: 22, fontSize: 15 },
+
+  // EMERGENCY STATES
+  emergencyPage: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 16 },
+  emergencyTitle: { color: COLORS.text, fontSize: 28, fontWeight: '900', textAlign: 'center' },
+  emergencyCopy: { color: COLORS.muted, fontSize: 14, textAlign: 'center', lineHeight: 20 },
   countdownCircle: {
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    borderWidth: 9,
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: COLORS.card,
     borderColor: COLORS.red,
-    backgroundColor: '#311214',
+    borderWidth: 4,
     justifyContent: 'center',
     alignItems: 'center',
-    marginVertical: 10,
+    marginVertical: 12,
   },
-  countdownNumber: { color: '#FCA5A5', fontSize: 68, fontWeight: '900' },
-  countdownLabel: { color: '#FCA5A5', fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  countdownNumber: { color: COLORS.red, fontSize: 54, fontWeight: '900' },
+  countdownLabel: { color: COLORS.muted, fontSize: 10, fontWeight: '800', letterSpacing: 1 },
   cancelHint: { color: COLORS.muted, fontSize: 12 },
   sosIcon: {
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: '#4A1215',
+    backgroundColor: '#3B0A0A',
+    borderColor: COLORS.red,
     borderWidth: 2,
-    borderColor: COLORS.red,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
   },
-  sosIconText: { color: '#FCA5A5', fontSize: 40, fontWeight: '900' },
-  notifiedCard: {
-    alignSelf: 'stretch',
-    backgroundColor: COLORS.card,
-    borderColor: COLORS.line,
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 16,
-    gap: 7,
-  },
-  sentAt: { color: '#86EFAC', fontSize: 12, fontWeight: '700' },
+  sosIconText: { fontSize: 32 },
   sosMedicalCard: {
-    alignSelf: 'stretch',
-    backgroundColor: '#261214',
+    backgroundColor: '#1E0D0D',
     borderColor: COLORS.red,
     borderWidth: 1,
-    borderRadius: 14,
-    padding: 16,
-    gap: 8,
+    borderRadius: 12,
+    padding: 14,
+    width: '100%',
+    gap: 4,
   },
-  sosMedicalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sosMedicalTitle: { color: '#FCA5A5', fontWeight: '800', fontSize: 14 },
-  sosMedicalBadge: { color: '#FCA5A5', fontSize: 9, fontWeight: '800', backgroundColor: '#4D1B1E', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  sosMedicalGrid: { gap: 4 },
+  sosMedicalTitle: { color: COLORS.red, fontSize: 14, fontWeight: '800' },
   sosMedicalText: { color: COLORS.text, fontSize: 12 },
 });
 
