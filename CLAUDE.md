@@ -242,6 +242,10 @@ The backend endpoint `GET /api/safety/config` returns these exact values to allo
 - **Role-based permissions**: All authenticated users have equal access; admin/guardian restrictions deferred
 - **Telemetry speed in crash_candidates**: Populated from `rider_current_locations` — if no telemetry has been received yet for that ride, speed will be null
 
+## Integration Branch Notes
+
+`integration/full-merge` was created from `origin/main` and merges the canonical telemetry (`origin/utsuk/telementry`), safety (`origin/pratyush/safety2`), UI (`origin/radium/ui`), and backend (`origin/sanjiban/backend`) branches. The only merge resolutions retain the React Native TypeScript configuration needed by the safety module and remove an unreferenced legacy `mobile/lib/safety/` duplicate in favor of the active `mobile/src/safety/` implementation. Treat the post-merge backend, crash-emission, schema, UI-wiring, and mobile typecheck results as the authority for release/PR readiness.
+
 ## Security & Resilience Fixes (Audit Remediation)
 
 The following backend hardening measures were resolved per the July 31, 2026 Safety Audit:
