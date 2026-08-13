@@ -243,7 +243,7 @@ function App() {
       <StatusBar barStyle="light-content" backgroundColor={COLORS.ink} />
 
       {screen === 'login' && (
-        <Login onContinue={handleLoginContinue} />
+        <Login onContinue={handleLoginContinue} onRegister={() => setScreen('registration')} />
       )}
 
       {screen === 'registration' && (
@@ -427,7 +427,7 @@ function Button({
   );
 }
 
-function Login({ onContinue }: { onContinue: (name: string, password: string) => void }) {
+function Login({ onContinue, onRegister }: { onContinue: (name: string, password: string) => void; onRegister: () => void }) {
   const [name, setName] = useState('Alex Vance');
   const [password, setPassword] = useState('guardian1');
   return (
@@ -457,6 +457,9 @@ function Login({ onContinue }: { onContinue: (name: string, password: string) =>
           secureTextEntry
         />
         <Button label="Sign in →" onPress={() => onContinue(name, password)} />
+        <Pressable onPress={onRegister} style={styles.linkButton}>
+          <Text style={styles.linkButtonText}>New rider? Register an account</Text>
+        </Pressable>
         <Text style={styles.helper}>JWT sign-in uses your name and password. No social accounts required.</Text>
       </View>
     </Shell>
@@ -1554,6 +1557,8 @@ const styles = StyleSheet.create({
   },
   sosMedicalTitle: { color: COLORS.red, fontSize: 14, fontWeight: '800' },
   sosMedicalText: { color: COLORS.text, fontSize: 12 },
+  linkButton: { alignSelf: 'center', padding: 8 },
+  linkButtonText: { color: COLORS.blue, fontSize: 13, fontWeight: '700' },
 });
 
 export default App;
