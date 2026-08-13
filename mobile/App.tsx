@@ -30,6 +30,7 @@ import RiderProfileScreen, {
   RiderProfileData,
 } from './src/ui/RiderProfileScreen';
 import { SocketClient } from './src/telemetry/socket/SocketClient';
+import { TelemetryModule } from './src/telemetry';
 import { useCrashDetection } from './src/safety/crash/useCrashDetection';
 import { useCountdown } from './src/safety/countdown/useCountdown';
 
@@ -96,8 +97,28 @@ function App() {
   const [connection, setConnection] = useState<Connection>('live');
   const [authToken, setAuthToken] = useState('');
   const socketRef = useRef(new SocketClient());
+  const telemetryModuleRef = useRef(new TelemetryModule({ socketClient: socketRef.current }));
+
+  const telemetryStream$ = React.useMemo(
+    () => ({
+      subscribe: (cb: (r: { timestamp: number; latitude: number; longitude: number; accuracy: number; speed: number | null }) => void) => {
+        const unsubscribe = telemetryModuleRef.current.onReading((reading) => {
+          cb({
+            timestamp: reading.timestamp,
+            latitude: reading.latitude,
+            longitude: reading.longitude,
+            accuracy: reading.accuracy,
+            speed: reading.speed,
+          });
+        });
+        return { unsubscribe };
+      },
+    }),
+    []
+  );
+
   const lastCrashLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
-  const { lastCandidate } = useCrashDetection({ apiBaseUrl: API_BASE_URL });
+  const { lastCandidate } = useCrashDetection({ apiBaseUrl: API_BASE_URL, telemetryStream$ });
   const countdown = useCountdown({ durationMs: 15_000 });
 
   // Registration gate state
@@ -140,9 +161,17 @@ function App() {
       });
     });
     socketRef.current.connect(API_BASE_URL, authToken).catch(() => setConnection('offline'));
+    telemetryModuleRef.current.start({
+      socketUrl: API_BASE_URL,
+      authToken,
+      groupCode: activeRoomCode,
+      healthEndpointUrl: `${API_BASE_URL}/api/health`,
+      socketClient: socketRef.current,
+    }).catch(() => {});
     return () => {
       unsubscribe();
       socketRef.current.disconnect();
+      telemetryModuleRef.current.stop().catch(() => {});
     };
   }, [authToken, activeRoomCode]);
 

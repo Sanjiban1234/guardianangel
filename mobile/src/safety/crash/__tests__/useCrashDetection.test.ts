@@ -42,3 +42,122 @@ describe('useCrashDetection sensor sampling configuration', () => {
     expect(expected).toBeLessThanOrEqual(max);
   });
 });
+
+describe('Crash detection speed gate integration via TelemetryModule stream', () => {
+  it('allows crash candidate to fire when telemetryStream$ emits speed >= 15 km/h (4.17 m/s)', () => {
+    const { CrashDetector } = require('../crashDetector');
+    const { TelemetryModule } = require('../../../telemetry/TelemetryModule');
+
+    const detector = new CrashDetector();
+    const telemetryModule = new TelemetryModule();
+
+    // Wire telemetryStream$ exactly as App.tsx wires it
+    const telemetryStream$ = {
+      subscribe: (cb: (r: any) => void) => {
+        const unsubscribe = telemetryModule.onReading((reading: any) => {
+          cb({
+            timestamp: reading.timestamp,
+            latitude: reading.latitude,
+            longitude: reading.longitude,
+            accuracy: reading.accuracy,
+            speed: reading.speed,
+          });
+        });
+        return { unsubscribe };
+      },
+    };
+
+    let candidateEvent: any = null;
+    detector.onCandidate((e: any) => {
+      candidateEvent = e;
+    });
+
+    const sub = telemetryStream$.subscribe((r) => detector.feedTelemetry(r));
+
+    const t0 = 1000;
+    const locationProvider = (telemetryModule as any).locationProvider;
+    locationProvider.start((sample: any) => {
+      (telemetryModule as any).handleIncomingReading(sample);
+    });
+
+    locationProvider.emitLocation({
+      timestamp: t0,
+      latitude: 27.7,
+      longitude: 85.3,
+      accuracy: 5.0,
+      speed: 20 / 3.6, // 20 km/h in m/s (> 15 km/h threshold)
+    });
+
+    // Accelerometer normal + impact spike
+    detector.feedAccelerometer({ x: 0, y: 0, z: 9.8, timestamp: t0 });
+    detector.feedAccelerometer({ x: 0, y: 0, z: 9.8, timestamp: t0 + 20 });
+    detector.feedAccelerometer({ x: 55, y: 40, z: 35, timestamp: t0 + 40 });
+
+    // Gyroscope rotation during post-event window
+    detector.feedGyroscope({ x: 3, y: 3, z: 2, timestamp: t0 + 60 });
+    detector.feedGyroscope({ x: 3, y: 3, z: 2, timestamp: t0 + 80 });
+
+    // Post-impact stillness past 4000ms window
+    for (let i = 0; i < 250; i++) {
+      detector.feedAccelerometer({ x: 0, y: 0, z: 9.8, timestamp: t0 + 100 + i * 20 });
+    }
+
+    expect(candidateEvent).not.toBeNull();
+    expect(detector.getState()).toBe('CANDIDATE_CONFIRMED');
+
+    sub.unsubscribe();
+  });
+
+  it('rejects crash candidate when telemetryStream$ speed is below 15 km/h (speed gate blocks)', () => {
+    const { CrashDetector } = require('../crashDetector');
+    const { TelemetryModule } = require('../../../telemetry/TelemetryModule');
+
+    const detector = new CrashDetector();
+    const telemetryModule = new TelemetryModule();
+
+    const telemetryStream$ = {
+      subscribe: (cb: (r: any) => void) => {
+        const unsubscribe = telemetryModule.onReading((reading: any) => {
+          cb({
+            timestamp: reading.timestamp,
+            latitude: reading.latitude,
+            longitude: reading.longitude,
+            accuracy: reading.accuracy,
+            speed: reading.speed,
+          });
+        });
+        return { unsubscribe };
+      },
+    };
+
+    let candidateEvent: any = null;
+    detector.onCandidate((e: any) => {
+      candidateEvent = e;
+    });
+
+    const sub = telemetryStream$.subscribe((r) => detector.feedTelemetry(r));
+
+    const t0 = 1000;
+    const locationProvider = (telemetryModule as any).locationProvider;
+    locationProvider.start((sample: any) => {
+      (telemetryModule as any).handleIncomingReading(sample);
+    });
+
+    // Speed = 5 km/h (< 15 km/h threshold)
+    locationProvider.emitLocation({
+      timestamp: t0,
+      latitude: 27.7,
+      longitude: 85.3,
+      accuracy: 5.0,
+      speed: 5 / 3.6,
+    });
+
+    detector.feedAccelerometer({ x: 0, y: 0, z: 9.8, timestamp: t0 });
+    detector.feedAccelerometer({ x: 55, y: 40, z: 35, timestamp: t0 + 20 });
+
+    expect(candidateEvent).toBeNull();
+    expect(detector.getState()).toBe('IDLE'); // Blocked by speed gate
+
+    sub.unsubscribe();
+  });
+});
