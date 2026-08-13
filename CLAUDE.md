@@ -42,6 +42,7 @@ src/handlers/LocationHandler.ts       location:update → broadcast + persist
 src/handlers/BulkSyncHandler.ts       telemetry:bulkSync → batch insert
 src/handlers/CrashHandler.ts          crash:candidate, crash:countdownExpired, crash:cancelled
 src/handlers/DisconnectHandler.ts     cleanup on socket disconnect
+src/handlers/RefillNotificationHandler.ts refill:requested → log, room broadcast, FCM
 
 src/services/UserService.ts           Registration, login, password hashing
 src/services/RoomService.ts           Room CRUD, membership verification
@@ -50,6 +51,7 @@ src/services/EmergencyAlertService.ts SOS alert creation/resolution
 src/services/PresenceService.ts       Online/offline tracking
 src/services/WeatherService.ts        Weather provider client + in-memory cache + centroid calc
 src/services/GroupCoherenceService.ts Group separation detection + midpoint & speed recommendations
+src/services/RefillNotificationService.ts one-shot petrol-refill event persistence + FCM targets
 
 src/routes/WeatherRouter.ts           GET /api/rooms/:groupCode/weather
 
@@ -62,9 +64,9 @@ src/repositories/CrashCandidateRepository.ts     Crash candidate persistence + o
 
 | Table | Purpose |
 |-------|---------|
-| `users` | Accounts (id UUID, name, phone, password_hash) |
-| `ride_rooms` | Ride sessions (token_hash SHA-256 of group code, status active/ended) |
-| `room_members` | Many-to-many room membership (rider/guardian roles) |
+| `users` | Accounts (id UUID, name, phone, password_hash, profile_complete) |
+| `ride_rooms` | Ride sessions (token_hash SHA-256 of group code, destination lat/lng/label, status active/ended) |
+| `room_members` | Many-to-many room membership (`owner`, `member`, `guardian` roles) |
 | `telemetry_readings` | Append-only GPS track (GEOGRAPHY POINT, speed, accuracy) |
 | `rider_current_locations` | Latest position per rider/room (trigger-maintained) |
 | `crash_candidates` | Persisted crash detection events with outcome tracking |
@@ -73,6 +75,7 @@ src/repositories/CrashCandidateRepository.ts     Crash candidate persistence + o
 | `vehicle_breakdowns` | Manual vehicle breakdown reports (reason, note, location, timestamps) |
 | `device_tokens` | FCM push notification registration per user and platform |
 | `medical_info` | Voluntary rider medical ID (blood group, allergies, emergency contacts, notes) |
+| `refill_notifications` | One-shot petrol-refill event log (room, rider, note, created time) |
 
 Legacy tables still in schema but not used for new paths: `active_riders`, `notification_subdivision`, `engine_heartbeat`.
 
@@ -82,8 +85,8 @@ Legacy tables still in schema but not used for new paths: `active_riders`, `noti
 |--------|------|---------|
 | POST | `/api/auth/register` | Create account (name, password, phone) |
 | POST | `/api/auth/login` | Authenticate, returns JWT |
-| POST | `/api/rooms` | Create ride room (returns group_code) |
-| POST | `/api/rooms/join` | Join existing room by group_code |
+| POST | `/api/rooms` | Create ride room with destination; server returns 12-hex `group_code` and creator becomes `owner` |
+| POST | `/api/rooms/join` | Join existing room by `group_code`; 24-hour expiry and 20-member cap apply |
 | GET | `/api/rooms/:groupCode/history` | Telemetry history for room |
 | GET | `/api/rooms/:groupCode/summary` | Distance + duration stats |
 | GET | `/api/rooms/:groupCode/weather` | Current weather at ride centroid (active rooms only) |
@@ -121,12 +124,14 @@ All endpoints except health require JWT in `Authorization: Bearer <token>` heade
 | `vehicle:breakdown` | Client → Server | Rider manually reports breakdown (optional reason/note) |
 | `vehicle:breakdownReported` | Server → Room | Breakdown broadcast to room members (includes optional `medical_info`) |
 | `vehicle:breakdownResolved` | Server → Room | Broadcast when rider marks breakdown resolved |
+| `refill:requested` | Client → Server | Informational petrol-refill request (`group_code`, optional note) |
+| `refill:notified` | Server → Room | One-shot refill notification; server also sends FCM to other members |
 
 WebSocket auth: JWT passed in `socket.auth.token` on connection.
 
 ### Crash Detection Flow
 
-1. Mobile detects candidate crash (accelerometer/gyroscope — module not yet implemented)
+1. `App.tsx` instantiates `useCrashDetection` (accelerometer/gyroscope) and `useCountdown`
 2. Client emits `crash:candidate` with timestamp + lat/lng
 3. Server persists to `crash_candidates` table, pulls speed from `rider_current_locations`
 4. 15-second countdown runs on device
@@ -171,6 +176,7 @@ Environment variables: `DATABASE_URL`, `JWT_SECRET` (required in non-test), `POR
 | `group-coherence.test.ts` | Nearest-rider separation detection, strung-out formation isolation, speed caps, reunion trigger, 30s cooldown |
 | `vehicle-breakdown.test.ts` | Vehicle breakdown report/resolution, FCM token registration, push notification failure isolation, and group coherence alert suppression |
 | `medical-info.test.ts` | Medical ID upsert/fetch/delete, blood group enum & E.164 phone validation, auth scoping, and alert payload integration |
+| `ride-entry-refill.test.ts` | Destination room creation/owner role, profile gate, expiry/capacity/duplicate checks, refill logging, FCM targets, socket identity attribution |
 
 All tests use mocked `db.query` via `jest.mock('../src/db')` — no live database needed.
 
@@ -235,7 +241,8 @@ The backend endpoint `GET /api/safety/config` returns these exact values to allo
 ## Known Gaps / Deferred Work
 
 - **Crash detection threshold validation**: No real-world or bench testing has been performed. Current values are literature-based estimates only. This is a **mandatory pre-production task**, requires controlled crash testing or validated simulation data
-- **Mobile safety module**: `mobile/src/safety/` implements crash detection (`CrashDetector` state machine, `CountdownTimer`, `OverrideController`), with configurable detection thresholds via `GET /api/safety/config` (finding 5.5) and sample rate health tracking (finding 5.6). **Integration status**: the safety module is NOT wired into App.tsx — deliberate deferral until Utsuk's SQLite/telemetry module is ready. Two isolated bugs in the safety module (sensor sampling rate mismatch, useOverride stale closure) were fixed independently (Aug 1, 2026) and are no longer blockers for the integration pass
+- **Crash telemetry feed**: `App.tsx` now wires `useCrashDetection`, `useCountdown`, and authenticated `crash:*` socket events through the telemetry `SocketClient`. However, no production telemetry/location stream is yet passed to the detector's speed gate, so sensor candidates cannot be treated as field-ready. The 20-case simulated `crashDetector` test passes; real-world threshold validation remains mandatory.
+- **Vehicle profile persistence**: The UI keeps vehicle model/plate/color locally because the backend contract has no vehicle-profile endpoint. Medical ID persists through `/api/users/medical-info`; do not add a vehicle endpoint without an approved contract change.
 - **Weather push model**: Server could poll weather per active room and broadcast `weather:update` via Socket.IO — deferred, pull-with-cache is sufficient for v1
 - **Guardian Portal** (web observer UI): Deferred until after midterm defense
 - **Geofences**: CRUD endpoints exist; any authenticated user can create/modify/soft-delete geofences (deliberate scope decision for now, not an oversight — must add role-based restriction before production)
@@ -244,7 +251,7 @@ The backend endpoint `GET /api/safety/config` returns these exact values to allo
 
 ## Integration Branch Notes
 
-`integration/full-merge` was created from `origin/main` and merges the canonical telemetry (`origin/utsuk/telementry`), safety (`origin/pratyush/safety2`), UI (`origin/radium/ui`), and backend (`origin/sanjiban/backend`) branches. The only merge resolutions retain the React Native TypeScript configuration needed by the safety module and remove an unreferenced legacy `mobile/lib/safety/` duplicate in favor of the active `mobile/src/safety/` implementation. Treat the post-merge backend, crash-emission, schema, UI-wiring, and mobile typecheck results as the authority for release/PR readiness.
+`integration/full-merge` was created from `origin/main` and merges the canonical telemetry (`origin/utsuk/telementry`), safety (`origin/pratyush/safety2`), UI (`origin/radium/ui`), and backend (`origin/sanjiban/backend`) branches. It also includes the locally recovered ride-entry/refill work and mobile wiring commits. Room create/join, registration, medical profile, refill socket notifications, and crash socket transitions now call their existing backend contracts. Both backend and mobile typechecks and Jest test suites pass 100%.
 
 ## Security & Resilience Fixes (Audit Remediation)
 

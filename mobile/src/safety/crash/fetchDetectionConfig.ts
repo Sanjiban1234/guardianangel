@@ -26,36 +26,38 @@ export async function fetchDetectionConfig(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-    const response = await fetch(`${baseUrl}/api/safety/config`, {
-      signal: controller.signal,
-    });
+    try {
+      const response = await fetch(`${baseUrl}/api/safety/config`, {
+        signal: controller.signal,
+      });
 
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      console.warn(
-        `Safety config fetch failed: HTTP ${response.status}. Using defaults.`,
-      );
-      return { ...DEFAULT_DETECTION_CONFIG };
-    }
-
-    const body = await response.json();
-
-    if (typeof body !== 'object' || body === null) {
-      console.warn('Safety config fetch: invalid response shape. Using defaults.');
-      return { ...DEFAULT_DETECTION_CONFIG };
-    }
-
-    // Merge: backend values override defaults, missing fields keep defaults.
-    // Only accept keys that exist in DetectionConfig to prevent pollution.
-    const merged = { ...DEFAULT_DETECTION_CONFIG };
-    for (const key of Object.keys(DEFAULT_DETECTION_CONFIG) as (keyof DetectionConfig)[]) {
-      if (key in body && typeof body[key] === 'number') {
-        (merged as Record<string, number>)[key] = body[key];
+      if (!response.ok) {
+        console.warn(
+          `Safety config fetch failed: HTTP ${response.status}. Using defaults.`,
+        );
+        return { ...DEFAULT_DETECTION_CONFIG };
       }
-    }
 
-    return merged;
+      const body = await response.json();
+
+      if (typeof body !== 'object' || body === null) {
+        console.warn('Safety config fetch: invalid response shape. Using defaults.');
+        return { ...DEFAULT_DETECTION_CONFIG };
+      }
+
+      // Merge: backend values override defaults, missing fields keep defaults.
+      // Only accept keys that exist in DetectionConfig to prevent pollution.
+      const merged = { ...DEFAULT_DETECTION_CONFIG };
+      for (const key of Object.keys(DEFAULT_DETECTION_CONFIG) as (keyof DetectionConfig)[]) {
+        if (key in body && typeof body[key] === 'number') {
+          (merged as Record<string, number>)[key] = body[key];
+        }
+      }
+
+      return merged;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   } catch (error: unknown) {
     // AbortError (timeout), TypeError (network failure), SyntaxError (bad JSON), etc.
     const message = error instanceof Error ? error.message : String(error);

@@ -4,6 +4,13 @@ import { CountdownTimer } from '../countdownTimer';
 jest.useFakeTimers();
 
 describe('CountdownTimer', () => {
+  afterEach(() => {
+    jest.clearAllTimers();
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+  });
   it('starts in IDLE state', () => {
     const timer = new CountdownTimer();
     expect(timer.getState()).toBe('IDLE');

@@ -106,6 +106,13 @@ function driveCrashSequence(
 jest.useFakeTimers();
 
 describe('CrashDetector', () => {
+  afterEach(() => {
+    jest.clearAllTimers();
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+  });
   it('stays IDLE on normal riding data', () => {
     const detector = new CrashDetector();
     accelNormal(30, 1000).forEach((r) => detector.feedAccelerometer(r));

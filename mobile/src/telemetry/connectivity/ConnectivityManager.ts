@@ -64,19 +64,19 @@ export class ConnectivityManager implements IConnectivityManager {
    */
   async checkReachability(): Promise<boolean> {
     let isReachable = false;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
-
       const response = await this.fetchImpl(this.healthEndpointUrl, {
         method: 'GET',
         signal: controller.signal,
         headers: { 'Cache-Control': 'no-cache' },
       });
-      clearTimeout(timeoutId);
       isReachable = response.ok;
     } catch {
       isReachable = false;
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     const newRawStatus: ConnectivityStatus = isReachable ? 'online' : 'offline';
