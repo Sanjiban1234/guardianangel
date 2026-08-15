@@ -5,7 +5,7 @@
   "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/src/index.js",
+    "start": "node enable-postgis.js && node dist/src/index.js",
     "dev": "tsx watch src/index.ts",
     "test": "jest --runInBand --detectOpenHandles",
     "demo": "tsx demo/simulate_client.ts"
