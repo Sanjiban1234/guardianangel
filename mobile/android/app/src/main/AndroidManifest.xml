@@ -15,6 +15,7 @@
       android:allowBackup="false"
       android:theme="@style/AppTheme"
       android:usesCleartextTraffic="${usesCleartextTraffic}"
+      android:networkSecurityConfig="@xml/network_security_config"
       android:supportsRtl="true">
 
       <!-- Google Maps API Key (injected from gradle.properties/local.properties at build time) -->
