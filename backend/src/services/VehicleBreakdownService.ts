@@ -168,29 +168,28 @@ export class VehicleBreakdownService {
       };
     }
 
-    // Fallback: look for latest breakdown for user
+    // Fallback: if room was just ended (race condition), find the latest
+    // unresolved breakdown for this user regardless of room and resolve it.
     const fallbackRes = await this.db.run(
-      `SELECT id, user_id, resolved_at
-       FROM vehicle_breakdowns
+      `UPDATE vehicle_breakdowns
+       SET resolved_at = NOW()
        WHERE user_id = $1
+         AND resolved_at IS NULL
        ORDER BY reported_at DESC
-       LIMIT 1`,
+       LIMIT 1
+       RETURNING id, user_id, resolved_at`,
       [userId]
     );
 
     if (fallbackRes.rows.length === 0) {
-      throw new Error(`No breakdown record found for user ${userId}`);
+      throw new Error(`No active breakdown record found for user ${userId}`);
     }
 
     const fallbackRow = fallbackRes.rows[0];
-    const resolvedAt = fallbackRow.resolved_at
-      ? new Date(fallbackRow.resolved_at).getTime()
-      : Date.now();
-
     return {
       breakdown_id: fallbackRow.id,
       user_id: fallbackRow.user_id,
-      resolved_at: resolvedAt,
+      resolved_at: new Date(fallbackRow.resolved_at).getTime(),
     };
   }
 

@@ -35,7 +35,17 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>Guardian Angel uses your location for group ride navigation and safety features.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Guardian Angel tracks your location during group rides to ensure safety and detect crashes, even when the app is in the background.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Guardian Angel requires location access in the background during rides for continuous safety monitoring.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Guardian Angel uses Face ID for secure and convenient login.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>

@@ -23,27 +23,43 @@ export const initDb = async (): Promise<void> => {
     throw new Error('DATABASE_URL is required. Set it in .env file.');
   }
 
+  // Extensions must be created outside a transaction block.
+  // Use a short-lived pool client so errors here don't affect the schema transaction.
+  {
+    const extClient = await _dbPool.connect();
+    try {
+      // PostGIS is required for geography types
+      try {
+        await extClient.query('CREATE EXTENSION IF NOT EXISTS postgis');
+      } catch (extErr: any) {
+        console.error('PostGIS extension error:', extErr.message);
+        throw new Error(`PostGIS extension failed. Ensure PostgreSQL has PostGIS installed: ${extErr.message}`);
+      }
+
+      try { await extClient.query('CREATE EXTENSION IF NOT EXISTS pgcrypto'); } catch {}
+      try { await extClient.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'); } catch {}
+    } finally {
+      extClient.release();
+    }
+  }
+
   let client: any;
   try {
     client = await _dbPool.connect();
     await client.query('BEGIN');
 
-    try { await client.query('CREATE EXTENSION IF NOT EXISTS postgis'); } catch {}
-    try { await client.query('CREATE EXTENSION IF NOT EXISTS pgcrypto'); } catch {}
-    try { await client.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'); } catch {}
-
-    // Users/Riders table (ER: ID, Name, Phone, GeoHash)
+    // Users/Riders table (ER: ID, Name, Email, Phone, GeoHash)
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         name VARCHAR(100) NOT NULL,
+        email VARCHAR(255),
         phone VARCHAR(20) NOT NULL,
         geohash VARCHAR(20),
         password_hash VARCHAR(255) NOT NULL,
         role TEXT NOT NULL DEFAULT 'rider' CHECK (role IN ('rider', 'admin')),
         profile_complete BOOLEAN NOT NULL DEFAULT true,
-        created_at TIMESTAMP DEFAULT NOW(),
-        UNIQUE(name)
+        created_at TIMESTAMP DEFAULT NOW()
       )
     `);
     // Existing installations predate the application-level admin role.
@@ -52,6 +68,11 @@ export const initDb = async (): Promise<void> => {
     // users therefore remain complete; the flag supports a safe gate if a
     // legacy/imported account is deliberately marked incomplete.
     await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_complete BOOLEAN NOT NULL DEFAULT true");
+    // Email-based authentication support (unique constraint enforces no duplicate emails)
+    await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255)");
+    await client.query("CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique_idx ON users(email) WHERE email IS NOT NULL");
+    // Remove legacy UNIQUE(name) constraint — names are display-only, not unique identifiers
+    await client.query("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_name_key");
 
     // Active Riders table (ER: GroupCode, IncludeID, GeoHash, type of Operation)
     await client.query(`

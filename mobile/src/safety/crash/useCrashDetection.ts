@@ -52,7 +52,9 @@ export function useCrashDetection(options: UseCrashDetectionOptions = {}) {
     const gyroSub = gyroscope.subscribe(({ x, y, z, timestamp }: SensorData) =>
       detector.feedGyroscope({ x, y, z, timestamp })
     );
-    const telemetrySub = telemetryStream$?.subscribe((r) => detector.feedTelemetry(r));
+    const telemetrySub = telemetryStream$?.subscribe((r) => {
+      detector.feedTelemetry(r);
+    });
 
     return () => {
       accelSub.unsubscribe();

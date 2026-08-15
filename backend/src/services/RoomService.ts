@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { QueryRunner } from '../db/QueryRunner';
+import { AppError } from '../utils/AppError';
 
 export interface CreateRoomResult {
   room_id: string;
@@ -83,23 +84,17 @@ export class RoomService {
     );
 
     if (existing.rows.length === 0) {
-      const err = new Error('Ride group not found');
-      (err as any).code = 'ROOM_NOT_FOUND';
-      throw err;
+      throw new AppError('Ride group not found', 'ROOM_NOT_FOUND');
     }
 
     const room = existing.rows[0];
 
     if (room.status !== 'active') {
-      const err = new Error('This ride group has already ended');
-      (err as any).code = 'ROOM_ENDED';
-      throw err;
+      throw new AppError('This ride group has already ended', 'ROOM_ENDED');
     }
 
     if (new Date(room.expires_at).getTime() <= Date.now()) {
-      const err = new Error('This ride group has expired');
-      (err as any).code = 'ROOM_EXPIRED';
-      throw err;
+      throw new AppError('This ride group has expired', 'ROOM_EXPIRED');
     }
 
     const memberCheck = await this.db.run(
@@ -107,9 +102,7 @@ export class RoomService {
       [room.id, userId]
     );
     if (memberCheck.rows.length > 0) {
-      const err = new Error('You are already a member of this ride group');
-      (err as any).code = 'ALREADY_MEMBER';
-      throw err;
+      throw new AppError('You are already a member of this ride group', 'ALREADY_MEMBER');
     }
 
     const memberCount = await this.db.run(
@@ -117,9 +110,7 @@ export class RoomService {
       [room.id]
     );
     if (Number(memberCount.rows[0]?.count ?? 0) >= MAX_ROOM_MEMBERS) {
-      const err = new Error('This ride group is full');
-      (err as any).code = 'ROOM_FULL';
-      throw err;
+      throw new AppError('This ride group is full', 'ROOM_FULL');
     }
 
     await this.db.run(
@@ -137,9 +128,7 @@ export class RoomService {
       [userId]
     );
     if (result.rows[0]?.profile_complete === false) {
-      const err = new Error('Complete registration before creating or joining a ride');
-      (err as any).code = 'PROFILE_INCOMPLETE';
-      throw err;
+      throw new AppError('Complete registration before creating or joining a ride', 'PROFILE_INCOMPLETE');
     }
   }
 

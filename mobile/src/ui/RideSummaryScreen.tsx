@@ -39,6 +39,7 @@ import {
   RideSummaryData,
   DownsampledSpeedPoint,
 } from '../../../contracts/ride-summary';
+import { useRideSummary } from './useRideSummary';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -104,17 +105,48 @@ export const MOCK_LOW_DATA_RIDE_SUMMARY: RideSummaryData = {
 };
 
 interface RideSummaryScreenProps {
-  data?: RideSummaryData;
+  groupCode: string;
+  authToken: string;
+  apiBaseUrl: string;
   onReturnToPortal?: () => void;
   onExportGpx?: () => void;
 }
 
 export const RideSummaryScreen: React.FC<RideSummaryScreenProps> = ({
-  data = MOCK_FULL_RIDE_SUMMARY,
+  groupCode,
+  authToken,
+  apiBaseUrl,
   onReturnToPortal,
   onExportGpx,
 }) => {
   const [selectedPoint, setSelectedPoint] = useState<DownsampledSpeedPoint | null>(null);
+  const { data, loading, error } = useRideSummary(groupCode, authToken, apiBaseUrl);
+
+  if (loading || !data) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading ride summary...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Failed to load ride summary</Text>
+          <Text style={styles.errorDetail}>{error}</Text>
+          {onReturnToPortal && (
+            <TouchableOpacity onPress={onReturnToPortal} style={styles.returnButton}>
+              <Text style={styles.returnButtonText}>← Return to Portal</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   // Formatting helpers
   const formatDistance = (meters: number) => {
@@ -864,6 +896,47 @@ const styles = StyleSheet.create({
     color: '#E2F7E9',
     fontSize: 14,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  loadingText: {
+    color: '#A3B8A8',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    gap: 12,
+  },
+  errorText: {
+    color: '#DC2626',
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  errorDetail: {
+    color: '#A3B8A8',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  returnButton: {
+    backgroundColor: '#16A34A',
+    borderRadius: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    marginTop: 16,
+  },
+  returnButtonText: {
+    color: '#0B130E',
+    fontSize: 15,
+    fontWeight: '800',
   },
 });
 

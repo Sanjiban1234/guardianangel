@@ -5,11 +5,12 @@
 
 import { useState, useEffect } from 'react';
 import { RideSummaryData, DownsampledSpeedPoint, PaceBenchmark } from '../../../contracts/ride-summary';
+import { API_BASE_URL } from '../config/env';
 
 export async function fetchRideSummaryFromBackend(
   groupCode: string,
   authToken: string,
-  apiBaseUrl: string = 'http://localhost:3000'
+  apiBaseUrl: string = API_BASE_URL
 ): Promise<RideSummaryData> {
   const response = await fetch(`${apiBaseUrl}/api/rooms/${groupCode}/summary`, {
     headers: {
@@ -39,16 +40,35 @@ export async function fetchRideSummaryFromBackend(
 
   const hasLowData = (rawSummary.total_distance_meters || 0) < 500;
 
+  // Fetch group members count
+  let groupMembersCount = 0;
+  try {
+    const membersResponse = await fetch(`${apiBaseUrl}/api/rooms/${groupCode}/history`, {
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (membersResponse.ok) {
+      const historyData = await membersResponse.json();
+      // Count unique user_ids from history
+      const uniqueUsers = new Set(historyData.map((reading: any) => reading.user_id));
+      groupMembersCount = uniqueUsers.size;
+    }
+  } catch {
+    // If we can't fetch members, default to 0
+  }
+
   return {
     room_id: rawSummary.room_id || '',
     group_code: groupCode,
     user_id: rawSummary.user_id || '',
-    rider_name: 'Alex Vance', // Resolved from auth state
+    rider_name: '', // Will be set by parent component from auth state
     start_time_ms: Date.now() - actualDurationMs,
     end_time_ms: Date.now(),
     total_distance_meters: rawSummary.total_distance_meters || 0,
     actual_duration_ms: actualDurationMs,
-    group_members_count: 4,
+    group_members_count: groupMembersCount,
     speed_profile: [], // Downsampled from telemetry history endpoint
     pace_benchmark: paceBenchmark,
     weather_snapshot: null,

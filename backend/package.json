@@ -2,10 +2,10 @@
   "name": "guardian-angel-backend",
   "version": "1.0.0",
   "description": "Real-Time Synchronization and Session Module for Guardian Angel",
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/src/index.js",
     "dev": "tsx watch src/index.ts",
     "test": "jest --runInBand --detectOpenHandles",
     "demo": "tsx demo/simulate_client.ts"

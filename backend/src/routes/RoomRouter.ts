@@ -1,14 +1,7 @@
 import { Router, Request, Response } from 'express';
-import rateLimit from 'express-rate-limit';
 import { AuthMiddleware, AuthenticatedRequest } from '../middleware/AuthMiddleware';
 import { RoomService } from '../services/RoomService';
 import { PostgisTelemetryRepository } from '../repositories/PostgisTelemetryRepository';
-
-const joinRoomLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: { error: 'Too many join attempts. Try again in 15 minutes.' },
-});
 
 export class RoomRouter {
   readonly router: Router;
@@ -35,7 +28,6 @@ export class RoomRouter {
     this.router.post(
       '/rooms/join',
       AuthMiddleware.authenticateJWT,
-      joinRoomLimiter,
       (req, res) => this.handleJoinRoom(req as AuthenticatedRequest, res)
     );
 
@@ -124,13 +116,14 @@ export class RoomRouter {
   }
 
   private parseDestination(body: unknown): { latitude: number; longitude: number; label?: string } | null {
-    const destination = (body as any)?.destination;
+    const b = body as Record<string, unknown>;
+    const destination = b?.destination;
     if (!destination || typeof destination !== 'object') return null;
-    const { latitude, longitude, label } = destination;
+    const { latitude, longitude, label } = destination as Record<string, unknown>;
     if (typeof latitude !== 'number' || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
         typeof longitude !== 'number' || !Number.isFinite(longitude) || longitude < -180 || longitude > 180 ||
-        (label !== undefined && (typeof label !== 'string' || label.length > 255))) return null;
-    return { latitude, longitude, ...(label ? { label } : {}) };
+        (label !== undefined && (typeof label !== 'string' || (label as string).length > 255))) return null;
+    return { latitude, longitude, ...(label ? { label: label as string } : {}) };
   }
 
   private async handleGetHistory(

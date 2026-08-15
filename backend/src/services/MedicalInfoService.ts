@@ -23,6 +23,10 @@ export interface MedicalInfoData {
 const VALID_BLOOD_GROUPS: string[] = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 const E164_PHONE_REGEX = /^\+[1-9]\d{1,14}$/;
 
+/** Normalize a Nepali local number (10-digit starting with 9) to E.164. */
+const normalizePhone = (phone: string): string =>
+  /^9\d{9}$/.test(phone) ? `+977${phone}` : phone;
+
 export class MedicalInfoService {
   constructor(private readonly db: QueryRunner) {}
 
@@ -51,9 +55,11 @@ export class MedicalInfoService {
       data.emergency_contact_phone !== null &&
       data.emergency_contact_phone.trim() !== ''
     ) {
-      if (!E164_PHONE_REGEX.test(data.emergency_contact_phone.trim())) {
-        throw new Error('Invalid emergency contact phone number. Must be in E.164 format (e.g. +1234567890)');
+      const normalizedContactPhone = normalizePhone(data.emergency_contact_phone.trim());
+      if (!E164_PHONE_REGEX.test(normalizedContactPhone)) {
+        throw new Error('Invalid emergency contact phone number. Use E.164 (e.g. +9779812345678) or a 10-digit Nepali number (e.g. 9812345678)');
       }
+      data = { ...data, emergency_contact_phone: normalizedContactPhone };
     }
 
     const bloodGroup = data.blood_group || null;

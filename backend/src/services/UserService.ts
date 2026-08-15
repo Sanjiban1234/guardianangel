@@ -2,15 +2,17 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { QueryRunner } from '../db/QueryRunner';
 import { JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET } from '../config';
+import { AppError } from '../utils/AppError';
 
 export interface RegisterResult {
   id: string;
   name: string;
+  email: string;
 }
 
 export interface LoginResult {
   token: string;
-  user: { id: string; name: string; profile_complete: boolean };
+  user: { id: string; name: string; email: string; profile_complete: boolean };
 }
 
 export class UserService {
@@ -18,60 +20,56 @@ export class UserService {
 
   async register(
     name: string,
+    email: string,
     password: string,
     phone: string
   ): Promise<RegisterResult> {
-    const existing = await this.db.run(
-      'SELECT id FROM users WHERE name = $1',
-      [name]
+    // Check if email is already registered
+    const existingEmail = await this.db.run(
+      'SELECT id FROM users WHERE email = $1',
+      [email]
     );
-    if (existing.rows.length > 0) {
-      const err = new Error('Username is already taken');
-      (err as any).code = 'USERNAME_TAKEN';
-      throw err;
+    if (existingEmail.rows.length > 0) {
+      throw new AppError('Email is already registered', 'EMAIL_TAKEN');
     }
 
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
     const result = await this.db.run(
-      'INSERT INTO users (name, password_hash, phone, profile_complete) VALUES ($1, $2, $3, true) RETURNING id, name',
-      [name, passwordHash, phone]
+      'INSERT INTO users (name, email, password_hash, phone, profile_complete) VALUES ($1, $2, $3, $4, true) RETURNING id, name, email',
+      [name, email, passwordHash, phone]
     );
 
     return result.rows[0] as RegisterResult;
   }
 
-  async login(name: string, password: string): Promise<LoginResult> {
+  async login(email: string, password: string): Promise<LoginResult> {
     const result = await this.db.run(
-      'SELECT * FROM users WHERE name = $1',
-      [name]
+      'SELECT * FROM users WHERE email = $1',
+      [email]
     );
 
     if (result.rows.length === 0) {
-      const err = new Error('Invalid username or password');
-      (err as any).code = 'AUTH_FAILED';
-      throw err;
+      throw new AppError('Invalid email or password', 'AUTH_FAILED');
     }
 
     const user = result.rows[0];
     const isMatch = await bcrypt.compare(password, user.password_hash);
 
     if (!isMatch) {
-      const err = new Error('Invalid username or password');
-      (err as any).code = 'AUTH_FAILED';
-      throw err;
+      throw new AppError('Invalid email or password', 'AUTH_FAILED');
     }
 
     const token = jwt.sign(
-      { id: user.id, name: user.name, role: user.role === 'admin' ? 'admin' : 'rider' },
+      { id: user.id, name: user.name, email: user.email, role: user.role === 'admin' ? 'admin' : 'rider' },
       JWT_SECRET,
       { expiresIn: '24h', issuer: JWT_ISSUER, audience: JWT_AUDIENCE }
     );
 
     return {
       token,
-      user: { id: user.id, name: user.name, profile_complete: user.profile_complete !== false },
+      user: { id: user.id, name: user.name, email: user.email, profile_complete: user.profile_complete !== false },
     };
   }
 

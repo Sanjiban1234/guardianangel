@@ -1,0 +1,11 @@
+FROM postgres:16
+
+# Install PostGIS
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       postgresql-16-postgis-3 \
+       postgresql-16-postgis-3-scripts \
+    && rm -rf /var/lib/apt/lists/*
+
+# Verify PostGIS is available
+RUN echo "SELECT PostGIS_Version();" > /docker-entrypoint-initdb.d/00_test_postgis.sql

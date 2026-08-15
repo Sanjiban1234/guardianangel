@@ -22,25 +22,31 @@ import RefuelNotificationModal, {
 import RegistrationGateScreen, {
   RegistrationData,
 } from './src/ui/RegistrationGateScreen';
-import RideSummaryScreen, {
-  MOCK_FULL_RIDE_SUMMARY,
-} from './src/ui/RideSummaryScreen';
+import LoginScreen from './src/ui/LoginScreen';
+import RideSummaryScreen from './src/ui/RideSummaryScreen';
 import RiderProfileScreen, {
   INITIAL_PROFILE_DATA,
   RiderProfileData,
 } from './src/ui/RiderProfileScreen';
 import { SocketClient } from './src/telemetry/socket/SocketClient';
 import { TelemetryModule } from './src/telemetry';
+import { BackgroundGeolocationProvider } from './src/telemetry/location/LocationProvider';
 import { useCrashDetection } from './src/safety/crash/useCrashDetection';
 import { useCountdown } from './src/safety/countdown/useCountdown';
+import { API_BASE_URL } from './src/config/env';
+import MapScreen from './src/ui/MapScreen';
+import RideControlsScreen from './src/ui/RideControlsScreen';
+import PermissionGate from './src/permissions/PermissionGate';
 
 type Screen =
   | 'login'
   | 'registration'
   | 'portal'
+  | 'permission_gate'
   | 'create_destination'
   | 'join'
   | 'map'
+  | 'controls'
   | 'countdown'
   | 'sos'
   | 'summary'
@@ -71,9 +77,6 @@ const REASON_LABELS: Record<BreakdownReason, string> = {
   other: '⚠️ Other Mechanical Issue',
 };
 
-// Configure this per deployment; Android emulator callers normally use 10.0.2.2.
-const API_BASE_URL = 'http://10.0.2.2:3000';
-
 type DeviceGeolocation = {
   getCurrentPosition: (
     success: (position: { coords: { latitude: number; longitude: number } }) => void,
@@ -97,7 +100,12 @@ function App() {
   const [connection, setConnection] = useState<Connection>('live');
   const [authToken, setAuthToken] = useState('');
   const socketRef = useRef(new SocketClient());
-  const telemetryModuleRef = useRef(new TelemetryModule({ socketClient: socketRef.current }));
+  const telemetryModuleRef = useRef(
+    new TelemetryModule({
+      socketClient: socketRef.current,
+      locationProvider: new BackgroundGeolocationProvider(),
+    })
+  );
 
   const telemetryStream$ = React.useMemo(
     () => ({
@@ -123,14 +131,18 @@ function App() {
 
   // Registration gate state
   const [hasCompletedRegistration, setHasCompletedRegistration] = useState(false);
-  const [riderName, setRiderName] = useState('Alex Vance');
+  const [riderName, setRiderName] = useState('');
+  const [riderEmail, setRiderEmail] = useState('');
 
   // Profile data state
   const [profile, setProfile] = useState<RiderProfileData>(INITIAL_PROFILE_DATA);
 
   // Room / Destination state
   const [activeRoomCode, setActiveRoomCode] = useState<string>('');
-  const [destinationTitle, setDestinationTitle] = useState<string>('Saturday Valley Loop');
+  const [destinationTitle, setDestinationTitle] = useState<string>('');
+  const [roomMembers, setRoomMembers] = useState<Array<{ user_id: string; name: string; isYou?: boolean; latitude?: number; longitude?: number }>>([]);
+  const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [destination, setDestination] = useState<{ latitude: number; longitude: number; label: string } | null>(null);
 
   // Refuel alert state
   const [refuelActive, setRefuelActive] = useState<boolean>(false);
@@ -142,22 +154,99 @@ function App() {
   const [breakdownActive, setBreakdownActive] = useState<boolean>(false);
   const [breakdownReason, setBreakdownReason] = useState<BreakdownReason>('flat_tire');
   const [breakdownNote, setBreakdownNote] = useState<string>('Rear tire punctured on gravel segment.');
-  const [breakdownRiderName, setBreakdownRiderName] = useState<string>('Jordan Lee');
+  const [breakdownRiderName, setBreakdownRiderName] = useState<string>('');
   const [showReasonModal, setShowReasonModal] = useState<boolean>(false);
 
   // Group separation state
   const [separationActive, setSeparationActive] = useState<boolean>(false);
   const [separationRole, setSeparationRole] = useState<'rider' | 'group'>('rider');
+  const [permissionIntent, setPermissionIntent] = useState<'create' | 'join' | null>(null);
+
+  // Update current location from telemetry
+  useEffect(() => {
+    const subscription = telemetryStream$.subscribe((reading) => {
+      setCurrentLocation({
+        latitude: reading.latitude,
+        longitude: reading.longitude,
+      });
+    });
+    return () => subscription.unsubscribe();
+  }, [telemetryStream$]);
 
   useEffect(() => {
     if (!authToken) return;
     const unsubscribe = socketRef.current.onConnect(() => {
       setConnection('live');
       if (activeRoomCode) socketRef.current.joinSession(activeRoomCode).catch(() => setConnection('offline'));
+      socketRef.current.onEvent('session:joined', (payload: any) => {
+        if (payload?.members && Array.isArray(payload.members)) {
+          setRoomMembers(
+            payload.members.map((m: any) => ({
+              user_id: m.user_id,
+              name: m.name,
+              isYou: m.name === riderName,
+              latitude: m.latitude,
+              longitude: m.longitude,
+            }))
+          );
+        }
+      });
+      socketRef.current.onEvent('session:member_joined', (payload: any) => {
+        if (payload?.user_id) {
+          setRoomMembers((prev) => {
+            if (prev.some((m) => m.user_id === payload.user_id || m.name === payload.name)) return prev;
+            return [...prev, { user_id: payload.user_id, name: payload.name, isYou: false }];
+          });
+        }
+      });
+      socketRef.current.onEvent('session:member_left', (payload: any) => {
+        if (payload?.user_id) {
+          setRoomMembers((prev) => prev.filter((m) => m.user_id !== payload.user_id));
+        }
+      });
+      socketRef.current.onEvent('location:broadcast', (payload: any) => {
+        if (payload?.user_id && payload?.name) {
+          setRoomMembers((prev) => {
+            const existing = prev.find((m) => m.user_id === payload.user_id);
+            if (existing) {
+              return prev.map((m) =>
+                m.user_id === payload.user_id
+                  ? { ...m, latitude: payload.latitude, longitude: payload.longitude }
+                  : m
+              );
+            }
+            if (payload.name !== riderName) {
+              return [...prev, {
+                user_id: payload.user_id,
+                name: payload.name,
+                isYou: false,
+                latitude: payload.latitude,
+                longitude: payload.longitude,
+              }];
+            }
+            return prev;
+          });
+        }
+      });
       socketRef.current.onEvent('refill:notified', (payload) => {
         setRefuelRiderName(payload.name);
         setRefuelNote(payload.note || 'Need petrol stop soon.');
         setRefuelActive(true);
+      });
+      socketRef.current.onEvent('group:separationAlert', (payload: any) => {
+        if (payload?.separated_rider) {
+          setSeparationActive(true);
+          // Determine role: if the separated rider is this user, role = 'rider', else 'group'
+          const isThisUser = payload.separated_rider.name === riderName;
+          setSeparationRole(isThisUser ? 'rider' : 'group');
+        }
+      });
+      socketRef.current.onEvent('group:reunited', (payload: any) => {
+        // Clear separation alert when rider reunites
+        if (payload?.user_id) {
+          setSeparationActive(false);
+          setSeparationRole('rider');
+        }
       });
     });
     socketRef.current.connect(API_BASE_URL, authToken).catch(() => setConnection('offline'));
@@ -199,26 +288,21 @@ function App() {
     setScreen('sos');
   }), []);
 
-  const handleLoginContinue = async (name: string, password: string) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, password }),
-      });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || 'Sign in failed');
-      setAuthToken(body.token);
-      setRiderName(body.user.name);
-      setHasCompletedRegistration(body.user.profile_complete !== false);
-      setScreen(body.user.profile_complete === false ? 'registration' : 'portal');
-    } catch (error) {
-      Alert.alert('Sign in failed', error instanceof Error ? error.message : 'Unable to sign in.');
-    }
+  const handleLoginSuccess = (
+    token: string,
+    userData: { id: string; name: string; email: string; profile_complete: boolean }
+  ) => {
+    setAuthToken(token);
+    setRiderName(userData.name);
+    setRiderEmail(userData.email);
+    setHasCompletedRegistration(userData.profile_complete !== false);
+    setScreen(userData.profile_complete === false ? 'registration' : 'portal');
   };
 
   const handleRegistrationComplete = async (data: RegistrationData) => {
     setHasCompletedRegistration(true);
     setRiderName(data.fullName);
+    setRiderEmail(data.email);
     setProfile(prev => ({
       ...prev,
       vehicleModel: data.vehicleModel,
@@ -226,18 +310,47 @@ function App() {
       vehicleColor: data.vehicleColor,
       emergencyContact: data.emergencyContact,
     }));
-    await handleLoginContinue(data.fullName, data.password);
+    // After registration, auto-login with the new credentials
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: data.email.toLowerCase().trim(), password: data.password }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Auto-login after registration failed');
+      handleLoginSuccess(body.token, body.user);
+    } catch (error) {
+      Alert.alert('Registration successful', 'Please sign in with your new account.');
+      setScreen('login');
+    }
   };
 
   const handleCreatedRoomStart = (roomData: CreatedRoomData) => {
     setActiveRoomCode(roomData.groupCode);
     setDestinationTitle(roomData.destination.title);
+    setDestination({
+      latitude: roomData.destination.latitude,
+      longitude: roomData.destination.longitude,
+      label: roomData.destination.title,
+    });
+    // Don't set roomMembers here - wait for socket session:joined event
+    setRoomMembers([]);
     setScreen('map');
   };
 
   const handleJoinedRoomConfirm = (preview: RoomPreviewDetails) => {
     setActiveRoomCode(preview.groupCode);
     setDestinationTitle(preview.destinationTitle);
+    if (preview.destination) {
+      setDestination({
+        latitude: preview.destination.latitude,
+        longitude: preview.destination.longitude,
+        label: preview.destinationTitle,
+      });
+    }
+    // Don't set roomMembers here - wait for socket session:joined event
+    setRoomMembers([]);
     setScreen('map');
   };
 
@@ -272,13 +385,18 @@ function App() {
       <StatusBar barStyle="light-content" backgroundColor={COLORS.ink} />
 
       {screen === 'login' && (
-        <Login onContinue={handleLoginContinue} onRegister={() => setScreen('registration')} />
+        <LoginScreen
+          apiBaseUrl={API_BASE_URL}
+          onLoginSuccess={handleLoginSuccess}
+          onNavigateToRegister={() => setScreen('registration')}
+        />
       )}
 
       {screen === 'registration' && (
         <RegistrationGateScreen
           initialData={{
             fullName: riderName,
+            email: riderEmail,
             vehicleModel: profile.vehicleModel,
             plateNumber: profile.plateNumber,
             vehicleColor: profile.vehicleColor,
@@ -286,6 +404,7 @@ function App() {
           }}
           apiBaseUrl={API_BASE_URL}
           isOnline={connection === 'live'}
+          onCancel={() => setScreen('login')}
           onCompleteRegistration={handleRegistrationComplete}
         />
       )}
@@ -295,9 +414,32 @@ function App() {
           riderName={riderName}
           connection={connection}
           profile={profile}
-          onCreateRide={() => setScreen('create_destination')}
-          onJoinRide={() => setScreen('join')}
+          onCreateRide={() => {
+            setPermissionIntent('create');
+            setScreen('permission_gate');
+          }}
+          onJoinRide={() => {
+            setPermissionIntent('join');
+            setScreen('permission_gate');
+          }}
           onOpenProfile={() => setScreen('profile')}
+        />
+      )}
+
+      {screen === 'permission_gate' && (
+        <PermissionGate
+          onPermissionsGranted={() => {
+            if (permissionIntent === 'create') {
+              setScreen('create_destination');
+            } else if (permissionIntent === 'join') {
+              setScreen('join');
+            }
+            setPermissionIntent(null);
+          }}
+          onCancel={() => {
+            setScreen('portal');
+            setPermissionIntent(null);
+          }}
         />
       )}
 
@@ -338,12 +480,29 @@ function App() {
       )}
 
       {screen === 'map' && (
-        <LiveMap
+        <MapScreen
           roomCode={activeRoomCode}
           destinationTitle={destinationTitle}
+          currentLocation={currentLocation}
+          riders={roomMembers.map((m) => ({
+            user_id: m.user_id,
+            name: m.name,
+            latitude: m.latitude || 0,
+            longitude: m.longitude || 0,
+            isYou: m.isYou || m.name === riderName,
+          }))}
+          destination={destination}
+          onOpenControls={() => setScreen('controls')}
+          onEndRide={() => setScreen('summary')}
+        />
+      )}
+
+      {screen === 'controls' && (
+        <RideControlsScreen
+          roomCode={activeRoomCode}
           riderName={riderName}
           connection={connection}
-          profile={profile}
+          roomMembers={roomMembers}
           refuelActive={refuelActive}
           refuelRiderName={refuelRiderName}
           refuelNote={refuelNote}
@@ -353,27 +512,13 @@ function App() {
           breakdownRiderName={breakdownRiderName}
           separationActive={separationActive}
           separationRole={separationRole}
-          onToggleConnection={() => setConnection(v => (v === 'live' ? 'offline' : 'live'))}
-          onCrash={() => Alert.alert('Crash monitoring active', 'Crash alerts are started only by the sensor state machine.')}
-          onEnd={() => setScreen('summary')}
-          onOpenProfile={() => setScreen('profile')}
+          profile={profile}
+          onClose={() => setScreen('map')}
           onOpenRefuelModal={() => setShowRefuelModal(true)}
           onResolveRefuel={() => setRefuelActive(false)}
           onOpenBreakdownModal={() => setShowReasonModal(true)}
           onResolveBreakdown={() => setBreakdownActive(false)}
-          onToggleSeparation={() => setSeparationActive(v => !v)}
-          onToggleSeparationRole={() => setSeparationRole(r => (r === 'rider' ? 'group' : 'rider'))}
-          onSimulateOtherBreakdown={() => {
-            setBreakdownRiderName('Sam Miller');
-            setBreakdownReason('mechanical_failure');
-            setBreakdownNote('Chain snapped on hill incline.');
-            setBreakdownActive(true);
-          }}
-          onSimulateOtherRefuel={() => {
-            setRefuelRiderName('Maya Lin');
-            setRefuelNote('Fuel light turned on, looking for gas station.');
-            setRefuelActive(true);
-          }}
+          onOpenProfile={() => setScreen('profile')}
         />
       )}
 
@@ -389,9 +534,11 @@ function App() {
         />
       )}
 
-      {screen === 'summary' && (
+      {screen === 'summary' && activeRoomCode && authToken && (
         <RideSummaryScreen
-          data={MOCK_FULL_RIDE_SUMMARY}
+          groupCode={activeRoomCode}
+          authToken={authToken}
+          apiBaseUrl={API_BASE_URL}
           onReturnToPortal={() => setScreen('portal')}
           onExportGpx={() =>
             Alert.alert('GPX export', 'Track export will be available when the ride file service is connected.')
@@ -447,7 +594,7 @@ function Button({
           styles.buttonText,
           tone === 'secondary' && styles.secondaryButtonText,
           tone === 'warning' && styles.warningButtonText,
-          tone === 'success' && styles.successButtonText,
+        tone === 'success' && styles.successButtonText,
         ]}
       >
         {label}
@@ -456,44 +603,7 @@ function Button({
   );
 }
 
-function Login({ onContinue, onRegister }: { onContinue: (name: string, password: string) => void; onRegister: () => void }) {
-  const [name, setName] = useState('Alex Vance');
-  const [password, setPassword] = useState('guardian1');
-  return (
-    <Shell>
-      <View style={styles.loginContent}>
-        <View style={styles.shield}>
-          <Text style={styles.shieldText}>GA</Text>
-        </View>
-        <Text style={styles.brand}>Guardian Angel</Text>
-        <Text style={styles.lead}>Sign in to keep your ride group close.</Text>
-        <Text style={styles.fieldLabel}>NAME</Text>
-        <TextInput
-          value={name}
-          onChangeText={setName}
-          placeholder="Your name"
-          placeholderTextColor="#5C7062"
-          style={styles.input}
-          autoCapitalize="words"
-        />
-        <Text style={styles.fieldLabel}>PASSWORD</Text>
-        <TextInput
-          value={password}
-          onChangeText={setPassword}
-          placeholder="Password"
-          placeholderTextColor="#5C7062"
-          style={styles.input}
-          secureTextEntry
-        />
-        <Button label="Sign in →" onPress={() => onContinue(name, password)} />
-        <Pressable onPress={onRegister} style={styles.linkButton}>
-          <Text style={styles.linkButtonText}>New rider? Register an account</Text>
-        </Pressable>
-        <Text style={styles.helper}>JWT sign-in uses your name and password. No social accounts required.</Text>
-      </View>
-    </Shell>
-  );
-}
+// Login component removed - replaced with LoginScreen.tsx
 
 function Portal({
   riderName,
@@ -587,393 +697,6 @@ function ConnectionBanner({ connection }: { connection: Connection }) {
   );
 }
 
-function LiveMap({
-  roomCode,
-  destinationTitle,
-  riderName,
-  connection,
-  profile,
-  refuelActive,
-  refuelRiderName,
-  refuelNote,
-  breakdownActive,
-  breakdownReason,
-  breakdownNote,
-  breakdownRiderName,
-  separationActive,
-  separationRole,
-  onToggleConnection,
-  onCrash,
-  onEnd,
-  onOpenProfile,
-  onOpenRefuelModal,
-  onResolveRefuel,
-  onOpenBreakdownModal,
-  onResolveBreakdown,
-  onToggleSeparation,
-  onToggleSeparationRole,
-  onSimulateOtherBreakdown,
-  onSimulateOtherRefuel,
-}: {
-  roomCode: string;
-  destinationTitle: string;
-  riderName: string;
-  connection: Connection;
-  profile: RiderProfileData;
-  refuelActive: boolean;
-  refuelRiderName: string;
-  refuelNote: string;
-  breakdownActive: boolean;
-  breakdownReason: BreakdownReason;
-  breakdownNote: string;
-  breakdownRiderName: string;
-  separationActive: boolean;
-  separationRole: 'rider' | 'group';
-  onToggleConnection: () => void;
-  onCrash: () => void;
-  onEnd: () => void;
-  onOpenProfile: () => void;
-  onOpenRefuelModal: () => void;
-  onResolveRefuel: () => void;
-  onOpenBreakdownModal: () => void;
-  onResolveBreakdown: () => void;
-  onToggleSeparation: () => void;
-  onToggleSeparationRole: () => void;
-  onSimulateOtherBreakdown: () => void;
-  onSimulateOtherRefuel: () => void;
-}) {
-  const [showMedicalSnapshot, setShowMedicalSnapshot] = useState(false);
-  const [holdProgress, setHoldProgress] = useState(0);
-
-  // Press-and-hold trigger handler for breakdown
-  const handleHoldStart = () => {
-    let current = 0;
-    const interval = setInterval(() => {
-      current += 0.25;
-      setHoldProgress(current);
-      if (current >= 1) {
-        clearInterval(interval);
-        setHoldProgress(0);
-        onOpenBreakdownModal();
-      }
-    }, 100);
-  };
-
-  const handleHoldEnd = () => {
-    setHoldProgress(0);
-  };
-
-  const showSeparationBanner = separationActive && !breakdownActive;
-
-  return (
-    <Shell>
-      <ScrollView contentContainerStyle={styles.mapPage}>
-        {/* HEADER */}
-        <View style={styles.mapHeader}>
-          <View>
-            <Text style={styles.eyebrow}>GROUP CODE {roomCode}</Text>
-            <Text style={styles.mapTitle}>{destinationTitle}</Text>
-          </View>
-          <View style={styles.headerRightActions}>
-            <Pressable onPress={onOpenProfile} style={styles.headerProfileBtn}>
-              <Text style={styles.headerProfileBtnText}>⚙️ Profile</Text>
-            </Pressable>
-            <Pressable onPress={onEnd}>
-              <Text style={styles.endRide}>End ride</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        <ConnectionBanner connection={connection} />
-
-        {/* REFUEL NOTIFICATION BANNER (#16A34A - NEUTRAL / LOW URGENCY) */}
-        {refuelActive && (
-          <View style={styles.refuelBanner}>
-            <View style={styles.refuelHeaderRow}>
-              <View style={styles.refuelBadge}>
-                <Text style={styles.refuelBadgeText}>⛽ REFUEL / PETROL REQUEST</Text>
-              </View>
-              <Pressable onPress={onResolveRefuel} style={styles.resolveRefuelBtn}>
-                <Text style={styles.resolveRefuelBtnText}>Dismiss / Refueled</Text>
-              </Pressable>
-            </View>
-            <Text style={styles.refuelRiderText}>
-              {refuelRiderName || 'Rider'} needs petrol stop.
-            </Text>
-            {refuelNote ? <Text style={styles.refuelNoteText}>&quot;{refuelNote}&quot;</Text> : null}
-            <Text style={styles.refuelLowUrgencyTag}>Informational only · Not an emergency</Text>
-          </View>
-        )}
-
-        {/* VEHICLE BREAKDOWN ALERT BANNER (#F59E0B - TIER 2 WARNING) */}
-        {breakdownActive && (
-          <View style={styles.breakdownBanner}>
-            <View style={styles.breakdownHeaderRow}>
-              <View style={styles.breakdownTitleGroup}>
-                <View style={styles.breakdownBadge}>
-                  <Text style={styles.breakdownBadgeText}>⚠️ VEHICLE BREAKDOWN</Text>
-                </View>
-                <Text style={styles.breakdownRiderTitle}>
-                  {breakdownRiderName}&apos;s {profile.vehicleModel || 'Motorcycle'}
-                </Text>
-              </View>
-              <Pressable onPress={onResolveBreakdown} style={styles.resolveBtn}>
-                <Text style={styles.resolveBtnText}>Clear / Rejoined</Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.breakdownDetailRow}>
-              <Text style={styles.breakdownDetailTag}>
-                REASON: {REASON_LABELS[breakdownReason]}
-              </Text>
-              <Text style={styles.breakdownDetailMeta}>
-                Plate: {profile.plateNumber || 'BA 2 PA 1234'} · Color: {profile.vehicleColor || 'Black'}
-              </Text>
-            </View>
-
-            {breakdownNote ? (
-              <Text style={styles.breakdownNoteText}>&quot;{breakdownNote}&quot;</Text>
-            ) : null}
-
-            {/* PRIVACY-GATED MEDICAL ID SNAPSHOT */}
-            {profile.bloodGroup || profile.emergencyContact ? (
-              <View style={styles.medicalSnapshotBox}>
-                <Pressable
-                  onPress={() => setShowMedicalSnapshot(v => !v)}
-                  style={styles.medicalSnapshotToggle}
-                >
-                  <Text style={styles.medicalSnapshotToggleText}>
-                    🩸 Emergency Medical ID Snapshot {showMedicalSnapshot ? '▲ Hide' : '▼ View'}
-                  </Text>
-                  <Text style={styles.medicalPrivacyLabel}>Gated Snapshot</Text>
-                </Pressable>
-
-                {showMedicalSnapshot && (
-                  <View style={styles.medicalSnapshotBody}>
-                    <Text style={styles.medicalSnapshotItem}>
-                      <Text style={styles.boldText}>Blood Group:</Text> {profile.bloodGroup}
-                    </Text>
-                    <Text style={styles.medicalSnapshotItem}>
-                      <Text style={styles.boldText}>Allergies:</Text> {profile.allergies || 'None reported'}
-                    </Text>
-                    <Text style={styles.medicalSnapshotItem}>
-                      <Text style={styles.boldText}>Emergency Contact:</Text> {profile.emergencyContact || 'None listed'}
-                    </Text>
-                    {profile.medicalNotes ? (
-                      <Text style={styles.medicalSnapshotItem}>
-                        <Text style={styles.boldText}>Notes:</Text> {profile.medicalNotes}
-                      </Text>
-                    ) : null}
-                  </View>
-                )}
-              </View>
-            ) : null}
-          </View>
-        )}
-
-        {/* GROUP SEPARATION ALERT BANNER (#F59E0B - TIER 3 INFORMATIONAL) */}
-        {showSeparationBanner && (
-          <View style={styles.separationBanner}>
-            <View style={styles.separationHeaderRow}>
-              <View style={styles.separationBadge}>
-                <Text style={styles.separationBadgeText}>📍 GROUP SEPARATION (&gt;500m)</Text>
-              </View>
-              <Text style={styles.separationAutoClearText}>Auto-clears on reunite</Text>
-            </View>
-
-            {separationRole === 'rider' ? (
-              <View style={styles.separationRoleBlock}>
-                <Text style={styles.separationMainTitle}>
-                  You are lagging behind the main group.
-                </Text>
-                <View style={styles.speedGuidancePill}>
-                  <Text style={styles.speedGuidancePillText}>
-                    ⚡ SUGGESTED TARGET SPEED: 45–55 km/h (Capped Catch-up)
-                  </Text>
-                </View>
-              </View>
-            ) : (
-              <View style={styles.separationRoleBlock}>
-                <Text style={styles.separationMainTitle}>
-                  Rider Jordan Lee separated from group.
-                </Text>
-                <View style={[styles.speedGuidancePill, styles.slowDownPill]}>
-                  <Text style={[styles.speedGuidancePillText, styles.slowDownPillText]}>
-                    🐢 SUGGESTED TARGET SPEED: 30–40 km/h (Capped Slow Down)
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            <Text style={styles.midpointNotice}>
-              📍 Meeting Area: Approximate straight-line midpoint ahead (KM 14.2)
-            </Text>
-          </View>
-        )}
-
-        {/* MAP CANVAS */}
-        <View style={styles.mapCanvas}>
-          <Text style={styles.mapRoad}>VALLEY HIGHWAY (N-2)</Text>
-          <View style={styles.routeOne} />
-          <View style={styles.routeTwo} />
-
-          <Marker label="YOU" style={styles.youMarker} />
-          <Marker label="M" style={styles.markerOne} />
-          <Marker label="J" style={styles.markerTwo} />
-
-          {separationActive && (
-            <View style={styles.approxMidpointMarker}>
-              <View style={styles.approxMidpointCircle} />
-              <Text style={styles.approxMidpointText}>APPROXIMATE MEETING AREA</Text>
-            </View>
-          )}
-
-          {breakdownActive && (
-            <View style={styles.breakdownMapPin}>
-              <Text style={styles.breakdownMapPinText}>⚠️ REPAIR</Text>
-            </View>
-          )}
-
-          {refuelActive && (
-            <View style={styles.refuelMapPin}>
-              <Text style={styles.refuelMapPinText}>⛽ REFUEL</Text>
-            </View>
-          )}
-
-          <View style={styles.weatherSlot}>
-            <Text style={styles.weatherLabel}>WEATHER SPACE</Text>
-            <Text style={styles.weatherCopy}>24°C · Mild Breeze</Text>
-          </View>
-        </View>
-
-        {/* ROSTER */}
-        <View style={styles.memberCard}>
-          <View style={styles.memberRowHeader}>
-            <Text style={styles.cardTitle}>Ride Group Roster (4 Riders)</Text>
-            <Text style={styles.memberCountText}>3 Live GPS</Text>
-          </View>
-
-          <View style={styles.rosterList}>
-            <View style={styles.rosterItem}>
-              <View style={[styles.rosterDot, { backgroundColor: COLORS.green }]} />
-              <View style={styles.rosterTextCol}>
-                <Text style={styles.rosterNameText}>{riderName} (You)</Text>
-                <Text style={styles.rosterVehicleText}>
-                  {profile.vehicleModel || 'Royal Enfield Himalayan'} · {profile.plateNumber || 'BA 2 PA 1234'}
-                </Text>
-              </View>
-              <Text style={styles.rosterRoleBadge}>Lead</Text>
-            </View>
-
-            <View style={styles.rosterItem}>
-              <View
-                style={[
-                  styles.rosterDot,
-                  { backgroundColor: breakdownActive ? COLORS.amber : COLORS.green },
-                ]}
-              />
-              <View style={styles.rosterTextCol}>
-                <Text style={styles.rosterNameText}>Jordan Lee</Text>
-                <Text style={styles.rosterVehicleText}>
-                  KTM Duke 390 · BA 1 PA 9901
-                  {breakdownActive ? ' (BREAKDOWN)' : ''}
-                </Text>
-              </View>
-              {breakdownActive && <Text style={styles.breakdownTagSmall}>Stopped</Text>}
-            </View>
-
-            <View style={styles.rosterItem}>
-              <View style={[styles.rosterDot, { backgroundColor: COLORS.green }]} />
-              <View style={styles.rosterTextCol}>
-                <Text style={styles.rosterNameText}>Maya Lin</Text>
-                <Text style={styles.rosterVehicleText}>
-                  Yamaha MT-07 · BA 4 PA 4410
-                  {refuelActive && refuelRiderName === 'Maya Lin' ? ' (REFUEL)' : ''}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.rosterItem}>
-              <View style={[styles.rosterDot, { backgroundColor: COLORS.muted }]} />
-              <View style={styles.rosterTextCol}>
-                <Text style={styles.rosterNameText}>Sam Miller</Text>
-                <Text style={styles.rosterVehicleText}>Royal Enfield Interceptor 650</Text>
-              </View>
-              <Text style={styles.rosterOfflineText}>Cached</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* MAP CONTROLS & TRIGGERS */}
-        <View style={styles.controlsSection}>
-          <Text style={styles.fieldLabel}>RIDE & SAFETY CONTROLS</Text>
-
-          {/* PETROL REFILL NOTIFICATION BUTTON */}
-          <Pressable onPress={onOpenRefuelModal} style={styles.refuelTriggerBtn}>
-            <Text style={styles.refuelTriggerBtnText}>⛽ Need Fuel / Request Petrol Stop</Text>
-          </Pressable>
-
-          {/* DELIBERATE BREAKDOWN TRIGGER */}
-          <Pressable
-            onPressIn={handleHoldStart}
-            onPressOut={handleHoldEnd}
-            onPress={onOpenBreakdownModal}
-            style={styles.breakdownTriggerBtn}
-          >
-            <View
-              style={[
-                styles.holdProgressBar,
-                { width: `${Math.min(100, holdProgress * 100)}%` },
-              ]}
-            />
-            <Text style={styles.breakdownTriggerBtnText}>
-              ⚠️ Report Vehicle Breakdown (Press & Hold)
-            </Text>
-          </Pressable>
-
-          <Button
-            label={connection === 'live' ? 'Preview offline state' : 'Reconnect and sync'}
-            tone="secondary"
-            onPress={onToggleConnection}
-          />
-        </View>
-
-        {/* DEMO / TEST STATE TOGGLES */}
-        <View style={styles.demoControlsBox}>
-          <Text style={styles.demoBoxTitle}>TEST DEMO CONTROLS</Text>
-          <View style={styles.demoBtnGrid}>
-            <Pressable onPress={onSimulateOtherRefuel} style={styles.demoMiniBtn}>
-              <Text style={styles.demoMiniBtnText}>Simulate Maya Refuel Alert</Text>
-            </Pressable>
-
-            <Pressable onPress={onToggleSeparation} style={styles.demoMiniBtn}>
-              <Text style={styles.demoMiniBtnText}>
-                {separationActive ? 'Clear Separation' : 'Trigger Separation'}
-              </Text>
-            </Pressable>
-
-            {separationActive && (
-              <Pressable onPress={onToggleSeparationRole} style={styles.demoMiniBtn}>
-                <Text style={styles.demoMiniBtnText}>
-                  Role: {separationRole === 'rider' ? 'Separated Rider' : 'Main Group'}
-                </Text>
-              </Pressable>
-            )}
-
-            <Pressable onPress={onSimulateOtherBreakdown} style={styles.demoMiniBtn}>
-              <Text style={styles.demoMiniBtnText}>Simulate Sam Breakdown</Text>
-            </Pressable>
-          </View>
-
-          <Pressable accessibilityRole="button" onPress={onCrash} style={styles.demoCrash}>
-            <Text style={styles.demoCrashText}>Demo: simulate crash detection SOS</Text>
-          </Pressable>
-        </View>
-      </ScrollView>
-    </Shell>
-  );
-}
-
 function BreakdownReasonModal({
   visible,
   onClose,
@@ -1043,14 +766,6 @@ function BreakdownReasonModal({
         </View>
       </View>
     </Modal>
-  );
-}
-
-function Marker({ label, style }: { label: string; style: object }) {
-  return (
-    <View style={[styles.marker, style]}>
-      <Text style={styles.markerText}>{label}</Text>
-    </View>
   );
 }
 
@@ -1477,30 +1192,6 @@ const styles = StyleSheet.create({
     opacity: 0.3,
   },
   breakdownTriggerBtnText: { color: COLORS.amber, fontWeight: '900', fontSize: 14 },
-
-  // DEMO CONTROLS
-  demoControlsBox: {
-    backgroundColor: COLORS.card,
-    borderColor: COLORS.line,
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 14,
-    gap: 8,
-    marginTop: 8,
-  },
-  demoBoxTitle: { color: COLORS.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
-  demoBtnGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  demoMiniBtn: {
-    backgroundColor: COLORS.darkInput,
-    borderColor: COLORS.line,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  demoMiniBtnText: { color: COLORS.text, fontSize: 11, fontWeight: '700' },
-  demoCrash: { marginTop: 4, alignSelf: 'center' },
-  demoCrashText: { color: COLORS.red, fontSize: 12, fontWeight: '700', textDecorationLine: 'underline' },
 
   // MODAL STYLES FOR BREAKDOWN REASON
   modalOverlay: { flex: 1, backgroundColor: 'rgba(5, 12, 7, 0.85)', justifyContent: 'flex-end' },

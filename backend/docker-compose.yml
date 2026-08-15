@@ -1,21 +1,63 @@
 services:
   db:
-    image: postgis/postgis:16-3.4
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+    platform: linux/amd64
+    container_name: guardian-angel-db
     restart: unless-stopped
     environment:
       POSTGRES_DB: guardian_angel
       POSTGRES_USER: ga_admin
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_PASSWORD: 20683858@guardianangel
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./sql/postgis_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      # Schema will be initialized by backend on first connection
+      # - ./sql/postgis_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ga_admin -d guardian_angel"]
+      test: [ "CMD-SHELL", "pg_isready -U ga_admin -d guardian_angel" ]
       interval: 5s
       timeout: 3s
       retries: 5
+    networks:
+      - guardian-angel-network
+
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    container_name: guardian-angel-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: guardian_angel
+      DB_USER: ga_admin
+      DB_PASSWORD: "20683858@guardianangel"
+      DATABASE_URL: postgresql://ga_admin:20683858%40guardianangel@db:5432/guardian_angel?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET}
+      PORT: 3000
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8081}
+    ports:
+      - "3000:3000"
+    networks:
+      - guardian-angel-network
+    healthcheck:
+      test: [ "CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})" ]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
 
 volumes:
   pgdata:
+
+networks:
+  guardian-angel-network:
+    driver: bridge

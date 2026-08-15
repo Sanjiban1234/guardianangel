@@ -64,7 +64,7 @@ src/repositories/CrashCandidateRepository.ts     Crash candidate persistence + o
 
 | Table | Purpose |
 |-------|---------|
-| `users` | Accounts (id UUID, name, phone, password_hash, profile_complete) |
+| `users` | Accounts (id UUID, name, email UNIQUE, phone, password_hash, profile_complete) |
 | `ride_rooms` | Ride sessions (token_hash SHA-256 of group code, destination lat/lng/label, status active/ended) |
 | `room_members` | Many-to-many room membership (`owner`, `member`, `guardian` roles) |
 | `telemetry_readings` | Append-only GPS track (GEOGRAPHY POINT, speed, accuracy) |
@@ -83,8 +83,8 @@ Legacy tables still in schema but not used for new paths: `active_riders`, `noti
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/api/auth/register` | Create account (name, password, phone) |
-| POST | `/api/auth/login` | Authenticate, returns JWT |
+| POST | `/api/auth/register` | Create account (name, email, password, phone); email must be unique and valid format |
+| POST | `/api/auth/login` | Authenticate with email and password, returns JWT with email in payload |
 | POST | `/api/rooms` | Create ride room with destination; server returns 12-hex `group_code` and creator becomes `owner` |
 | POST | `/api/rooms/join` | Join existing room by `group_code`; 24-hour expiry and 20-member cap apply |
 | GET | `/api/rooms/:groupCode/history` | Telemetry history for room |
@@ -140,7 +140,8 @@ WebSocket auth: JWT passed in `socket.auth.token` on connection.
 
 ## Naming Conventions (Contract Vocabulary)
 
-- **name** (not username) — user identifier in registration/login
+- **email** (not username) — primary user identifier for registration/login (unique, case-insensitive)
+- **name** — rider's display name (not unique, used in UI only)
 - **group_code** (not room_token) — the plaintext invite code for a ride room
 - **token_hash** — SHA-256 of group_code, stored in `ride_rooms`
 - **alarm_no** (not alert_id) — UUID primary key of emergency_alarms

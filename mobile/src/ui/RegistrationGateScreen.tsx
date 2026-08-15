@@ -25,6 +25,7 @@ const COLORS = {
 
 export interface RegistrationData {
   fullName: string;
+  email: string;
   phoneNumber: string;
   emergencyContact: string;
   vehicleModel: string;
@@ -36,7 +37,8 @@ export interface RegistrationData {
 interface RegistrationGateScreenProps {
   initialData?: Partial<RegistrationData>;
   apiBaseUrl: string;
-  isOnline: boolean;
+  isOnline?: boolean;
+  onCancel?: () => void;
   onCompleteRegistration: (data: RegistrationData) => void;
 }
 
@@ -44,16 +46,26 @@ export function RegistrationGateScreen({
   initialData,
   apiBaseUrl,
   isOnline,
+  onCancel,
   onCompleteRegistration,
 }: RegistrationGateScreenProps) {
   const [fullName, setFullName] = useState(initialData?.fullName || '');
+  const [email, setEmail] = useState(initialData?.email || '');
   const [phoneNumber, setPhoneNumber] = useState(initialData?.phoneNumber || '');
   const [emergencyContact, setEmergencyContact] = useState(initialData?.emergencyContact || '');
   const [vehicleModel, setVehicleModel] = useState(initialData?.vehicleModel || '');
   const [plateNumber, setPlateNumber] = useState(initialData?.plateNumber || '');
   const [vehicleColor, setVehicleColor] = useState(initialData?.vehicleColor || '');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  /** Normalize a 10-digit Nepali mobile number to E.164 (+977XXXXXXXXXX). */
+  const normalizeNepaliPhone = (raw: string): string => {
+    const digits = raw.replace(/\s|-/g, '');
+    return /^9\d{9}$/.test(digits) ? `+977${digits}` : raw.trim();
+  };
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -61,8 +73,26 @@ export function RegistrationGateScreen({
     if (!fullName.trim()) {
       newErrors.fullName = 'Full name is required';
     }
+    if (!email.trim()) {
+      newErrors.email = 'Email is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      newErrors.email = 'Invalid email format (e.g. rider@example.com)';
+    }
     if (!phoneNumber.trim() || phoneNumber.trim().length < 7) {
-      newErrors.phoneNumber = 'Valid phone number is required';
+      newErrors.phoneNumber = 'Enter a valid phone number (e.g. 9812345678 or +9779812345678)';
+    } else if (!/^\+[1-9]\d{1,14}$/.test(normalizeNepaliPhone(phoneNumber))) {
+      newErrors.phoneNumber = 'Invalid phone number. Use your 10-digit number or full E.164 format';
+    }
+    if (!password) {
+      newErrors.password = 'Password is required';
+    } else if (password.length < 8) {
+      newErrors.password = 'Password must be at least 8 characters long';
+    } else if (!/[A-Z]/.test(password)) {
+      newErrors.password = 'Password must contain at least one uppercase letter (A-Z)';
+    } else if (!/[a-z]/.test(password)) {
+      newErrors.password = 'Password must contain at least one lowercase letter (a-z)';
+    } else if (!/[0-9]/.test(password)) {
+      newErrors.password = 'Password must contain at least one number (0-9)';
     }
     if (!emergencyContact.trim()) {
       newErrors.emergencyContact = 'Emergency contact name & phone is required';
@@ -82,14 +112,14 @@ export function RegistrationGateScreen({
   };
 
   const handleSubmit = async () => {
+    if (isSubmitting) return;
     if (validate()) {
-      if (!isOnline) {
-        setErrors({ submit: 'Registration requires a live connection. Please reconnect and try again.' });
-        return;
-      }
+      setIsSubmitting(true);
+      setErrors({});
       const data: RegistrationData = {
         fullName: fullName.trim(),
-        phoneNumber: phoneNumber.trim(),
+        email: email.toLowerCase().trim(),
+        phoneNumber: normalizeNepaliPhone(phoneNumber.trim()),
         emergencyContact: emergencyContact.trim(),
         vehicleModel: vehicleModel.trim(),
         plateNumber: plateNumber.trim(),
@@ -100,13 +130,15 @@ export function RegistrationGateScreen({
         const response = await fetch(`${apiBaseUrl}/api/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: data.fullName, password: data.password, phone: data.phoneNumber }),
+          body: JSON.stringify({ name: data.fullName, email: data.email, password: data.password, phone: data.phoneNumber }),
         });
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || 'Registration failed');
         onCompleteRegistration(data);
       } catch (error) {
-        setErrors({ submit: error instanceof Error ? error.message : 'Registration failed' });
+        setErrors({ submit: error instanceof Error ? error.message : 'Registration failed. Check network or server connection.' });
+      } finally {
+        setIsSubmitting(false);
       }
     }
   };
@@ -141,11 +173,23 @@ export function RegistrationGateScreen({
           />
           {errors.fullName ? <Text style={styles.errorText}>{errors.fullName}</Text> : null}
 
+          <Text style={styles.fieldLabel}>EMAIL ADDRESS *</Text>
+          <TextInput
+            value={email}
+            onChangeText={setEmail}
+            placeholder="e.g. rider@gmail.com"
+            placeholderTextColor="#5C7062"
+            style={[styles.input, errors.email ? styles.inputError : null]}
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+          {errors.email ? <Text style={styles.errorText}>{errors.email}</Text> : null}
+
           <Text style={styles.fieldLabel}>PHONE NUMBER *</Text>
           <TextInput
             value={phoneNumber}
             onChangeText={setPhoneNumber}
-            placeholder="e.g. +1 (555) 234-5678"
+            placeholder="e.g. 9812345678 or +9779812345678"
             placeholderTextColor="#5C7062"
             style={[styles.input, errors.phoneNumber ? styles.inputError : null]}
             keyboardType="phone-pad"
@@ -153,14 +197,20 @@ export function RegistrationGateScreen({
           {errors.phoneNumber ? <Text style={styles.errorText}>{errors.phoneNumber}</Text> : null}
 
           <Text style={styles.fieldLabel}>PASSWORD *</Text>
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            placeholder="At least 8 characters, upper/lowercase and a number"
-            placeholderTextColor="#5C7062"
-            style={styles.input}
-            secureTextEntry
-          />
+          <View style={styles.passwordInputContainer}>
+            <TextInput
+              value={password}
+              onChangeText={setPassword}
+              placeholder="At least 8 characters, upper/lowercase and a number"
+              placeholderTextColor="#5C7062"
+              style={[styles.passwordInput, errors.password ? styles.inputError : null]}
+              secureTextEntry={!showPassword}
+            />
+            <Pressable onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
+              <Text style={styles.eyeButtonText}>{showPassword ? '👁️' : '👁️‍🗨️'}</Text>
+            </Pressable>
+          </View>
+          {errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
 
           <Text style={styles.fieldLabel}>EMERGENCY CONTACT NAME & PHONE *</Text>
           <TextInput
@@ -218,12 +268,28 @@ export function RegistrationGateScreen({
             💡 Medical details (blood group, allergies) can be added later in settings and remain strictly private during normal riding.
           </Text>
         </View>
-        {errors.submit ? <Text style={styles.errorText}>{errors.submit}</Text> : null}
+        {errors.submit ? (
+          <View style={styles.submitErrorBanner}>
+            <Text style={styles.submitErrorText}>⚠️ {errors.submit}</Text>
+          </View>
+        ) : null}
 
         {/* SUBMIT BUTTON */}
-        <Pressable onPress={handleSubmit} style={styles.submitBtn}>
-          <Text style={styles.submitBtnText}>Complete Registration & Continue →</Text>
+        <Pressable
+          onPress={handleSubmit}
+          disabled={isSubmitting}
+          style={[styles.submitBtn, isSubmitting ? styles.submitBtnDisabled : null]}
+        >
+          <Text style={styles.submitBtnText}>
+            {isSubmitting ? 'Registering...' : 'Complete Registration & Continue →'}
+          </Text>
         </Pressable>
+
+        {onCancel ? (
+          <Pressable onPress={onCancel} style={styles.cancelBtn}>
+            <Text style={styles.cancelBtnText}>Already have an account? Sign in</Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -268,6 +334,29 @@ const styles = StyleSheet.create({
     height: 48,
     fontSize: 14,
   },
+  passwordInputContainer: {
+    position: 'relative',
+  },
+  passwordInput: {
+    backgroundColor: COLORS.darkInput,
+    borderColor: COLORS.line,
+    borderWidth: 1,
+    color: COLORS.text,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingRight: 50,
+    height: 48,
+    fontSize: 14,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 12,
+    top: 12,
+    padding: 4,
+  },
+  eyeButtonText: {
+    fontSize: 20,
+  },
   inputError: { borderColor: COLORS.red, borderWidth: 1.5 },
   errorText: { color: COLORS.red, fontSize: 11, fontWeight: '600', marginTop: 2 },
   infoBanner: {
@@ -278,15 +367,25 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   infoBannerText: { color: COLORS.muted, fontSize: 12, lineHeight: 17 },
+  submitErrorBanner: {
+    backgroundColor: '#3B0A0A',
+    borderColor: COLORS.red,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+  },
+  submitErrorText: { color: '#FCA5A5', fontSize: 12, lineHeight: 17, fontWeight: '600' },
   submitBtn: {
     backgroundColor: COLORS.green,
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
     marginTop: 8,
-    marginBottom: 24,
   },
+  submitBtnDisabled: { opacity: 0.6 },
   submitBtnText: { color: COLORS.ink, fontWeight: '900', fontSize: 15, letterSpacing: 0.2 },
+  cancelBtn: { alignSelf: 'center', paddingVertical: 12, marginBottom: 24 },
+  cancelBtnText: { color: COLORS.blue, fontSize: 13, fontWeight: '700' },
 });
 
 export default RegistrationGateScreen;
