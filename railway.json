@@ -3,7 +3,8 @@
   "build": {
     "builder": "NIXPACKS",
     "watchPatterns": [
-      "backend/**"
+      "backend/**",
+      "contracts/**"
     ]
   },
   "deploy": {

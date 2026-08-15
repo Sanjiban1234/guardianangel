@@ -1,0 +1,13 @@
+{
+  "name": "guardian-angel-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install:backend": "cd backend && npm ci",
+    "build": "cd backend && npm run build",
+    "start": "cd backend && npm start"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
