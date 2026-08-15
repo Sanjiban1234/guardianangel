@@ -21,13 +21,10 @@ export function getApiBaseUrl(): string {
     return envUrl.trim().replace(/\/+$/, '');
   }
 
-  // Default: Android emulator uses 10.0.2.2 to reach host machine
-  if (Platform.OS === 'android') {
-    console.log('[ENV] Detected Android, using 10.0.2.2');
-    return 'http://10.0.2.2:3000';
-  }
-  console.log('[ENV] Not Android, using localhost');
-  return 'http://localhost:3000';
+  // Production: Railway backend (for field testing and deployment)
+  // To use local backend for development, set API_BASE_URL env variable
+  console.log('[ENV] Using production Railway backend');
+  return 'https://joyful-growth-production.up.railway.app';
 }
 
 export const API_BASE_URL = getApiBaseUrl();
