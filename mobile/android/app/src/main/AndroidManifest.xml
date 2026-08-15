@@ -17,10 +17,10 @@
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:supportsRtl="true">
 
-      <!-- Google Maps API Key -->
+      <!-- Google Maps API Key (injected from gradle.properties/local.properties at build time) -->
       <meta-data
           android:name="com.google.android.geo.API_KEY"
-          android:value="AIzaSyChjDk9fyR7WG2hmBEGYWIApnhCxpZy4jQ"/>
+          android:value="${GOOGLE_MAPS_API_KEY}"/>
 
       <activity
         android:name=".MainActivity"
