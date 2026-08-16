@@ -1,71 +1,173 @@
 /**
  * Secure storage utility for biometric authentication credentials.
- * Uses platform-specific secure storage mechanisms.
+ *
+ * Uses @react-native-async-storage/async-storage for persistence across app restarts.
+ * Credentials are only accessible after successful biometric authentication
+ * (enforced by the caller via react-native-biometrics simplePrompt/createSignature).
+ *
+ * Security model:
+ * - Email (non-sensitive identifier) stored in AsyncStorage to remember who enabled biometrics
+ * - Password stored in AsyncStorage (encrypted at rest by Android's file-based encryption)
+ * - Access to credentials is gated by biometric authentication in the calling code
+ * - Biometric keys are managed via react-native-biometrics (Android Keystore)
+ * - On logout or key invalidation, all stored credentials are cleared
+ *
+ * For maximum security, consider migrating to react-native-keychain which stores
+ * credentials directly in the Android Keystore (hardware-backed). This implementation
+ * provides a working solution with the currently installed dependencies.
  */
 
-import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import ReactNativeBiometrics from 'react-native-biometrics';
 
-// This is a simple implementation. In production, you should use:
-// - @react-native-async-storage/async-storage with encryption
-// - react-native-keychain for iOS/Android keychain storage
-// - Or expo-secure-store for Expo projects
+const STORAGE_KEYS = {
+  BIOMETRIC_EMAIL: '@guardianangel:biometric_email',
+  BIOMETRIC_PASSWORD: '@guardianangel:biometric_password',
+  BIOMETRIC_ENABLED: '@guardianangel:biometric_enabled',
+} as const;
 
-interface BiometricCredentials {
+export interface BiometricCredentials {
   email: string;
-  token: string;
+  password: string;
 }
 
-const STORAGE_KEY = '@guardianangel:biometric_creds';
-
-// Mock storage for now - replace with actual secure storage
-let mockStorage: BiometricCredentials | null = null;
-
-export const setBiometricCredentials = async (
-  email: string,
-  token: string
-): Promise<void> => {
+/**
+ * Check if biometric login has been set up and keys still exist.
+ */
+export const isBiometricSetup = async (): Promise<boolean> => {
   try {
-    const credentials: BiometricCredentials = { email, token };
+    const enabled = await AsyncStorage.getItem(STORAGE_KEYS.BIOMETRIC_ENABLED);
+    if (enabled !== 'true') return false;
 
-    // In production, use react-native-keychain or expo-secure-store:
-    // await Keychain.setGenericPassword(email, token, {
-    //   service: STORAGE_KEY,
-    //   accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-    // });
+    // Verify the biometric key still exists in the Keystore
+    const rnBiometrics = new ReactNativeBiometrics();
+    const { keysExist } = await rnBiometrics.biometricKeysExist();
 
-    // For now, using mock storage
-    mockStorage = credentials;
+    if (!keysExist) {
+      // Keys were invalidated (e.g., user changed biometric enrollment, app reinstalled)
+      // Clean up stale data
+      await clearBiometricCredentials();
+      return false;
+    }
+
+    // Verify we have stored credentials
+    const email = await AsyncStorage.getItem(STORAGE_KEYS.BIOMETRIC_EMAIL);
+    const password = await AsyncStorage.getItem(STORAGE_KEYS.BIOMETRIC_PASSWORD);
+    return !!(email && password);
   } catch (error) {
-    console.error('Error saving biometric credentials:', error);
-    throw error;
+    console.warn('[SecureStore] Error checking biometric setup:', error);
+    return false;
   }
 };
 
+/**
+ * Store biometric credentials after successful login + biometric enrollment.
+ * Also creates biometric keys in the Android Keystore.
+ */
+export const setBiometricCredentials = async (
+  email: string,
+  password: string,
+): Promise<boolean> => {
+  try {
+    const rnBiometrics = new ReactNativeBiometrics();
+
+    // Check if keys already exist; if not, create them
+    const { keysExist } = await rnBiometrics.biometricKeysExist();
+    if (!keysExist) {
+      const { publicKey } = await rnBiometrics.createKeys();
+      if (!publicKey) {
+        console.warn('[SecureStore] Failed to create biometric keys');
+        return false;
+      }
+    }
+
+    // Store credentials in AsyncStorage
+    // These are protected by the biometric gate in the calling code
+    await AsyncStorage.multiSet([
+      [STORAGE_KEYS.BIOMETRIC_EMAIL, email],
+      [STORAGE_KEYS.BIOMETRIC_PASSWORD, password],
+      [STORAGE_KEYS.BIOMETRIC_ENABLED, 'true'],
+    ]);
+
+    return true;
+  } catch (error) {
+    console.warn('[SecureStore] Error saving biometric credentials:', error);
+    return false;
+  }
+};
+
+/**
+ * Retrieve stored biometric credentials.
+ * IMPORTANT: The caller MUST verify biometric authentication (via simplePrompt)
+ * BEFORE calling this function. This function does not perform biometric verification itself.
+ */
 export const getBiometricCredentials = async (): Promise<BiometricCredentials | null> => {
   try {
-    // In production, use react-native-keychain or expo-secure-store:
-    // const credentials = await Keychain.getGenericPassword({ service: STORAGE_KEY });
-    // if (credentials) {
-    //   return { email: credentials.username, token: credentials.password };
-    // }
+    const enabled = await AsyncStorage.getItem(STORAGE_KEYS.BIOMETRIC_ENABLED);
+    if (enabled !== 'true') return null;
 
-    // For now, using mock storage
-    return mockStorage;
+    // Verify biometric keys still exist
+    const rnBiometrics = new ReactNativeBiometrics();
+    const { keysExist } = await rnBiometrics.biometricKeysExist();
+    if (!keysExist) {
+      // Keys were invalidated — clear stored data
+      await clearBiometricCredentials();
+      return null;
+    }
+
+    const values = await AsyncStorage.multiGet([
+      STORAGE_KEYS.BIOMETRIC_EMAIL,
+      STORAGE_KEYS.BIOMETRIC_PASSWORD,
+    ]);
+
+    const email = values[0]?.[1];
+    const password = values[1]?.[1];
+
+    if (!email || !password) {
+      return null;
+    }
+
+    return { email, password };
   } catch (error) {
-    console.error('Error retrieving biometric credentials:', error);
+    console.warn('[SecureStore] Error retrieving biometric credentials:', error);
     return null;
   }
 };
 
+/**
+ * Get the email associated with biometric login (for display purposes).
+ * Does NOT require biometric authentication.
+ */
+export const getBiometricEmail = async (): Promise<string | null> => {
+  try {
+    const enabled = await AsyncStorage.getItem(STORAGE_KEYS.BIOMETRIC_ENABLED);
+    if (enabled !== 'true') return null;
+    return await AsyncStorage.getItem(STORAGE_KEYS.BIOMETRIC_EMAIL);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Clear all biometric credentials and delete keys from the Keystore.
+ * Called on logout, key invalidation, or when the user disables biometric login.
+ */
 export const clearBiometricCredentials = async (): Promise<void> => {
   try {
-    // In production, use react-native-keychain or expo-secure-store:
-    // await Keychain.resetGenericPassword({ service: STORAGE_KEY });
+    // Remove stored credentials
+    await AsyncStorage.multiRemove([
+      STORAGE_KEYS.BIOMETRIC_EMAIL,
+      STORAGE_KEYS.BIOMETRIC_PASSWORD,
+      STORAGE_KEYS.BIOMETRIC_ENABLED,
+    ]);
 
-    // For now, using mock storage
-    mockStorage = null;
+    // Delete biometric keys from Keystore
+    const rnBiometrics = new ReactNativeBiometrics();
+    const { keysExist } = await rnBiometrics.biometricKeysExist();
+    if (keysExist) {
+      await rnBiometrics.deleteKeys();
+    }
   } catch (error) {
-    console.error('Error clearing biometric credentials:', error);
-    throw error;
+    console.warn('[SecureStore] Error clearing biometric credentials:', error);
   }
 };

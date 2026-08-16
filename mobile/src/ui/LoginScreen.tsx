@@ -40,6 +40,8 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricType, setBiometricType] = useState<string>('');
+  const [biometricSetupReady, setBiometricSetupReady] = useState(false);
+  const [biometricEmail, setBiometricEmail] = useState<string | null>(null);
 
   useEffect(() => {
     checkBiometricAvailability();
@@ -59,41 +61,78 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
         } else if (biometryType === BiometryTypes.Biometrics) {
           setBiometricType('Biometrics');
         }
+
+        // Check if biometric login has been set up previously (persisted)
+        const isSetup = await SecureStore.isBiometricSetup();
+        setBiometricSetupReady(isSetup);
+
+        if (isSetup) {
+          const storedEmail = await SecureStore.getBiometricEmail();
+          setBiometricEmail(storedEmail);
+        }
       }
     } catch (error) {
-      console.log('Biometric check error:', error);
+      console.warn('[LoginScreen] Biometric check error:', error);
     }
   };
 
   const handleBiometricLogin = async () => {
     try {
-      const credentials = await SecureStore.getBiometricCredentials();
-
-      if (!credentials) {
+      // Verify biometric setup still exists
+      const isSetup = await SecureStore.isBiometricSetup();
+      if (!isSetup) {
+        setBiometricSetupReady(false);
+        setBiometricEmail(null);
         Alert.alert(
-          'Not Setup',
-          'Biometric login is not set up yet. Please log in with your email and password first.',
-          [{ text: 'OK' }]
+          'Biometric Login Unavailable',
+          'Biometric login is not set up. Please log in with your email and password first, then enable biometric login.',
+          [{ text: 'OK' }],
         );
         return;
       }
 
+      // Show biometric prompt — this is the security gate
       const rnBiometrics = new ReactNativeBiometrics({ allowDeviceCredentials: true });
+      const storedEmail = await SecureStore.getBiometricEmail();
       const { success } = await rnBiometrics.simplePrompt({
-        promptMessage: `Authenticate to login as ${credentials.email}`,
+        promptMessage: `Authenticate to login as ${storedEmail || 'your account'}`,
         cancelButtonText: 'Cancel',
       });
 
-      if (success) {
-        // Use stored credentials to login
-        await performLogin(credentials.email, credentials.token);
+      if (!success) {
+        // User cancelled or failed biometric auth
+        return;
       }
+
+      // Biometric auth succeeded — retrieve stored credentials
+      const credentials = await SecureStore.getBiometricCredentials();
+      if (!credentials) {
+        // Credentials were cleared (key invalidation, etc.)
+        setBiometricSetupReady(false);
+        setBiometricEmail(null);
+        Alert.alert(
+          'Biometric Data Expired',
+          'Your biometric credentials have been cleared. Please log in with your password to re-enable biometric login.',
+          [{ text: 'OK' }],
+        );
+        return;
+      }
+
+      // Perform login with stored credentials
+      await performLogin(credentials.email, credentials.password, true);
     } catch (error) {
-      Alert.alert('Authentication Failed', 'Unable to authenticate with biometrics. Please try again.');
+      Alert.alert(
+        'Authentication Failed',
+        'Unable to authenticate with biometrics. Please try again or use your password.',
+      );
     }
   };
 
-  const performLogin = async (loginEmail: string, loginPassword: string) => {
+  const performLogin = async (
+    loginEmail: string,
+    loginPassword: string,
+    isBiometricReLogin: boolean = false,
+  ) => {
     setIsSubmitting(true);
     setErrors({});
 
@@ -107,11 +146,28 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
       const body = await response.json();
 
       if (!response.ok) {
+        if (isBiometricReLogin) {
+          // Stored password may have changed — clear biometric setup
+          await SecureStore.clearBiometricCredentials();
+          setBiometricSetupReady(false);
+          setBiometricEmail(null);
+          Alert.alert(
+            'Login Failed',
+            'Your password may have changed. Please log in with your new password to re-enable biometric login.',
+          );
+          return;
+        }
         throw new Error(body.error || 'Login failed');
       }
 
-      // Ask user if they want to enable biometric login
-      if (biometricAvailable && loginEmail === email && loginPassword === password) {
+      if (isBiometricReLogin) {
+        // Biometric re-login succeeded — go straight to app
+        onLoginSuccess(body.token, body.user);
+        return;
+      }
+
+      // Normal login succeeded — offer biometric setup if available and not already set up
+      if (biometricAvailable && !biometricSetupReady) {
         Alert.alert(
           'Enable Biometric Login?',
           `Would you like to enable ${biometricType} for faster login next time?`,
@@ -124,11 +180,29 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
             {
               text: 'Enable',
               onPress: async () => {
-                await SecureStore.setBiometricCredentials(loginEmail, body.token);
-                onLoginSuccess(body.token, body.user);
+                // Store the PASSWORD (not the JWT token) for biometric re-login
+                const stored = await SecureStore.setBiometricCredentials(
+                  loginEmail.toLowerCase().trim(),
+                  loginPassword,
+                );
+                if (stored) {
+                  setBiometricSetupReady(true);
+                  setBiometricEmail(loginEmail.toLowerCase().trim());
+                  Alert.alert(
+                    'Biometric Login Enabled',
+                    `${biometricType} login has been set up. You can use it next time you sign in.`,
+                    [{ text: 'OK', onPress: () => onLoginSuccess(body.token, body.user) }],
+                  );
+                } else {
+                  Alert.alert(
+                    'Setup Failed',
+                    'Unable to set up biometric login. You can try again next time.',
+                    [{ text: 'OK', onPress: () => onLoginSuccess(body.token, body.user) }],
+                  );
+                }
               },
             },
-          ]
+          ],
         );
       } else {
         onLoginSuccess(body.token, body.user);
@@ -221,7 +295,7 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
           </Text>
         </Pressable>
 
-        {biometricAvailable && (
+        {biometricAvailable && biometricSetupReady && (
           <Pressable
             onPress={handleBiometricLogin}
             disabled={isSubmitting}
@@ -229,6 +303,7 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
           >
             <Text style={styles.biometricBtnText}>
               🔐 Sign in with {biometricType}
+              {biometricEmail ? ` (${biometricEmail})` : ''}
             </Text>
           </Pressable>
         )}
