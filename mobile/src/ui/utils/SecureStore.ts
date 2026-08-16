@@ -83,11 +83,11 @@ export const setBiometricCredentials = async (
 
     // Store credentials in AsyncStorage
     // These are protected by the biometric gate in the calling code
-    await AsyncStorage.multiSet([
-      [STORAGE_KEYS.BIOMETRIC_EMAIL, email],
-      [STORAGE_KEYS.BIOMETRIC_PASSWORD, password],
-      [STORAGE_KEYS.BIOMETRIC_ENABLED, 'true'],
-    ]);
+    await AsyncStorage.setMany({
+      [STORAGE_KEYS.BIOMETRIC_EMAIL]: email,
+      [STORAGE_KEYS.BIOMETRIC_PASSWORD]: password,
+      [STORAGE_KEYS.BIOMETRIC_ENABLED]: 'true',
+    });
 
     return true;
   } catch (error) {
@@ -115,13 +115,13 @@ export const getBiometricCredentials = async (): Promise<BiometricCredentials | 
       return null;
     }
 
-    const values = await AsyncStorage.multiGet([
+    const values = await AsyncStorage.getMany([
       STORAGE_KEYS.BIOMETRIC_EMAIL,
       STORAGE_KEYS.BIOMETRIC_PASSWORD,
     ]);
 
-    const email = values[0]?.[1];
-    const password = values[1]?.[1];
+    const email = values[STORAGE_KEYS.BIOMETRIC_EMAIL];
+    const password = values[STORAGE_KEYS.BIOMETRIC_PASSWORD];
 
     if (!email || !password) {
       return null;
@@ -155,7 +155,7 @@ export const getBiometricEmail = async (): Promise<string | null> => {
 export const clearBiometricCredentials = async (): Promise<void> => {
   try {
     // Remove stored credentials
-    await AsyncStorage.multiRemove([
+    await AsyncStorage.removeMany([
       STORAGE_KEYS.BIOMETRIC_EMAIL,
       STORAGE_KEYS.BIOMETRIC_PASSWORD,
       STORAGE_KEYS.BIOMETRIC_ENABLED,

@@ -195,6 +195,7 @@ describe('TelemetryModule Test Suite', () => {
     };
 
     // Rapid flapping: online -> offline -> online concurrently
+    connectivityManager.setStatusImmediate('online');
     const p1 = module.triggerResync();
     const p2 = module.triggerResync();
     const p3 = module.triggerResync();
@@ -239,6 +240,8 @@ describe('TelemetryModule Test Suite', () => {
     // 2. Second app session (app restart recovery):
     const connectivityManager = new ConnectivityManager('http://localhost/health', {
       debounceMs: 0,
+      // Deterministic health check: keep status online so restart recovery runs
+      fetchImpl: (async () => ({ ok: true } as unknown as Response)),
     });
     connectivityManager.setStatusImmediate('online');
 

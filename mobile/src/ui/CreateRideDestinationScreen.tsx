@@ -559,7 +559,7 @@ const styles = StyleSheet.create({
 
   // Map container
   mapContainer: { flex: 1 },
-  fullMap: { ...StyleSheet.absoluteFillObject },
+  fullMap: { ...StyleSheet.absoluteFill },
 
   // Top bar
   topBar: {

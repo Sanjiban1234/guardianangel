@@ -22,6 +22,7 @@ export class TelemetryModule {
   private options: TelemetryModuleOptions | null = null;
   private started = false;
   private isSyncing = false;
+  private pendingResync: Promise<void> | null = null;
 
   private db: ITelemetryDatabase;
   private locationProvider: ILocationProvider;
@@ -233,6 +234,21 @@ export class TelemetryModule {
    * Perform bulk re-synchronization of cached offline readings.
    */
   async triggerResync(): Promise<void> {
+    // If a re-sync is already in flight, await it instead of starting a
+    // duplicate. This keeps concurrent online-transition triggers serialized
+    // and lets callers wait for the active sync to actually complete.
+    if (this.pendingResync) {
+      return this.pendingResync;
+    }
+
+    this.pendingResync = this.runResync().finally(() => {
+      this.pendingResync = null;
+    });
+
+    return this.pendingResync;
+  }
+
+  private async runResync(): Promise<void> {
     // Prevent duplicate/concurrent re-sync loops
     if (this.isSyncing) return;
     this.isSyncing = true;
@@ -248,10 +264,20 @@ export class TelemetryModule {
         try {
           // Emit bulkSync to server and wait for confirmation ack
           const ack = await this.socketClient.emitBulkSync(unsyncedBatch);
-          
+
           if (ack && Array.isArray(ack.confirmedClientReadingIds) && ack.confirmedClientReadingIds.length > 0) {
-            // ONLY mark confirmed client_reading_ids as synced
+            const batchIds = new Set(unsyncedBatch.map(r => r.client_reading_id));
+            const confirmedInBatch = ack.confirmedClientReadingIds.filter(id => batchIds.has(id));
+
+            // Only mark confirmed client_reading_ids as synced
             await this.db.markReadingsSynced(ack.confirmedClientReadingIds);
+
+            // Progress guard: if the ack confirms no reading from the current
+            // batch (e.g. a stale/retried ack from a previous sync), the loop
+            // would never make progress. Break instead of spinning forever.
+            if (confirmedInBatch.length === 0) {
+              break;
+            }
           } else {
             // Unconfirmed batch: break sync loop safely without losing or duplicating data
             break;
