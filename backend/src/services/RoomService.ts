@@ -11,6 +11,7 @@ export interface CreateRoomResult {
 
 export interface JoinRoomResult {
   room_id: string;
+  destination?: Destination;
 }
 
 export interface Destination {
@@ -77,7 +78,7 @@ export class RoomService {
     const tokenHash = this.hashToken(groupCode.toUpperCase());
 
     const existing = await this.db.run(
-      `SELECT id, status, created_at,
+      `SELECT id, status, created_at, destination_latitude, destination_longitude, destination_label,
               created_at + INTERVAL '${ROOM_EXPIRY_HOURS} hours' AS expires_at
        FROM ride_rooms WHERE token_hash = $1 LIMIT 1`,
       [tokenHash]
@@ -102,7 +103,9 @@ export class RoomService {
       [room.id, userId]
     );
     if (memberCheck.rows.length > 0) {
-      throw new AppError('You are already a member of this ride group', 'ALREADY_MEMBER');
+      const err: any = new AppError('You are already a member of this ride group', 'ALREADY_MEMBER');
+      err.room_id = room.id;
+      throw err;
     }
 
     const memberCount = await this.db.run(
@@ -119,7 +122,12 @@ export class RoomService {
       [room.id, userId]
     );
 
-    return { room_id: room.id };
+    return {
+      room_id: room.id,
+      destination: room.destination_latitude != null && room.destination_longitude != null
+        ? { latitude: room.destination_latitude, longitude: room.destination_longitude, label: room.destination_label }
+        : undefined,
+    };
   }
 
   private async assertProfileComplete(userId: string): Promise<void> {

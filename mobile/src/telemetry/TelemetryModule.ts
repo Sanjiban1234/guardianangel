@@ -78,15 +78,23 @@ export class TelemetryModule {
       });
     }
 
-    // Connect socket if options provided
-    if (options.socketUrl && options.authToken) {
+    // Connect socket if options provided — skip if already connected
+    // (App.tsx may have already connected the shared SocketClient)
+    if (options.socketUrl && options.authToken && !this.socketClient.isConnected()) {
       try {
         await this.socketClient.connect(options.socketUrl, options.authToken);
-        if (options.groupCode) {
-          await this.socketClient.joinSession(options.groupCode);
-        }
       } catch (err) {
         console.warn('Initial socket connection attempt failed:', err);
+      }
+    }
+
+    // Join room session on socket if needed — skip if already connected
+    // (App.tsx onConnect handler already calls joinSession for activeRoomCode)
+    if (options.groupCode && !this.socketClient.isConnected()) {
+      try {
+        await this.socketClient.joinSession(options.groupCode);
+      } catch (err) {
+        console.warn('Socket session join failed:', err);
       }
     }
 
@@ -113,11 +121,20 @@ export class TelemetryModule {
 
   /**
    * Stops telemetry sampling cleanly at ride session end.
+   *
+   * IMPORTANT: This does NOT disconnect the socket client. The socket
+   * lifecycle is managed by the caller (App.tsx useEffect). Disconnecting
+   * here would race with the caller's reconnect and kill the new connection.
+   *
+   * `this.started` is reset synchronously before any async work so that a
+   * concurrent `start()` call does not short-circuit.
    */
   async stop(): Promise<void> {
     if (!this.started) return;
 
-    await this.locationProvider.stop();
+    // Reset state synchronously so start() can proceed immediately
+    this.started = false;
+    this.isSyncing = false;
 
     if (this.unsubscribeConnectivity) {
       this.unsubscribeConnectivity();
@@ -128,9 +145,7 @@ export class TelemetryModule {
       this.connectivityManager.stop();
     }
 
-    this.socketClient.disconnect();
-    this.started = false;
-    this.isSyncing = false;
+    await this.locationProvider.stop();
   }
 
   isStarted(): boolean {

@@ -101,7 +101,7 @@ async function fetchRoute(
     const data = await response.json();
 
     if (data.status !== 'OK' || !data.routes?.length) {
-      console.warn('[MapScreen] Directions API returned:', data.status);
+      console.warn('[MapScreen] Directions API returned:', data.status, '| If REQUEST_DENIED, enable "Directions API" in Google Cloud Console → APIs & Services.');
       return null;
     }
 

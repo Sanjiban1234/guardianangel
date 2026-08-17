@@ -72,8 +72,15 @@ def enableProguardInReleaseBuilds = false
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
-// Read Google Maps API key from gradle.properties or local.properties
-def googleMapsApiKey = project.findProperty("GOOGLE_MAPS_API_KEY") ?: "YOUR_GOOGLE_MAPS_API_KEY_HERE"
+// Read Google Maps API key from local.properties (gitignored, per-developer)
+// Falls back to gradle.properties via project.findProperty(), then to placeholder
+def localProps = new Properties()
+def localPropsFile = rootProject.file('local.properties')
+if (localPropsFile.exists()) {
+    localProps.load(localPropsFile.newDataInputStream())
+}
+def googleMapsApiKey = localProps.getProperty("GOOGLE_MAPS_API_KEY",
+    project.findProperty("GOOGLE_MAPS_API_KEY") ?: "YOUR_GOOGLE_MAPS_API_KEY_HERE")
 
 android {
     ndkVersion rootProject.ext.ndkVersion
@@ -106,6 +113,12 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            // Allow cleartext HTTP for Metro dev server in debug builds
+            // Must include GOOGLE_MAPS_API_KEY to avoid overwriting defaultConfig placeholders
+            manifestPlaceholders = [
+                GOOGLE_MAPS_API_KEY: googleMapsApiKey,
+                usesCleartextTraffic: true
+            ]
         }
         release {
             // Caution! In production, you need to generate your own keystore file.

@@ -103,7 +103,8 @@ describe('Ride Room REST Endpoints & Access Control', () => {
         .send({ group_code: 'INVALID' });
 
       expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('error', 'Ride group not found');
+      expect(response.body).toHaveProperty('error', 'Room not found. Check the room code and try again.');
+      expect(response.body).toHaveProperty('code', 'ROOM_NOT_FOUND');
     });
   });
 

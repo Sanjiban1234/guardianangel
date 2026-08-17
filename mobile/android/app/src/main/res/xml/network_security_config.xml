@@ -1,14 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Trust Railway and other production HTTPS domains -->
+    <!-- Default: HTTPS-only for production -->
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
-            <!-- Trust system certificates (includes Let's Encrypt used by Railway) -->
             <certificates src="system" />
         </trust-anchors>
     </base-config>
 
-    <!-- Allow all domains for development/testing -->
+    <!-- Allow cleartext HTTP for React Native Metro dev server (debug builds only via manifest placeholder) -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain>10.0.2.2</domain>
+        <domain>10.0.3.2</domain>
+    </domain-config>
+
+    <!-- Production HTTPS domains -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">railway.app</domain>
         <domain includeSubdomains="true">up.railway.app</domain>

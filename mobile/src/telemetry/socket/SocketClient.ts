@@ -106,6 +106,16 @@ export class SocketClient implements ISocketClient {
   private disconnectListeners: Set<() => void> = new Set();
 
   async connect(socketUrl: string, token: string): Promise<void> {
+    if (this.socket && this.connected) {
+      return;
+    }
+
+    if (this.socket && !this.connected) {
+      this.socket.removeAllListeners();
+      this.socket.disconnect();
+      this.socket = null;
+    }
+
     let io: any;
     try {
       io = require('socket.io-client').io || require('socket.io-client');
@@ -149,7 +159,12 @@ export class SocketClient implements ISocketClient {
         return reject(new Error('Socket is not connected'));
       }
 
+      const timeout = setTimeout(() => {
+        reject(new Error('Session join timed out'));
+      }, 10000);
+
       this.socket.emit('session:join', { group_code: groupCode }, (response: any) => {
+        clearTimeout(timeout);
         if (response?.error) {
           reject(new Error(response.error));
         } else {

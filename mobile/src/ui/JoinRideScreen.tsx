@@ -50,6 +50,7 @@ export function JoinRideScreen({
   initialCode = '',
   apiBaseUrl,
   authToken,
+  isOnline,
   onCancel,
   onConfirmJoin,
 }: JoinRideScreenProps) {
@@ -65,10 +66,43 @@ export function JoinRideScreen({
     return code.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   };
 
+  const formatJoinError = (status: number, body: any): string => {
+    switch (status) {
+      case 400:
+        if (body?.code === 'ROOM_ENDED') return 'This ride group has already ended.';
+        if (body?.code === 'ROOM_EXPIRED') return 'This ride group has expired. Ask the host to create a new one.';
+        if (body?.code === 'INVALID_GROUP_CODE') return 'Invalid room code format. Use a 12-character alphanumeric code.';
+        return body?.error || 'Invalid request. Check the room code and try again.';
+      case 401:
+        return 'Session expired. Please log in again.';
+      case 403:
+        return body?.code === 'PROFILE_INCOMPLETE'
+          ? 'Complete your rider profile before joining a ride.'
+          : 'You are not authorized to join this ride.';
+      case 404:
+        return 'Room not found. Check the room code and try again.';
+      case 409:
+        if (body?.code === 'ROOM_FULL') return 'This ride group is full (max 20 riders).';
+        if (body?.code === 'ALREADY_MEMBER') return '__ALREADY_MEMBER__';
+        return body?.error || 'Cannot join this ride group.';
+      case 410:
+        return 'This ride group has expired. Ask the host to create a new one.';
+      case 503:
+        return 'Server is unavailable. Please try again later.';
+      default:
+        return body?.error || 'Unable to join ride room. Please try again.';
+    }
+  };
+
   const handleConfirm = async () => {
     const groupCode = cleanCode(inputCode);
     if (!groupCode || groupCode.length < 4) {
       setErrorMsg('Please enter a valid ride room group code (e.g. 32A3BB1ECB08)');
+      return;
+    }
+
+    if (isOnline === false) {
+      setErrorMsg('You are offline. Please connect to the internet to join a ride.');
       return;
     }
 
@@ -87,31 +121,49 @@ export function JoinRideScreen({
       const body = await response.json();
 
       if (!response.ok) {
-        // If already a member, let them continue into the room map
-        if (body.code === 'ALREADY_MEMBER') {
+        const message = formatJoinError(response.status, body);
+
+        if (message === '__ALREADY_MEMBER__') {
           onConfirmJoin({
             groupCode,
             destinationTitle: 'Group Ride',
-            locationName: `Room ${groupCode}`,
+            locationName: `Room ${body.room_id || groupCode}`,
             hostName: 'Unknown',
             activeRiderCount: 0,
             routeDistanceKm: 0,
+            destination: body.destination
+              ? { latitude: body.destination.latitude, longitude: body.destination.longitude }
+              : undefined,
           });
           return;
         }
-        throw new Error(body.error || 'Unable to join ride room');
+
+        setErrorMsg(message);
+        return;
+      }
+
+      if (!body?.room_id) {
+        setErrorMsg('Server returned an unexpected response. Please try again.');
+        return;
       }
 
       onConfirmJoin({
         groupCode,
         destinationTitle: 'Group Ride',
-        locationName: `Room ${body.room_id || groupCode}`,
+        locationName: `Room ${body.room_id}`,
         hostName: 'Unknown',
         activeRiderCount: 0,
         routeDistanceKm: 0,
+        destination: body.destination
+          ? { latitude: body.destination.latitude, longitude: body.destination.longitude }
+          : undefined,
       });
     } catch (error) {
-      setErrorMsg(error instanceof Error ? error.message : 'Unable to join ride room.');
+      setErrorMsg(
+        error instanceof Error
+          ? `Network error: ${error.message}. Check your connection and try again.`
+          : 'Unable to join ride room. Check your connection and try again.',
+      );
     } finally {
       setIsJoining(false);
     }

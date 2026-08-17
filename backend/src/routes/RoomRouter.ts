@@ -84,33 +84,45 @@ export class RoomRouter {
       return;
     }
     if (!group_code) {
-      res.status(400).json({ error: 'Group code is required' });
+      res.status(400).json({ error: 'Group code is required', code: 'MISSING_GROUP_CODE' });
       return;
     }
-    if (typeof group_code !== 'string' || group_code.length > 32) {
-      res.status(400).json({ error: 'Invalid group code format' });
+    if (typeof group_code !== 'string') {
+      res.status(400).json({ error: 'Invalid group code format', code: 'INVALID_GROUP_CODE' });
+      return;
+    }
+    if (group_code.length < 4 || group_code.length > 32) {
+      res.status(400).json({ error: 'Invalid group code format', code: 'INVALID_GROUP_CODE' });
+      return;
+    }
+    if (!/^[A-Za-z0-9]+$/.test(group_code)) {
+      res.status(400).json({ error: 'Group code must contain only letters and numbers', code: 'INVALID_GROUP_CODE' });
       return;
     }
 
     try {
       const result = await this.roomService.joinRoom(userId, group_code);
-      res.status(200).json({ message: 'Successfully joined ride group', room_id: result.room_id });
+      res.status(200).json({
+        message: 'Successfully joined ride group',
+        room_id: result.room_id,
+        destination: result.destination ?? null,
+      });
     } catch (err: any) {
       if (err?.code === 'ROOM_NOT_FOUND') {
-        res.status(404).json({ error: 'Ride group not found' });
+        res.status(404).json({ error: 'Room not found. Check the room code and try again.', code: 'ROOM_NOT_FOUND' });
       } else if (err?.code === 'ROOM_ENDED') {
-        res.status(400).json({ error: 'This ride group has already ended' });
+        res.status(400).json({ error: 'This ride group has already ended', code: 'ROOM_ENDED' });
       } else if (err?.code === 'ROOM_EXPIRED') {
-        res.status(410).json({ error: 'This ride group has expired', code: err.code });
+        res.status(410).json({ error: 'This ride group has expired', code: 'ROOM_EXPIRED' });
       } else if (err?.code === 'ROOM_FULL') {
-        res.status(409).json({ error: 'This ride group is full', code: err.code });
+        res.status(409).json({ error: 'This ride group is full', code: 'ROOM_FULL' });
       } else if (err?.code === 'ALREADY_MEMBER') {
-        res.status(409).json({ error: 'You are already a member of this ride group', code: err.code });
+        res.status(409).json({ error: 'You are already a member of this ride group', code: 'ALREADY_MEMBER', room_id: err.room_id });
       } else if (err?.code === 'PROFILE_INCOMPLETE') {
-        res.status(403).json({ error: err.message, code: err.code });
+        res.status(403).json({ error: err.message, code: 'PROFILE_INCOMPLETE' });
       } else {
         console.error('RoomRouter.joinRoom error:', err);
-        res.status(500).json({ error: 'Internal server error while joining ride group' });
+        res.status(500).json({ error: 'Internal server error while joining ride group', code: 'INTERNAL_ERROR' });
       }
     }
   }

@@ -15,19 +15,21 @@ export class SessionHandler {
   ) {}
 
   register(): void {
-    this.socket.on('session:join', (data: { group_code: string }) =>
-      this.handleJoin(data)
+    this.socket.on('session:join', (data: { group_code: string }, callback?: (response: any) => void) =>
+      this.handleJoin(data, callback)
     );
     this.socket.on('session:leave', () => this.handleLeave());
   }
 
-  private async handleJoin(data: { group_code: string }): Promise<void> {
+  private async handleJoin(data: { group_code: string }, callback?: (response: any) => void): Promise<void> {
     const { group_code } = data;
     const userId = this.socket.user!.id;
     const name = this.socket.user!.name;
 
     if (!group_code) {
-      this.socket.emit('error', { message: 'Group code is required' });
+      const err = { error: 'Group code is required' };
+      this.socket.emit('error', err);
+      if (callback) callback(err);
       return;
     }
 
@@ -35,16 +37,16 @@ export class SessionHandler {
       const room = await this.roomService.verifyMembership(group_code, userId);
 
       if (!room) {
-        this.socket.emit('error', {
-          message: 'Forbidden: You are not authorized to join this group',
-        });
+        const err = { error: 'Forbidden: You are not authorized to join this group' };
+        this.socket.emit('error', err);
+        if (callback) callback(err);
         return;
       }
 
       if (room.status !== 'active') {
-        this.socket.emit('error', {
-          message: 'This ride group is no longer active',
-        });
+        const err = { error: 'This ride group is no longer active' };
+        this.socket.emit('error', err);
+        if (callback) callback(err);
         return;
       }
 
@@ -60,12 +62,14 @@ export class SessionHandler {
         .to(`group:${group_code}`)
         .emit('session:member_joined', { user_id: userId, name });
 
+      if (callback) callback({ group_code, members });
+
       console.log(`SessionHandler: ${name} joined group ${group_code}`);
     } catch (err) {
       console.error('SessionHandler.handleJoin error:', err);
-      this.socket.emit('error', {
-        message: 'Internal server error while joining session',
-      });
+      const errResp = { error: 'Internal server error while joining session' };
+      this.socket.emit('error', errResp);
+      if (callback) callback(errResp);
     }
   }
 
