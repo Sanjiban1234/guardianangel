@@ -1,7 +1,8 @@
 import { Platform } from 'react-native';
 import { getApiBaseUrl } from '../env';
 
-describe('API Base URL Configuration', () => {  afterEach(() => {
+describe('API Base URL Configuration', () => {
+  afterEach(() => {
     // Use `delete` so the var is truly unset (Node stringifies `= undefined` to "undefined")
     delete (process.env as any).API_BASE_URL;
   });
@@ -14,6 +15,16 @@ describe('API Base URL Configuration', () => {  afterEach(() => {
   it('trims trailing slashes from API_BASE_URL', () => {
     process.env.API_BASE_URL = 'http://192.168.1.150:3000///';
     expect(getApiBaseUrl()).toBe('http://192.168.1.150:3000');
+  });
+
+  it('accepts https:// URLs', () => {
+    process.env.API_BASE_URL = 'https://joyful-growth-production.up.railway.app';
+    expect(getApiBaseUrl()).toBe('https://joyful-growth-production.up.railway.app');
+  });
+
+  it('throws when API_BASE_URL is missing protocol', () => {
+    process.env.API_BASE_URL = '192.168.1.107:3000';
+    expect(() => getApiBaseUrl()).toThrow('API_BASE_URL is missing protocol');
   });
 
   it('falls back to Railway production backend for Android when API_BASE_URL is not set', () => {

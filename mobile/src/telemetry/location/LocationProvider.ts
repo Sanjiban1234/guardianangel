@@ -81,17 +81,18 @@ export class ForegroundGeolocationProvider implements ILocationProvider {
   private watchId: number | null = null;
 
   async start(onReading: (reading: Omit<TelemetryReading, 'client_reading_id'>) => void): Promise<void> {
-    // Request permissions on Android
+    // Check (but do not request) Android location permission.
+    // Permission requests are handled exclusively by the PermissionGate UI.
     if (Platform.OS === 'android') {
       try {
-        const granted = await PermissionsAndroid.request(
+        const granted = await PermissionsAndroid.check(
           PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
         );
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          console.warn('[ForegroundGeo] Fine location permission not granted');
+        if (!granted) {
+          console.warn('[ForegroundGeo] Fine location permission not yet granted. Location updates will resume once permission is granted via PermissionGate.');
         }
       } catch (err) {
-        console.warn('[ForegroundGeo] Permission request error:', err);
+        console.warn('[ForegroundGeo] Permission check error:', err);
       }
     }
 

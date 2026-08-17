@@ -26,6 +26,7 @@ const MAX_ROOM_MEMBERS = 20;
 export interface RoomMember {
   user_id: string;
   name: string;
+  role: string;
 }
 
 export interface RoomVerification {
@@ -177,7 +178,7 @@ export class RoomService {
     const tokenHash = this.hashToken(groupCode.toUpperCase());
     try {
       const result = await this.db.run(
-        `SELECT rm.user_id, u.name
+        `SELECT rm.user_id, u.name, rm.role
          FROM room_members rm
          JOIN ride_rooms rr ON rr.id = rm.room_id
          JOIN users u ON rm.user_id = u.id
@@ -188,6 +189,39 @@ export class RoomService {
     } catch {
       return [];
     }
+  }
+
+  async getRoomRideStatus(groupCode: string): Promise<{ rideStartedAt: string | null } | null> {
+    const tokenHash = this.hashToken(groupCode.toUpperCase());
+    try {
+      const result = await this.db.run(
+        `SELECT ride_started_at FROM ride_rooms WHERE token_hash = $1`,
+        [tokenHash]
+      );
+      if (result.rows.length === 0) return null;
+      return { rideStartedAt: result.rows[0].ride_started_at };
+    } catch {
+      return null;
+    }
+  }
+
+  async startRide(groupCode: string, userId: string): Promise<boolean> {
+    const tokenHash = this.hashToken(groupCode.toUpperCase());
+    const result = await this.db.run(
+      `SELECT rr.id, rr.creator_id, rm.role
+       FROM ride_rooms rr
+       JOIN room_members rm ON rm.room_id = rr.id AND rm.user_id = $2
+       WHERE rr.token_hash = $1 AND rr.status = 'active'`,
+      [tokenHash, userId]
+    );
+    if (result.rows.length === 0) return false;
+    if (result.rows[0].role !== 'owner') return false;
+
+    await this.db.run(
+      `UPDATE ride_rooms SET ride_started_at = NOW() WHERE token_hash = $1 AND ride_started_at IS NULL`,
+      [tokenHash]
+    );
+    return true;
   }
 
   async getRoomHistory(groupCode: string): Promise<any[]> {

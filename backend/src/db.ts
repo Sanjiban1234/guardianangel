@@ -167,6 +167,7 @@ export const initDb = async (): Promise<void> => {
     await client.query('ALTER TABLE ride_rooms ADD COLUMN IF NOT EXISTS destination_latitude DOUBLE PRECISION');
     await client.query('ALTER TABLE ride_rooms ADD COLUMN IF NOT EXISTS destination_longitude DOUBLE PRECISION');
     await client.query('ALTER TABLE ride_rooms ADD COLUMN IF NOT EXISTS destination_label TEXT');
+    await client.query('ALTER TABLE ride_rooms ADD COLUMN IF NOT EXISTS ride_started_at TIMESTAMPTZ');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS room_members (

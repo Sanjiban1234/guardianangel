@@ -55,14 +55,19 @@ export class SessionHandler {
       this.socket.join(`group:${group_code}`);
 
       const members = await this.roomService.getMembers(group_code);
+      const rideStatus = await this.roomService.getRoomRideStatus(group_code);
 
-      this.socket.emit('session:joined', { group_code, members });
+      this.socket.emit('session:joined', {
+        group_code,
+        members,
+        ride_started_at: rideStatus?.rideStartedAt || null,
+      });
 
       this.socket
         .to(`group:${group_code}`)
         .emit('session:member_joined', { user_id: userId, name });
 
-      if (callback) callback({ group_code, members });
+      if (callback) callback({ group_code, members, ride_started_at: rideStatus?.rideStartedAt || null });
 
       console.log(`SessionHandler: ${name} joined group ${group_code}`);
     } catch (err) {

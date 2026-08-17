@@ -15,6 +15,7 @@ import { CrashHandler } from '../handlers/CrashHandler';
 import { DisconnectHandler } from '../handlers/DisconnectHandler';
 import { VehicleBreakdownHandler } from '../handlers/VehicleBreakdownHandler';
 import { RefillNotificationHandler } from '../handlers/RefillNotificationHandler';
+import { RideStartHandler } from '../handlers/RideStartHandler';
 import { RefillNotificationService } from '../services/RefillNotificationService';
 
 export class RideSocketController {
@@ -48,6 +49,7 @@ export class RideSocketController {
       const roomState: RoomState = { currentGroupCode: null };
 
       new SessionHandler(io, socket, roomState, this.roomService).register();
+      new RideStartHandler(io, socket, roomState, this.roomService).register();
       new LocationHandler(socket, roomState, this.telemetryService, this.coherenceService).register();
       new BulkSyncHandler(socket, roomState, this.telemetryService).register();
       new CrashHandler(io, socket, roomState, this.alertService, this.crashRepo, this.medicalService).register();

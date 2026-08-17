@@ -73,6 +73,7 @@ export interface ISocketClient {
   onConnect(listener: () => void): () => void;
   onDisconnect(listener: () => void): () => void;
   emitEvent(event: string, payload?: Record<string, unknown>): void;
+  emitWithAck(event: string, callback: (response: any) => void): void;
   onEvent(event: string, listener: (payload: any) => void): () => void;
 }
 

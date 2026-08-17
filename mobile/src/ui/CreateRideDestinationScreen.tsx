@@ -1,11 +1,10 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   Alert,
   FlatList,
   Keyboard,
   Pressable,
   SafeAreaView,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -196,8 +195,6 @@ export function CreateRideDestinationScreen({
   const [showResults, setShowResults] = useState(false);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Room generation state
-  const [generatedRoom, setGeneratedRoom] = useState<CreatedRoomData | null>(null);
   const [isCreating, setIsCreating] = useState(false);
 
   // Debounced search
@@ -317,7 +314,7 @@ export function CreateRideDestinationScreen({
         longitude: selectedCoords.longitude,
       };
 
-      setGeneratedRoom({
+      onConfirmAndStartRide({
         groupCode: body.group_code,
         shareableUrl: body.group_code,
         destination: finalDest,
@@ -333,86 +330,10 @@ export function CreateRideDestinationScreen({
     }
   };
 
-  const handleNativeShare = async () => {
-    if (!generatedRoom) return;
-    try {
-      await Share.share({
-        title: `Join my ride to ${generatedRoom.destination.title}`,
-        message:
-          `🏍️ Join my ride group on Guardian Angel!\n` +
-          `Destination: ${generatedRoom.destination.title}\n` +
-          `Group Code: ${generatedRoom.groupCode}\n\n` +
-          `Join link: ${generatedRoom.shareableUrl}`,
-        url: generatedRoom.shareableUrl,
-      });
-    } catch {
-      Alert.alert('Share Error', 'Could not open native share sheet.');
-    }
-  };
-
   // Format coordinates for display
   const coordsDisplay = selectedCoords
     ? `${selectedCoords.latitude.toFixed(5)}, ${selectedCoords.longitude.toFixed(5)}`
     : '';
-
-  // ──────────────────────────────────────────
-  // ROOM CREATED VIEW
-  // ──────────────────────────────────────────
-  if (generatedRoom) {
-    return (
-      <SafeAreaView style={styles.shell}>
-        <View style={styles.roomCreatedContainer}>
-          <View style={styles.roomCreatedCard}>
-            <View style={styles.successBadgeRow}>
-              <Text style={styles.successBadge}>✓ ROOM CREATED</Text>
-              <Text style={styles.autoMemberTag}>AUTO-ADDED AS LEAD</Text>
-            </View>
-
-            <Text style={styles.destTitle}>
-              🏁 {generatedRoom.destination.title}
-            </Text>
-            {generatedRoom.destination.locationName !== generatedRoom.destination.title && (
-              <Text style={styles.destSub}>{generatedRoom.destination.locationName}</Text>
-            )}
-
-            <View style={styles.codeBox}>
-              <Text style={styles.codeBoxLabel}>YOUR RIDE ROOM GROUP CODE</Text>
-              <Text style={styles.codeBoxCode}>{generatedRoom.groupCode}</Text>
-              <Text style={styles.codeBoxSub}>Share this code with riders joining manually.</Text>
-            </View>
-
-            <Pressable onPress={handleNativeShare} style={styles.shareSheetBtn}>
-              <Text style={styles.shareSheetBtnText}>📱 Share Ride Code</Text>
-            </Pressable>
-
-            <View style={styles.rosterCard}>
-              <Text style={styles.rosterTitle}>Room Members (1 Rider)</Text>
-              <View style={styles.rosterMemberRow}>
-                <View style={styles.leadDot} />
-                <Text style={styles.rosterMemberName}>
-                  {generatedRoom.creatorName} (Host)
-                </Text>
-                <Text style={styles.leadBadge}>LEAD</Text>
-              </View>
-            </View>
-
-            <Pressable
-              onPress={() => onConfirmAndStartRide(generatedRoom)}
-              style={styles.startTrackingBtn}
-            >
-              <Text style={styles.startTrackingBtnText}>
-                Start Live Group Tracking Map →
-              </Text>
-            </Pressable>
-          </View>
-
-          <Pressable onPress={onCancel} style={styles.cancelBtnSmall}>
-            <Text style={styles.cancelBtnSmallText}>← Back to Portal</Text>
-          </Pressable>
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   // ──────────────────────────────────────────
   // MAP-FIRST DESTINATION PICKER
@@ -713,148 +634,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Room created view
-  roomCreatedContainer: {
-    flex: 1,
-    padding: 20,
-    justifyContent: 'center',
-    gap: 16,
-  },
-  roomCreatedCard: {
-    backgroundColor: COLORS.card,
-    borderColor: COLORS.line,
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 20,
-    gap: 16,
-  },
-  successBadgeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  successBadge: {
-    color: COLORS.green,
-    backgroundColor: '#0E2A18',
-    fontSize: 11,
-    fontWeight: '800',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  autoMemberTag: {
-    color: COLORS.muted,
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  destTitle: {
-    color: COLORS.text,
-    fontSize: 22,
-    fontWeight: '800',
-  },
-  destSub: {
-    color: COLORS.muted,
-    fontSize: 13,
-    marginTop: -10,
-  },
-  codeBox: {
-    backgroundColor: '#0F1E14',
-    borderColor: '#224830',
-    borderWidth: 1.5,
-    borderRadius: 14,
-    padding: 16,
-    alignItems: 'center',
-    gap: 4,
-  },
-  codeBoxLabel: {
-    color: COLORS.muted,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1,
-  },
-  codeBoxCode: {
-    color: COLORS.text,
-    fontSize: 34,
-    fontWeight: '900',
-    letterSpacing: 4,
-  },
-  codeBoxSub: {
-    color: COLORS.muted,
-    fontSize: 11,
-    marginTop: 2,
-  },
-  shareSheetBtn: {
-    backgroundColor: COLORS.blue,
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  shareSheetBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-    fontSize: 14,
-  },
-  rosterCard: {
-    backgroundColor: COLORS.darkInput,
-    borderColor: COLORS.line,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
-    gap: 10,
-  },
-  rosterTitle: {
-    color: COLORS.muted,
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  rosterMemberRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  leadDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: COLORS.green,
-  },
-  rosterMemberName: {
-    flex: 1,
-    color: COLORS.text,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  leadBadge: {
-    color: COLORS.green,
-    fontSize: 9,
-    fontWeight: '800',
-    backgroundColor: '#0F2918',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  startTrackingBtn: {
-    backgroundColor: COLORS.green,
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  startTrackingBtnText: {
-    color: COLORS.ink,
-    fontWeight: '900',
-    fontSize: 15,
-    letterSpacing: 0.2,
-  },
-  cancelBtnSmall: {
-    alignSelf: 'center',
-    paddingVertical: 8,
-  },
-  cancelBtnSmallText: {
-    color: COLORS.blue,
-    fontSize: 14,
-    fontWeight: '700',
-  },
 });
 
 export default CreateRideDestinationScreen;

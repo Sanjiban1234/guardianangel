@@ -75,6 +75,10 @@ export class MockSocketClient implements ISocketClient {
     if (!this.connected) throw new Error('Socket not connected');
   }
 
+  emitWithAck(_event: string, _callback: (response: any) => void): void {
+    if (!this.connected) throw new Error('Socket not connected');
+  }
+
   onEvent(_event: string, _listener: (payload: any) => void): () => void {
     return () => undefined;
   }
@@ -227,6 +231,11 @@ export class SocketClient implements ISocketClient {
   emitEvent(event: string, payload?: Record<string, unknown>): void {
     if (!this.socket || !this.connected) throw new Error('Socket is not connected');
     this.socket.emit(event, payload);
+  }
+
+  emitWithAck(event: string, callback: (response: any) => void): void {
+    if (!this.socket || !this.connected) throw new Error('Socket is not connected');
+    this.socket.emit(event, callback);
   }
 
   onEvent(event: string, listener: (payload: any) => void): () => void {

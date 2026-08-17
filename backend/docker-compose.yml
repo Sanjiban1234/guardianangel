@@ -7,9 +7,9 @@ services:
     container_name: guardian-angel-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: guardian_angel
-      POSTGRES_USER: ga_admin
-      POSTGRES_PASSWORD: 20683858@guardianangel
+      POSTGRES_DB: ${POSTGRES_DB:-guardian_angel}
+      POSTGRES_USER: ${POSTGRES_USER:-ga_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     ports:
       - "5433:5432"
     volumes:
@@ -38,9 +38,9 @@ services:
       DB_HOST: db
       DB_PORT: 5432
       DB_NAME: guardian_angel
-      DB_USER: ga_admin
-      DB_PASSWORD: "20683858@guardianangel"
-      DATABASE_URL: postgresql://ga_admin:20683858%40guardianangel@db:5432/guardian_angel?sslmode=disable
+      DB_USER: ${POSTGRES_USER:-ga_admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ga_admin}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-guardian_angel}?sslmode=disable
       JWT_SECRET: ${JWT_SECRET}
       PORT: 3000
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8081}

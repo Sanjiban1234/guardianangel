@@ -137,7 +137,8 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
     setErrors({});
 
     try {
-      const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
+      const loginUrl = `${apiBaseUrl}/api/auth/login`;
+      const response = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: loginEmail.toLowerCase().trim(), password: loginPassword }),
@@ -296,16 +297,28 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
         </Pressable>
 
         {biometricAvailable && biometricSetupReady && (
-          <Pressable
-            onPress={handleBiometricLogin}
-            disabled={isSubmitting}
-            style={[styles.biometricBtn, isSubmitting ? styles.submitBtnDisabled : null]}
-          >
-            <Text style={styles.biometricBtnText}>
-              🔐 Sign in with {biometricType}
-              {biometricEmail ? ` (${biometricEmail})` : ''}
-            </Text>
-          </Pressable>
+          <View style={styles.biometricSection}>
+            <View style={styles.biometricDivider}>
+              <View style={styles.biometricDividerLine} />
+              <Text style={styles.biometricDividerText}>OR</Text>
+              <View style={styles.biometricDividerLine} />
+            </View>
+            <Pressable
+              onPress={handleBiometricLogin}
+              disabled={isSubmitting}
+              style={[styles.biometricBtn, isSubmitting ? styles.submitBtnDisabled : null]}
+            >
+              <Text style={styles.biometricIcon}>🔒</Text>
+              <View style={styles.biometricLabelGroup}>
+                <Text style={styles.biometricBtnLabel}>
+                  Sign in with {biometricType}
+                </Text>
+                {biometricEmail ? (
+                  <Text style={styles.biometricBtnEmail}>{biometricEmail}</Text>
+                ) : null}
+              </View>
+            </Pressable>
+          </View>
         )}
 
         <Pressable onPress={onNavigateToRegister} style={styles.registerBtn}>
@@ -381,15 +394,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 8,
   },
-  biometricBtn: {
-    backgroundColor: COLORS.blue,
-    borderRadius: 12,
-    paddingVertical: 16,
+  biometricSection: { gap: 12, marginTop: 4 },
+  biometricDivider: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
   },
+  biometricDividerLine: { flex: 1, height: 1, backgroundColor: COLORS.line },
+  biometricDividerText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
+  biometricBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.card,
+    borderColor: COLORS.line,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  biometricIcon: { fontSize: 22 },
+  biometricLabelGroup: { flex: 1 },
+  biometricBtnLabel: { color: COLORS.text, fontWeight: '700', fontSize: 14 },
+  biometricBtnEmail: { color: COLORS.muted, fontSize: 11, marginTop: 1 },
   submitBtnDisabled: { opacity: 0.6 },
   submitBtnText: { color: COLORS.ink, fontWeight: '900', fontSize: 15, letterSpacing: 0.2 },
-  biometricBtnText: { color: COLORS.text, fontWeight: '900', fontSize: 15, letterSpacing: 0.2 },
   registerBtn: { alignSelf: 'center', paddingVertical: 12 },
   registerBtnText: { color: COLORS.blue, fontSize: 13, fontWeight: '700' },
 });

@@ -248,4 +248,21 @@ export interface RefillNotifiedPayload {
   timestamp: number;
 }
 
+/**
+ * 22. ride:start (Client -> Server)
+ * Emitted by the room host to start the ride. Only the owner can start.
+ * Empty payload — the server identifies the rider from the socket auth.
+ */
+export type RideStartPayload = Record<string, never>;
+
+/**
+ * 23. ride:started (Server -> Room Broadcast)
+ * Broadcast to all room members when the host starts the ride.
+ * Clients should navigate to the map screen upon receiving this event.
+ */
+export interface RideStartedPayload {
+  group_code: string;
+  started_at: number; // Server timestamp (epoch ms)
+}
+
 

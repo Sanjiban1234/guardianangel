@@ -1,17 +1,20 @@
 # React Native / Node (mobile)
 mobile/node_modules/
 mobile/android/app/build/
+mobile/android/app/.cxx/
 mobile/ios/Pods/
 mobile/ios/build/
 mobile/.expo/
 mobile/.env
 mobile/.env*.local
+mobile/android/local.properties
 *.keystore
 *.jks
 
 # Node (backend)
 backend/node_modules/
 backend/.env
+backend/.env.docker
 backend/docker-compose.override.yml
 
 # General
@@ -20,3 +23,13 @@ backend/docker-compose.override.yml
 backend/dist/
 .claude/
 
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Generated / debug artifacts
+screen.png
+ui.xml
+ui2.xml
+ui3.xml

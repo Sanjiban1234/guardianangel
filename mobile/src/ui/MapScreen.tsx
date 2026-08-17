@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, Text, Pressable, Alert } from 'react-native';
+import { StyleSheet, View, Text, Pressable, Alert, Share } from 'react-native';
 import LiveMapView from '../components/LiveMapView';
 
 interface MapScreenProps {
@@ -16,6 +16,18 @@ interface MapScreenProps {
   destination?: { latitude: number; longitude: number; label: string } | null;
   onOpenControls: () => void;
   onEndRide: () => void;
+
+  // Pre-ride state props
+  isHost: boolean;
+  rideStarted: boolean;
+  members: Array<{
+    user_id: string;
+    name: string;
+    role?: string;
+    isYou?: boolean;
+  }>;
+  onStartRide?: () => void;
+  onLeaveRoom: () => void;
 }
 
 const COLORS = {
@@ -80,7 +92,6 @@ async function fetchRoute(
   destination: { latitude: number; longitude: number },
 ): Promise<Array<{ latitude: number; longitude: number }> | null> {
   try {
-    // Read API key from the Babel-injected env variable
     const apiKey = typeof process !== 'undefined' && process.env
       ? process.env.GOOGLE_MAPS_API_KEY
       : undefined;
@@ -105,7 +116,6 @@ async function fetchRoute(
       return null;
     }
 
-    // Decode the overview polyline
     const overviewPolyline = data.routes[0].overview_polyline?.points;
     if (!overviewPolyline) return null;
 
@@ -124,12 +134,16 @@ export default function MapScreen({
   destination,
   onOpenControls,
   onEndRide,
+  isHost,
+  rideStarted,
+  members,
+  onStartRide,
+  onLeaveRoom,
 }: MapScreenProps) {
   const [routeCoordinates, setRouteCoordinates] = useState<
     Array<{ latitude: number; longitude: number }> | undefined
   >(undefined);
 
-  // Fetch route when current location and destination are both available
   useEffect(() => {
     if (!currentLocation || !destination) {
       setRouteCoordinates(undefined);
@@ -148,51 +162,150 @@ export default function MapScreen({
       cancelled = true;
     };
   }, [
-    // Only refetch when either endpoint changes significantly
     currentLocation?.latitude?.toFixed(3),
     currentLocation?.longitude?.toFixed(3),
     destination?.latitude,
     destination?.longitude,
   ]);
 
-  return (
-    <View style={styles.container}>
-      {/* Full screen map */}
-      <LiveMapView
-        currentLocation={currentLocation}
-        riders={riders}
-        destination={destination}
-        routeCoordinates={routeCoordinates}
-        onRecenterPress={() => {}}
-      />
+  const handleShareCode = async () => {
+    try {
+      await Share.share({
+        title: `Join my ride to ${destinationTitle}`,
+        message:
+          `Join my ride group on Guardian Angel!\n` +
+          `Destination: ${destinationTitle}\n` +
+          `Group Code: ${roomCode}`,
+      });
+    } catch {
+      Alert.alert('Share Error', 'Could not open share sheet.');
+    }
+  };
 
-      {/* Floating header */}
-      <View style={styles.floatingHeader}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.roomCodeText}>CODE: {roomCode}</Text>
-          <Text style={styles.destinationText} numberOfLines={1}>
-            {destinationTitle || 'No destination set'}
-          </Text>
+  // ──────────────────────────────────────────
+  // ACTIVE RIDE — full-screen map with floating overlays
+  // ──────────────────────────────────────────
+  if (rideStarted) {
+    return (
+      <View style={styles.container}>
+        <LiveMapView
+          currentLocation={currentLocation}
+          riders={riders}
+          destination={destination}
+          routeCoordinates={routeCoordinates}
+          onRecenterPress={() => {}}
+        />
+
+        <View style={styles.floatingHeader}>
+          <View style={styles.headerLeft}>
+            <Text style={styles.roomCodeText}>CODE: {roomCode}</Text>
+            <Text style={styles.destinationText} numberOfLines={1}>
+              {destinationTitle || 'No destination set'}
+            </Text>
+          </View>
+          <Pressable onPress={onEndRide} style={styles.endButton}>
+            <Text style={styles.endButtonText}>✕ End</Text>
+          </Pressable>
         </View>
-        <Pressable onPress={onEndRide} style={styles.endButton}>
-          <Text style={styles.endButtonText}>✕ End</Text>
+
+        {riders.length > 0 && (
+          <View style={styles.riderCountBadge}>
+            <Text style={styles.riderCountText}>
+              {riders.length} rider{riders.length !== 1 ? 's' : ''}
+            </Text>
+          </View>
+        )}
+
+        <Pressable onPress={onOpenControls} style={styles.controlsButton}>
+          <Text style={styles.controlsButtonIcon}>⚙️</Text>
+          <Text style={styles.controlsButtonText}>Ride Controls</Text>
         </Pressable>
       </View>
+    );
+  }
 
-      {/* Rider count badge */}
-      {riders.length > 0 && (
-        <View style={styles.riderCountBadge}>
-          <Text style={styles.riderCountText}>
-            👥 {riders.length} rider{riders.length !== 1 ? 's' : ''}
-          </Text>
+  // ──────────────────────────────────────────
+  // PRE-RIDE — map + member panel + action
+  // ──────────────────────────────────────────
+  return (
+    <View style={styles.container}>
+      {/* Map */}
+      <View style={styles.preRideMapArea}>
+        <LiveMapView
+          currentLocation={currentLocation}
+          riders={riders}
+          destination={destination}
+          routeCoordinates={routeCoordinates}
+          onRecenterPress={() => {}}
+        />
+      </View>
+
+      {/* Bottom panel */}
+      <View style={styles.preRidePanel}>
+        {/* Header row */}
+        <View style={styles.panelHeader}>
+          <Pressable onPress={onLeaveRoom} style={styles.leaveBtn}>
+            <Text style={styles.leaveBtnText}>← Leave</Text>
+          </Pressable>
+          <View style={styles.panelHeaderCenter}>
+            <Text style={styles.panelEyebrow}>CODE: {roomCode}</Text>
+            <Text style={styles.panelTitle} numberOfLines={1}>
+              {destinationTitle || 'Group Ride'}
+            </Text>
+          </View>
+          <Pressable onPress={handleShareCode} style={styles.shareBtn}>
+            <Text style={styles.shareBtnText}>Share</Text>
+          </Pressable>
         </View>
-      )}
 
-      {/* Floating bottom controls button */}
-      <Pressable onPress={onOpenControls} style={styles.controlsButton}>
-        <Text style={styles.controlsButtonIcon}>⚙️</Text>
-        <Text style={styles.controlsButtonText}>Ride Controls</Text>
-      </Pressable>
+        {/* Member list */}
+        <View style={styles.memberSection}>
+          <Text style={styles.memberSectionTitle}>
+            Riders ({members.length})
+          </Text>
+          {members.length === 0 ? (
+            <Text style={styles.emptyText}>No riders have joined yet.</Text>
+          ) : (
+            <View style={styles.memberList}>
+              {members.map((member) => (
+                <View key={member.user_id} style={styles.memberRow}>
+                  <View
+                    style={[
+                      styles.memberDot,
+                      member.role === 'owner' ? styles.hostDot : styles.riderDot,
+                    ]}
+                  />
+                  <Text style={styles.memberName} numberOfLines={1}>
+                    {member.name}
+                    {member.isYou ? ' (You)' : ''}
+                  </Text>
+                  {member.role === 'owner' && (
+                    <Text style={styles.hostBadge}>HOST</Text>
+                  )}
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* Action area */}
+        {isHost ? (
+          <Pressable
+            onPress={() => {
+              onStartRide?.();
+            }}
+            style={styles.startBtn}
+          >
+            <Text style={styles.startBtnText}>Start Ride →</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.waitingBanner}>
+            <Text style={styles.waitingText}>
+              Waiting for host to start the ride...
+            </Text>
+          </View>
+        )}
+      </View>
     </View>
   );
 }
@@ -202,6 +315,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.ink,
   },
+
+  // ── Active ride floating overlays ──
   floatingHeader: {
     position: 'absolute',
     top: 50,
@@ -282,5 +397,138 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 16,
     fontWeight: '800',
+  },
+
+  // ── Pre-ride layout ──
+  preRideMapArea: {
+    flex: 1,
+  },
+  preRidePanel: {
+    backgroundColor: COLORS.card,
+    borderColor: COLORS.line,
+    borderTopWidth: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
+    gap: 12,
+  },
+
+  // Panel header
+  panelHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  leaveBtn: {
+    paddingVertical: 4,
+    paddingRight: 8,
+  },
+  leaveBtnText: {
+    color: COLORS.blue,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  panelHeaderCenter: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  panelEyebrow: {
+    color: COLORS.green,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  panelTitle: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: '800',
+    marginTop: 1,
+  },
+  shareBtn: {
+    backgroundColor: COLORS.blue,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  shareBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+
+  // Member list
+  memberSection: {
+    gap: 8,
+  },
+  memberSectionTitle: {
+    color: COLORS.muted,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  emptyText: {
+    color: COLORS.muted,
+    fontSize: 13,
+    fontStyle: 'italic',
+  },
+  memberList: {
+    gap: 6,
+  },
+  memberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  memberDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  hostDot: {
+    backgroundColor: COLORS.green,
+  },
+  riderDot: {
+    backgroundColor: COLORS.blue,
+  },
+  memberName: {
+    flex: 1,
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  hostBadge: {
+    color: COLORS.green,
+    fontSize: 9,
+    fontWeight: '800',
+    backgroundColor: '#0F2918',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+
+  // Start / Waiting
+  startBtn: {
+    backgroundColor: COLORS.green,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  startBtnText: {
+    color: COLORS.ink,
+    fontWeight: '900',
+    fontSize: 15,
+  },
+  waitingBanner: {
+    backgroundColor: '#0F1A12',
+    borderColor: COLORS.line,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  waitingText: {
+    color: COLORS.muted,
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

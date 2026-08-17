@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Modal,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -12,6 +13,11 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import {
+  check,
+  PERMISSIONS,
+  RESULTS,
+} from 'react-native-permissions';
 import CreateRideDestinationScreen, {
   CreatedRoomData,
 } from './src/ui/CreateRideDestinationScreen';
@@ -100,9 +106,26 @@ function App() {
   const [connection, setConnection] = useState<Connection>('live');
   const [authToken, setAuthToken] = useState('');
   const socketRef = useRef(new SocketClient());
+  const socketLifecycleGuard = React.useMemo(() => {
+    const real = socketRef.current;
+    return {
+      connect: async () => {},
+      disconnect: () => {},
+      isConnected: () => real.isConnected(),
+      joinSession: (gc: string) => real.joinSession(gc),
+      emitLocationUpdate: (p: any) => real.emitLocationUpdate(p),
+      emitBulkSync: (r: any) => real.emitBulkSync(r),
+      onConnect: (l: () => void) => real.onConnect(l),
+      onDisconnect: (l: () => void) => real.onDisconnect(l),
+      emitEvent: (e: string, p?: any) => real.emitEvent(e, p),
+      emitWithAck: (e: string, cb: (r: any) => void) => real.emitWithAck(e, cb),
+      onEvent: (e: string, l: (p: any) => void) => real.onEvent(e, l),
+    };
+  }, []);
+
   const telemetryModuleRef = useRef(
     new TelemetryModule({
-      socketClient: socketRef.current,
+      socketClient: socketLifecycleGuard as any,
       locationProvider: new BackgroundGeolocationProvider(),
     })
   );
@@ -140,7 +163,7 @@ function App() {
   // Room / Destination state
   const [activeRoomCode, setActiveRoomCode] = useState<string>('');
   const [destinationTitle, setDestinationTitle] = useState<string>('');
-  const [roomMembers, setRoomMembers] = useState<Array<{ user_id: string; name: string; isYou?: boolean; latitude?: number; longitude?: number }>>([]);
+  const [roomMembers, setRoomMembers] = useState<Array<{ user_id: string; name: string; role?: string; isYou?: boolean; latitude?: number; longitude?: number }>>([]);
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [destination, setDestination] = useState<{ latitude: number; longitude: number; label: string } | null>(null);
 
@@ -162,6 +185,10 @@ function App() {
   const [separationRole, setSeparationRole] = useState<'rider' | 'group'>('rider');
   const [permissionIntent, setPermissionIntent] = useState<'create' | 'join' | null>(null);
 
+  // Ride start state
+  const [rideStarted, setRideStarted] = useState<boolean>(false);
+  const [isHost, setIsHost] = useState<boolean>(false);
+
   // Update current location from telemetry
   useEffect(() => {
     const subscription = telemetryStream$.subscribe((reading) => {
@@ -175,7 +202,7 @@ function App() {
 
   useEffect(() => {
     if (!authToken) return;
-    const unsubscribe = socketRef.current.onConnect(() => {
+    const unsubscribeConnect = socketRef.current.onConnect(() => {
       setConnection('live');
       if (activeRoomCode) socketRef.current.joinSession(activeRoomCode).catch(() => setConnection('offline'));
       socketRef.current.onEvent('session:joined', (payload: any) => {
@@ -184,11 +211,17 @@ function App() {
             payload.members.map((m: any) => ({
               user_id: m.user_id,
               name: m.name,
+              role: m.role,
               isYou: m.name === riderName,
               latitude: m.latitude,
               longitude: m.longitude,
             }))
           );
+        }
+        // If the ride has already started when we (re)join, go directly to the map
+        if (payload?.ride_started_at) {
+          setRideStarted(true);
+          setScreen('map');
         }
       });
       socketRef.current.onEvent('session:member_joined', (payload: any) => {
@@ -248,6 +281,15 @@ function App() {
           setSeparationRole('rider');
         }
       });
+      socketRef.current.onEvent('ride:started', (payload: any) => {
+        if (payload?.group_code) {
+          setRideStarted(true);
+          setScreen('map');
+        }
+      });
+    });
+    const unsubscribeDisconnect = socketRef.current.onDisconnect(() => {
+      setConnection('offline');
     });
     socketRef.current.connect(API_BASE_URL, authToken).catch(() => setConnection('offline'));
     telemetryModuleRef.current.start({
@@ -258,7 +300,8 @@ function App() {
       socketClient: socketRef.current,
     }).catch(() => {});
     return () => {
-      unsubscribe();
+      unsubscribeConnect();
+      unsubscribeDisconnect();
       socketRef.current.disconnect();
       telemetryModuleRef.current.stop().catch(() => {});
     };
@@ -312,7 +355,8 @@ function App() {
     }));
     // After registration, auto-login with the new credentials
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      const loginUrl = `${API_BASE_URL}/api/auth/login`;
+      const response = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: data.email.toLowerCase().trim(), password: data.password }),
@@ -334,8 +378,9 @@ function App() {
       longitude: roomData.destination.longitude,
       label: roomData.destination.title,
     });
-    // Don't set roomMembers here - wait for socket session:joined event
     setRoomMembers([]);
+    setIsHost(true);
+    setRideStarted(false);
     setScreen('map');
   };
 
@@ -349,8 +394,9 @@ function App() {
         label: preview.destinationTitle,
       });
     }
-    // Don't set roomMembers here - wait for socket session:joined event
     setRoomMembers([]);
+    setIsHost(false);
+    setRideStarted(false);
     setScreen('map');
   };
 
@@ -363,6 +409,47 @@ function App() {
       setShowRefuelModal(false);
     } catch (error) {
       Alert.alert('Refill request failed', error instanceof Error ? error.message : 'Reconnect and try again.');
+    }
+  };
+
+  const handleStartRide = () => {
+    if (!activeRoomCode) {
+      Alert.alert('No room', 'You are not in a ride room.');
+      return;
+    }
+
+    if (!socketRef.current.isConnected()) {
+      Alert.alert('Not connected', 'Reconnect and try again.');
+      return;
+    }
+
+    try {
+      socketRef.current.emitWithAck('ride:start', (response: any) => {
+        if (response?.error) {
+          Alert.alert('Could not start ride', response.error);
+        }
+      });
+    } catch (err: any) {
+      Alert.alert('Start failed', 'Could not reach server: ' + (err?.message || 'unknown error'));
+    }
+  };
+
+  const areLocationPermissionsGranted = async (): Promise<boolean> => {
+    try {
+      const fgPermission = Platform.OS === 'ios'
+        ? PERMISSIONS.IOS.LOCATION_WHEN_IN_USE
+        : PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION;
+      const bgPermission = Platform.OS === 'ios'
+        ? PERMISSIONS.IOS.LOCATION_ALWAYS
+        : PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION;
+
+      const fgResult = await check(fgPermission);
+      if (fgResult !== RESULTS.GRANTED) return false;
+
+      const bgResult = await check(bgPermission);
+      return bgResult === RESULTS.GRANTED;
+    } catch {
+      return false;
     }
   };
 
@@ -414,13 +501,25 @@ function App() {
           riderName={riderName}
           connection={connection}
           profile={profile}
-          onCreateRide={() => {
+          onCreateRide={async () => {
             setPermissionIntent('create');
-            setScreen('permission_gate');
+            const granted = await areLocationPermissionsGranted();
+            if (granted) {
+              setScreen('create_destination');
+              setPermissionIntent(null);
+            } else {
+              setScreen('permission_gate');
+            }
           }}
-          onJoinRide={() => {
+          onJoinRide={async () => {
             setPermissionIntent('join');
-            setScreen('permission_gate');
+            const granted = await areLocationPermissionsGranted();
+            if (granted) {
+              setScreen('join');
+              setPermissionIntent(null);
+            } else {
+              setScreen('permission_gate');
+            }
           }}
           onOpenProfile={() => setScreen('profile')}
         />
@@ -494,6 +593,23 @@ function App() {
           destination={destination}
           onOpenControls={() => setScreen('controls')}
           onEndRide={() => setScreen('summary')}
+          isHost={isHost}
+          rideStarted={rideStarted}
+          members={roomMembers.map((m) => ({
+            user_id: m.user_id,
+            name: m.name,
+            role: m.role,
+            isYou: m.isYou || m.name === riderName,
+          }))}
+          onStartRide={isHost ? handleStartRide : undefined}
+          onLeaveRoom={() => {
+            socketRef.current.emitEvent('session:leave');
+            setActiveRoomCode('');
+            setRoomMembers([]);
+            setRideStarted(false);
+            setIsHost(false);
+            setScreen('portal');
+          }}
         />
       )}
 
@@ -616,8 +732,8 @@ function Portal({
   riderName: string;
   connection: Connection;
   profile: RiderProfileData;
-  onCreateRide: () => void;
-  onJoinRide: () => void;
+  onCreateRide: () => void | Promise<void>;
+  onJoinRide: () => void | Promise<void>;
   onOpenProfile: () => void;
 }) {
   return (
