@@ -34,6 +34,7 @@ export class CrashDetector {
   private spikeReading: AccelerometerReading | null = null;
   private peakMagnitudeG = 0;
   private peakJerk = 0;
+  private spikeHadTelemetry = false;
 
   private trafficOverrideActive = false;
 
@@ -184,14 +185,26 @@ export class CrashDetector {
       this.windowStartTs = reading.timestamp;
       this.windowGyro = [];
       this.windowSpeeds = [];
-      // Capture sample rate health at spike detection time
+      this.spikeHadTelemetry = this.telemetryBuffer.length > 0;
+      this.spikeHealthRatio = this.getSampleRateHealth().healthRatio;
+      this.transitionTo('WATCHING_POST_EVENT');
+    } else if (jerkOk && magnitudeOk && this.telemetryBuffer.length === 0) {
+      // Speed gate cannot be evaluated yet (GPS cold start). Enter watch
+      // window and re-evaluate when telemetry arrives or window completes.
+      this.spikeReading = reading;
+      this.peakMagnitudeG = magnitudeG;
+      this.peakJerk = jerk;
+      this.windowStartTs = reading.timestamp;
+      this.windowGyro = [];
+      this.windowSpeeds = [];
+      this.spikeHadTelemetry = false;
       this.spikeHealthRatio = this.getSampleRateHealth().healthRatio;
       this.transitionTo('WATCHING_POST_EVENT');
     }
   }
 
   private currentSpeedGateOk(): boolean {
-    if (this.telemetryBuffer.length === 0) return false; // no plausible speed data, don't fire
+    if (this.telemetryBuffer.length === 0) return false;
     const speed = resolveSpeedKmh(
       this.telemetryBuffer,
       this.telemetryBuffer.length - 1,
@@ -209,7 +222,12 @@ export class CrashDetector {
     const gyroOk = gyroRotation > this.config.gyroRotationThresholdDegPerSec;
     const roughnessOk = roughness > this.config.roughnessRatioThreshold;
 
-    if (gyroOk || roughnessOk) {
+    // If no telemetry arrived during the window (GPS cold start), require both
+    // gyro AND roughness evidence to prevent false positives from gyro alone.
+    const noTelemetry = !this.spikeHadTelemetry && this.windowSpeeds.length === 0;
+    const confirmed = noTelemetry ? (gyroOk && roughnessOk) : (gyroOk || roughnessOk);
+
+    if (confirmed) {
       // Check sample rate health: use the worse of spike-time and current health
       const currentHealthRatio = this.getSampleRateHealth().healthRatio;
       const worstHealthRatio = Math.min(this.spikeHealthRatio, currentHealthRatio);

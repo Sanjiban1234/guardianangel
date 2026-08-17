@@ -130,18 +130,50 @@ export class SocketClient implements ISocketClient {
 
     this.socket = io(socketUrl, {
       auth: { token },
-      transports: ['websocket'],
+      transports: ['polling', 'websocket'],
       autoConnect: true,
+      reconnection: true,
+      reconnectionAttempts: 15,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 10000,
+      timeout: 20000,
     });
+
+    console.log(`[SOCKET DIAG] [INIT] url=${socketUrl} transports=polling+websocket`);
 
     this.socket.on('connect', () => {
       this.connected = true;
+      const transport = this.socket?.io?.engine?.transport?.name || 'unknown';
+      console.log(`[SOCKET DIAG] [CONNECT] socketId=${this.socket?.id} transport=${transport}`);
       for (const listener of this.connectListeners) listener();
     });
 
-    this.socket.on('disconnect', () => {
+    this.socket.on('disconnect', (reason?: string) => {
       this.connected = false;
+      console.log(`[SOCKET DIAG] [DISCONNECT] socketId=${this.socket?.id} reason=${reason}`);
       for (const listener of this.disconnectListeners) listener();
+    });
+
+    this.socket.on('connect_error', (err: any) => {
+      const transport = this.socket?.io?.engine?.transport?.name || 'unknown';
+      console.log(`[SOCKET DIAG] [CONNECT_ERROR] message=${err?.message} transport=${transport}`);
+    });
+
+    this.socket.io.on('reconnect_attempt', (attempt: number) => {
+      console.log(`[SOCKET DIAG] [RECONNECT_ATTEMPT] attempt=${attempt}`);
+    });
+
+    this.socket.io.on('reconnect', (attempt: number) => {
+      const transport = this.socket?.io?.engine?.transport?.name || 'unknown';
+      console.log(`[SOCKET DIAG] [RECONNECT] attempt=${attempt} transport=${transport}`);
+    });
+
+    this.socket.io.on('reconnect_error', (err: any) => {
+      console.log(`[SOCKET DIAG] [RECONNECT_ERROR] message=${err?.message}`);
+    });
+
+    this.socket.io.on('reconnect_failed', () => {
+      console.log(`[SOCKET DIAG] [RECONNECT_FAILED] max attempts reached`);
     });
   }
 
@@ -180,7 +212,10 @@ export class SocketClient implements ISocketClient {
 
   emitLocationUpdate(payload: Omit<TelemetryReading, 'client_reading_id' | 'synced'>): void {
     if (this.socket && this.connected) {
+      console.log(`[LIVE LOCATION TRACE] [TRACE 4] Socket emit location:update | connected=${this.connected} lat=${payload.latitude?.toFixed(6)} lng=${payload.longitude?.toFixed(6)}`);
       this.socket.emit('location:update', payload);
+    } else {
+      console.log(`[LIVE LOCATION TRACE] [TRACE 4-BLOCKED] SocketClient cannot emit | socket=${!!this.socket} connected=${this.connected}`);
     }
   }
 

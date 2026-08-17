@@ -37,6 +37,7 @@ export class RideSocketController {
     io.on('connection', (socket: AuthenticatedSocket) => {
       const userId = socket.user?.id;
       const name = socket.user?.name;
+      const transport = socket.conn.transport.name;
 
       if (!userId || !name) {
         console.error('RideSocketController: socket connected without user details — disconnecting');
@@ -44,7 +45,7 @@ export class RideSocketController {
         return;
       }
 
-      console.log(`RideSocketController: ${name} (${userId}) connected`);
+      console.log(`[SOCKET BACKEND] CONNECTED userId=${userId} name=${name} socketId=${socket.id} transport=${transport}`);
 
       const roomState: RoomState = { currentGroupCode: null };
 
@@ -58,6 +59,10 @@ export class RideSocketController {
         new VehicleBreakdownHandler(io, socket, roomState, this.breakdownService, this.medicalService).register();
       }
       if (this.refillService) new RefillNotificationHandler(io, socket, this.refillService).register();
+
+      socket.conn.on('upgrade', (transport: any) => {
+        console.log(`[SOCKET BACKEND] TRANSPORT_UPGRADE socketId=${socket.id} from=polling to=${transport.name}`);
+      });
     });
   }
 }

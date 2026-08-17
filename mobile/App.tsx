@@ -178,6 +178,8 @@ function App() {
   const [breakdownReason, setBreakdownReason] = useState<BreakdownReason>('flat_tire');
   const [breakdownNote, setBreakdownNote] = useState<string>('Rear tire punctured on gravel segment.');
   const [breakdownRiderName, setBreakdownRiderName] = useState<string>('');
+  const [breakdownRiderId, setBreakdownRiderId] = useState<string>('');
+  const breakdownRiderIdRef = useRef<string>('');
   const [showReasonModal, setShowReasonModal] = useState<boolean>(false);
 
   // Group separation state
@@ -188,6 +190,7 @@ function App() {
   // Ride start state
   const [rideStarted, setRideStarted] = useState<boolean>(false);
   const [isHost, setIsHost] = useState<boolean>(false);
+  const [deviceRole, setDeviceRole] = useState<'HOST' | 'RIDER' | 'UNKNOWN'>('UNKNOWN');
 
   // Update current location from telemetry
   useEffect(() => {
@@ -206,6 +209,8 @@ function App() {
   useEffect(() => {
     if (!authToken) return;
     const unsubscribeConnect = socketRef.current.onConnect(() => {
+      const transport = (socketRef.current as any).socket?.io?.engine?.transport?.name || 'unknown';
+      console.log(`[SOCKET DIAG] [APP_ONCONNECT] role=${deviceRole} activeRoom=${activeRoomCode || 'none'} transport=${transport} riderName=${riderName}`);
       console.log(`[LIVE LOCATION AUDIT] Socket connected, registering event listeners`);
       setConnection('live');
 
@@ -215,7 +220,13 @@ function App() {
 
       if (activeRoomCode) {
         console.log(`[LIVE LOCATION AUDIT] Joining session: ${activeRoomCode}`);
-        socketRef.current.joinSession(activeRoomCode).catch(() => setConnection('offline'));
+        console.log(`[SOCKET DIAG] [APP_JOINING_SESSION] groupCode=${activeRoomCode}`);
+        socketRef.current.joinSession(activeRoomCode).then(() => {
+          console.log(`[SOCKET DIAG] [APP_SESSION_JOINED_OK] groupCode=${activeRoomCode}`);
+        }).catch((err: any) => {
+          console.log(`[SOCKET DIAG] [APP_SESSION_JOIN_FAILED] groupCode=${activeRoomCode} error=${err?.message}`);
+          setConnection('offline');
+        });
       }
 
       // Register event listeners and collect their cleanup functions
@@ -225,11 +236,13 @@ function App() {
 
       listen('session:joined', (payload: any) => {
         console.log(`[LIVE LOCATION AUDIT] session:joined received, members: ${payload?.members?.length ?? 0}`);
+        console.log(`[LIVE LOCATION DIAG] [BOUNDARY-F] session:joined received | role=${deviceRole} members=${payload?.members?.length || 0}`);
         if (payload?.members && Array.isArray(payload.members)) {
           setRoomMembers((prev) => {
             const prevMap = new Map(prev.map((m) => [m.user_id, m]));
             return payload.members.map((m: any) => {
               const existing = prevMap.get(m.user_id);
+              console.log(`[LIVE LOCATION DIAG]   member: name=${m.name} user_id=${m.user_id} lat=${m.latitude ?? existing?.latitude} lng=${m.longitude ?? existing?.longitude} role=${m.role}`);
               return {
                 user_id: m.user_id,
                 name: m.name,
@@ -262,13 +275,14 @@ function App() {
           setRoomMembers((prev) => prev.filter((m) => m.user_id !== payload.user_id));
         }
       });
-
       listen('location:broadcast', (payload: any) => {
         console.log(`[LIVE LOCATION AUDIT] location:broadcast from ${payload?.name} (${payload?.user_id}) lat=${payload?.latitude} lng=${payload?.longitude}`);
+        console.log(`[LIVE LOCATION DIAG] [BOUNDARY-F] location:broadcast | role=${deviceRole} from=${payload?.name}(${payload?.user_id}) lat=${payload?.latitude?.toFixed(6)} lng=${payload?.longitude?.toFixed(6)}`);
         if (payload?.user_id && payload?.name) {
           setRoomMembers((prev) => {
             const existing = prev.find((m) => m.user_id === payload.user_id);
             if (existing) {
+              console.log(`[LIVE LOCATION DIAG]   UPDATE: prev had ${prev.length} members, updating user_id=${payload.user_id}`);
               return prev.map((m) =>
                 m.user_id === payload.user_id
                   ? { ...m, latitude: payload.latitude, longitude: payload.longitude }
@@ -276,6 +290,7 @@ function App() {
               );
             }
             if (payload.name !== riderName) {
+              console.log(`[LIVE LOCATION DIAG]   ADD_NEW: prev had ${prev.length} members, adding name=${payload.name}`);
               return [...prev, {
                 user_id: payload.user_id,
                 name: payload.name,
@@ -284,8 +299,11 @@ function App() {
                 longitude: payload.longitude,
               }];
             }
+            console.log(`[LIVE LOCATION DIAG]   SKIP: broadcast is from self (name=${payload.name} = riderName=${riderName})`);
             return prev;
           });
+        } else {
+          console.log(`[LIVE LOCATION DIAG]   INVALID: missing user_id=${payload?.user_id} or name=${payload?.name}`);
         }
       });
 
@@ -317,6 +335,25 @@ function App() {
         setRefuelActive(true);
       });
 
+      listen('vehicle:breakdownReported', (payload: any) => {
+        if (payload?.user_id && payload?.name) {
+          setBreakdownRiderId(payload.user_id);
+          breakdownRiderIdRef.current = payload.user_id;
+          setBreakdownRiderName(payload.name);
+          setBreakdownReason(payload.reason || 'other');
+          setBreakdownNote(payload.note || '');
+          setBreakdownActive(true);
+        }
+      });
+
+      listen('vehicle:breakdownResolved', (payload: any) => {
+        if (payload?.user_id && payload.user_id === breakdownRiderIdRef.current) {
+          setBreakdownActive(false);
+          setBreakdownRiderId('');
+          breakdownRiderIdRef.current = '';
+        }
+      });
+
       listen('group:separationAlert', (payload: any) => {
         if (payload?.separated_rider) {
           setSeparationActive(true);
@@ -338,22 +375,33 @@ function App() {
           setScreen('map');
         }
       });
+
+      listen('sos:broadcast', (payload: any) => {
+        if (payload?.name && payload?.user_id) {
+          Alert.alert(
+            'EMERGENCY SOS',
+            `${payload.name} has triggered an emergency SOS alert.\n\nLocation: ${payload.latitude?.toFixed(5)}, ${payload.longitude?.toFixed(5)}${payload.medical_info ? '\n\nMedical info attached.' : ''}`,
+            [{ text: 'OK' }],
+          );
+        }
+      });
     });
 
     const unsubscribeDisconnect = socketRef.current.onDisconnect(() => {
+      console.log(`[SOCKET DIAG] [APP_ONDISCONNECT] role=${deviceRole} activeRoom=${activeRoomCode || 'none'}`);
       setConnection('offline');
     });
-
+    console.log(`[SOCKET DIAG] [APP_EFFECT_START] role=${deviceRole} activeRoom=${activeRoomCode || 'none'} authToken=${authToken ? 'present' : 'MISSING'}`);
     socketRef.current.connect(API_BASE_URL, authToken).catch(() => setConnection('offline'));
     telemetryModuleRef.current.start({
       socketUrl: API_BASE_URL,
       authToken,
       groupCode: activeRoomCode,
       healthEndpointUrl: `${API_BASE_URL}/api/health`,
-      socketClient: socketRef.current,
     }).catch(() => {});
 
     return () => {
+      console.log(`[SOCKET DIAG] [APP_EFFECT_CLEANUP] role=${deviceRole} activeRoom=${activeRoomCode || 'none'}`);
       unsubscribeConnect();
       unsubscribeDisconnect();
       // Clean up all event listeners
@@ -437,7 +485,9 @@ function App() {
     });
     setRoomMembers([]);
     setIsHost(true);
+    setDeviceRole('HOST');
     setRideStarted(false);
+    console.log(`[LIVE LOCATION DIAG] handleCreatedRoomStart | role=HOST groupCode=${roomData.groupCode}`);
     setScreen('map');
   };
 
@@ -453,7 +503,9 @@ function App() {
     }
     setRoomMembers([]);
     setIsHost(false);
+    setDeviceRole('RIDER');
     setRideStarted(false);
+    console.log(`[LIVE LOCATION DIAG] handleJoinedRoomConfirm | role=RIDER groupCode=${preview.groupCode}`);
     setScreen('map');
   };
 
@@ -517,9 +569,14 @@ function App() {
   };
 
   const triggerBreakdownReport = (reason: BreakdownReason, note: string) => {
+    if (socketRef.current.isConnected()) {
+      socketRef.current.emitEvent('vehicle:breakdown', { reason, note });
+    }
     setBreakdownReason(reason);
     setBreakdownNote(note);
     setBreakdownRiderName(`${riderName} (You)`);
+    setBreakdownRiderId('self');
+    breakdownRiderIdRef.current = 'self';
     setBreakdownActive(true);
     setShowReasonModal(false);
   };
@@ -635,18 +692,25 @@ function App() {
         />
       )}
 
-      {screen === 'map' && (
+      {screen === 'map' && (() => {
+        const computedRiders = roomMembers.map((m) => ({
+          user_id: m.user_id,
+          name: m.name,
+          latitude: m.latitude || 0,
+          longitude: m.longitude || 0,
+          isYou: m.isYou || m.name === riderName,
+        }));
+        const peerMarkers = computedRiders.filter(r => !r.isYou && (r.latitude !== 0 || r.longitude !== 0));
+        console.log(`[LIVE LOCATION DIAG] [BOUNDARY-G] riders prop | role=${deviceRole} totalMembers=${roomMembers.length} totalRiders=${computedRiders.length} peerMarkersVisible=${peerMarkers.length}`);
+        computedRiders.forEach(r => {
+          console.log(`[LIVE LOCATION DIAG]   rider: name=${r.name} isYou=${r.isYou} lat=${r.latitude.toFixed(6)} lng=${r.longitude.toFixed(6)}`);
+        });
+        return (
         <MapScreen
           roomCode={activeRoomCode}
           destinationTitle={destinationTitle}
           currentLocation={currentLocation}
-          riders={roomMembers.map((m) => ({
-            user_id: m.user_id,
-            name: m.name,
-            latitude: m.latitude || 0,
-            longitude: m.longitude || 0,
-            isYou: m.isYou || m.name === riderName,
-          }))}
+          riders={computedRiders}
           destination={destination}
           onOpenControls={() => setScreen('controls')}
           onEndRide={() => setScreen('summary')}
@@ -668,7 +732,8 @@ function App() {
             setScreen('portal');
           }}
         />
-      )}
+        );
+      })()}
 
       {screen === 'controls' && (
         <RideControlsScreen
@@ -690,7 +755,14 @@ function App() {
           onOpenRefuelModal={() => setShowRefuelModal(true)}
           onResolveRefuel={() => setRefuelActive(false)}
           onOpenBreakdownModal={() => setShowReasonModal(true)}
-          onResolveBreakdown={() => setBreakdownActive(false)}
+          onResolveBreakdown={() => {
+            if (socketRef.current.isConnected()) {
+              socketRef.current.emitEvent('vehicle:breakdownResolved');
+            }
+            setBreakdownActive(false);
+            setBreakdownRiderId('');
+            breakdownRiderIdRef.current = '';
+          }}
           onOpenProfile={() => setScreen('profile')}
         />
       )}

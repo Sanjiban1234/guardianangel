@@ -20,24 +20,30 @@ export class LocationHandler {
 
   private async handleLocationUpdate(reading: TelemetryReading): Promise<void> {
     const groupCode = this.roomState.currentGroupCode;
+    const userId = this.socket.user?.id;
+    const name = this.socket.user?.name;
+
+    console.log(`[LIVE LOCATION DIAG] [BOUNDARY-D] Backend received location:update | socketId=${this.socket.id} userId=${userId} name=${name} groupCode=${groupCode} lat=${reading.latitude?.toFixed(6)} lng=${reading.longitude?.toFixed(6)}`);
 
     if (!groupCode) {
+      console.log(`[LIVE LOCATION TRACE] [TRACE 5-BLOCKED] No groupCode — user not in a room`);
       this.socket.emit('error', {
         message: 'Must join a ride session before sending location updates',
       });
       return;
     }
 
-    if (!this.isValidReading(reading)) return;
+    if (!this.isValidReading(reading)) {
+      console.log(`[LIVE LOCATION TRACE] [TRACE 6-BLOCKED] Validation failed`);
+      return;
+    }
 
-    const userId = this.socket.user!.id;
-    const name = this.socket.user!.name;
+    console.log(`[LIVE LOCATION TRACE] [TRACE 6] Location validated | groupCode=${groupCode}`);
 
     try {
-      await this.telemetryService.saveTelemetry(groupCode, userId, reading);
+      await this.telemetryService.saveTelemetry(groupCode, userId!, reading);
 
-      console.log(`[LIVE LOCATION AUDIT] Broadcasting location:broadcast for ${name} (${userId}) in group ${groupCode}`);
-      this.socket.to(`group:${groupCode}`).emit('location:broadcast', {
+      const broadcastPayload = {
         user_id: userId,
         name,
         timestamp: reading.timestamp,
@@ -45,7 +51,16 @@ export class LocationHandler {
         longitude: reading.longitude,
         accuracy: reading.accuracy,
         speed: reading.speed,
-      });
+      };
+
+      console.log(`[LIVE LOCATION AUDIT] Broadcasting location:broadcast for ${name} (${userId}) in group ${groupCode}`);
+      console.log(`[LIVE LOCATION DIAG] [BOUNDARY-E] Backend broadcast location:broadcast to group:${groupCode} | from ${name}(${userId})`);
+
+      const roomSockets = this.socket.nsp?.adapter?.rooms?.get(`group:${groupCode}`);
+      console.log(`[LIVE LOCATION DIAG]   room_socket_count=${roomSockets?.size ?? 'unknown'} (includes sender)`);
+
+      this.socket.to(`group:${groupCode}`).emit('location:broadcast', broadcastPayload);
+      console.log(`[LIVE LOCATION DIAG]   emit completed`);
     } catch (err) {
       console.error('LocationHandler: broadcast error:', err);
     }

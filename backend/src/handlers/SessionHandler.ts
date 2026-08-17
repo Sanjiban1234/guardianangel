@@ -57,6 +57,9 @@ export class SessionHandler {
       const members = await this.roomService.getMembers(group_code);
       const rideStatus = await this.roomService.getRoomRideStatus(group_code);
 
+      const roomSockets = this.socket.nsp?.adapter?.rooms?.get(`group:${group_code}`);
+      console.log(`[LIVE LOCATION DIAG] [BACKEND-SESSION] ${name} joined group:${group_code} | socketId=${this.socket.id} roomSockets=${roomSockets?.size ?? 'unknown'} membersCount=${members.length}`);
+
       this.socket.emit('session:joined', {
         group_code,
         members,
@@ -69,7 +72,8 @@ export class SessionHandler {
 
       if (callback) callback({ group_code, members, ride_started_at: rideStatus?.rideStartedAt || null });
 
-      console.log(`SessionHandler: ${name} joined group ${group_code}`);
+      const roomSocketsAfter = this.socket.nsp?.adapter?.rooms?.get(`group:${group_code}`)?.size ?? 'unknown';
+      console.log(`[SOCKET BACKEND] SESSION_JOINED userId=${userId} name=${name} groupCode=${group_code} membersCount=${members.length} roomSocketCount=${roomSocketsAfter}`);
     } catch (err) {
       console.error('SessionHandler.handleJoin error:', err);
       const errResp = { error: 'Internal server error while joining session' };

@@ -143,15 +143,18 @@ export function LiveMapView({
         {/* Other riders (not "you") */}
         {riders
           .filter(r => !r.isYou && (r.latitude !== 0 || r.longitude !== 0))
-          .map(rider => (
-            <Marker
-              key={rider.user_id}
-              coordinate={{ latitude: rider.latitude, longitude: rider.longitude }}
-              title={rider.name}
-              description="Group member"
-              pinColor={stableColorForId(rider.user_id)}
-            />
-          ))}
+          .map(rider => {
+            console.log(`[LIVE LOCATION DIAG] [BOUNDARY-H] PEER_MARKER name=${rider.name} lat=${rider.latitude.toFixed(6)} lng=${rider.longitude.toFixed(6)}`);
+            return (
+              <Marker
+                key={rider.user_id}
+                coordinate={{ latitude: rider.latitude, longitude: rider.longitude }}
+                title={rider.name}
+                description="Group member"
+                pinColor={stableColorForId(rider.user_id)}
+              />
+            );
+          })}
 
         {/* Destination marker */}
         {destination && (

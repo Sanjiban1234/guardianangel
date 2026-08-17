@@ -17,10 +17,17 @@ export class DisconnectHandler {
     const userId = this.socket.user!.id;
     const name = this.socket.user!.name;
     const groupCode = this.roomState.currentGroupCode;
+    const socketId = this.socket.id;
 
-    console.log(`DisconnectHandler: ${name} disconnected`);
+    console.log(`[SOCKET BACKEND DISCONNECT] userId=${userId} name=${name} socketId=${socketId} groupCode=${groupCode || 'none'}`);
 
-    if (!groupCode) return;
+    if (!groupCode) {
+      console.log(`[SOCKET BACKEND DISCONNECT]   no groupCode — user was not in a room, no further action`);
+      return;
+    }
+
+    const roomSocketsBefore = this.socket.nsp?.adapter?.rooms?.get(`group:${groupCode}`)?.size ?? 'unknown';
+    console.log(`[SOCKET BACKEND DISCONNECT]   roomSocketCountBefore=${roomSocketsBefore} (includes this socket until Socket.IO removes it)`);
 
     const payload = {
       user_id: userId,
@@ -42,5 +49,9 @@ export class DisconnectHandler {
     }
 
     this.socket.to(`group:${groupCode}`).emit('peer:lastKnown', payload);
+
+    const roomSocketsAfter = this.socket.nsp?.adapter?.rooms?.get(`group:${groupCode}`)?.size ?? 'unknown';
+    console.log(`[SOCKET BACKEND DISCONNECT]   roomSocketCountAfter=${roomSocketsAfter}`);
+    console.log(`[SOCKET BACKEND DISCONNECT]   impact: peer:lastKnown broadcast only — DB room membership unchanged`);
   }
 }

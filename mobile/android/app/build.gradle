@@ -109,6 +109,28 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            // Read from environment variables (CI/CD) or local.properties (dev machine)
+            // Generate a release keystore:
+            //   keytool -genkeypair -v -storetype PKCS12 -keystore guardianangel-release.keystore
+            //     -alias guardianangel -keyalg RSA -keysize 2048 -validity 10000
+            // Then set env vars RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD,
+            //       RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD
+            def releaseStoreFilePath = System.getenv("RELEASE_STORE_FILE") ?:
+                localProps.getProperty("RELEASE_STORE_FILE", "")
+            def releaseStorePassword = System.getenv("RELEASE_STORE_PASSWORD") ?:
+                localProps.getProperty("RELEASE_STORE_PASSWORD", "")
+            def releaseKeyAlias = System.getenv("RELEASE_KEY_ALIAS") ?:
+                localProps.getProperty("RELEASE_KEY_ALIAS", "")
+            def releaseKeyPassword = System.getenv("RELEASE_KEY_PASSWORD") ?:
+                localProps.getProperty("RELEASE_KEY_PASSWORD", "")
+            if (releaseStoreFilePath && releaseStorePassword && releaseKeyAlias && releaseKeyPassword) {
+                storeFile file(releaseStoreFilePath)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
     }
     buildTypes {
         debug {
@@ -121,9 +143,7 @@ android {
             ]
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release.storeFile ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
             manifestPlaceholders = [

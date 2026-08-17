@@ -109,6 +109,7 @@ export class ForegroundGeolocationProvider implements ILocationProvider {
     geolocation.getCurrentPosition(
       (position: any) => {
         if (this.tracking) {
+          console.log(`[LIVE LOCATION TRACE] [TRACE 1] GPS fix acquired (initial) | lat=${position.coords.latitude?.toFixed(6)} lng=${position.coords.longitude?.toFixed(6)} accuracy=${position.coords.accuracy} ts=${position.timestamp || Date.now()}`);
           onReading({
             timestamp: position.timestamp || Date.now(),
             latitude: position.coords.latitude,
@@ -128,6 +129,7 @@ export class ForegroundGeolocationProvider implements ILocationProvider {
     this.watchId = geolocation.watchPosition(
       (position: any) => {
         if (this.tracking) {
+          console.log(`[LIVE LOCATION TRACE] [TRACE 1] GPS fix acquired (watch) | lat=${position.coords.latitude?.toFixed(6)} lng=${position.coords.longitude?.toFixed(6)} accuracy=${position.coords.accuracy} speed=${position.coords.speed} ts=${position.timestamp || Date.now()}`);
           onReading({
             timestamp: position.timestamp || Date.now(),
             latitude: position.coords.latitude,
@@ -215,8 +217,10 @@ export class BackgroundGeolocationProvider implements ILocationProvider {
 
         // Register location event handler
         this.bgGeo.onLocation((location: any) => {
+          const ts = location.timestamp ? new Date(location.timestamp).getTime() : Date.now();
+          console.log(`[LIVE LOCATION TRACE] [TRACE 1] GPS fix acquired (BGGeo) | lat=${location.coords.latitude?.toFixed(6)} lng=${location.coords.longitude?.toFixed(6)} accuracy=${location.coords.accuracy} speed=${location.coords.speed} ts=${ts}`);
           onReading({
-            timestamp: location.timestamp ? new Date(location.timestamp).getTime() : Date.now(),
+            timestamp: ts,
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
             accuracy: location.coords.accuracy ?? 10.0,

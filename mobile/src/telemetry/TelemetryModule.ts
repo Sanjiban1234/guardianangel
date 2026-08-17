@@ -62,7 +62,12 @@ export class TelemetryModule {
     // Use custom adapters from options if provided
     if (options.dbAdapter) this.db = options.dbAdapter;
     if (options.locationProvider) this.locationProvider = options.locationProvider;
-    if (options.socketClient) this.socketClient = options.socketClient;
+    // NOTE: socketClient is NOT replaced here. App.tsx provides a socketLifecycleGuard
+    // that delegates emitLocationUpdate to the real SocketClient while blocking
+    // connect()/disconnect() to prevent TelemetryModule from destroying the
+    // App.tsx-managed socket connection. Previous code replaced the guard here,
+    // which caused a race condition destroying and recreating the socket on every
+    // activeRoomCode change, wiping out onEvent('location:broadcast') listeners.
 
     // Initialize database schema
     await this.db.init();
@@ -78,25 +83,13 @@ export class TelemetryModule {
       });
     }
 
-    // Connect socket if options provided — skip if already connected
-    // (App.tsx may have already connected the shared SocketClient)
-    if (options.socketUrl && options.authToken && !this.socketClient.isConnected()) {
-      try {
-        await this.socketClient.connect(options.socketUrl, options.authToken);
-      } catch (err) {
-        console.warn('Initial socket connection attempt failed:', err);
-      }
-    }
-
-    // Join room session on socket if needed — skip if already connected
-    // (App.tsx onConnect handler already calls joinSession for activeRoomCode)
-    if (options.groupCode && !this.socketClient.isConnected()) {
-      try {
-        await this.socketClient.joinSession(options.groupCode);
-      } catch (err) {
-        console.warn('Socket session join failed:', err);
-      }
-    }
+    // Socket connection and session join are managed exclusively by App.tsx.
+    // TelemetryModule must NOT call connect()/joinSession() because:
+    // 1. App.tsx passes a socketLifecycleGuard with no-op connect/disconnect
+    // 2. Calling connect() on the real SocketClient destroys the in-progress
+    //    connection set up by App.tsx, wiping out onEvent listeners.
+    // The socketLifecycleGuard delegates emitLocationUpdate() to the real socket,
+    // so location emission works without TelemetryModule managing the connection.
 
     // Subscribe to connectivity status updates
     this.currentStatus = this.connectivityManager.getStatus();
@@ -106,11 +99,13 @@ export class TelemetryModule {
     this.connectivityManager.start();
 
     // Start background location provider
+    console.log(`[LIVE LOCATION TRACE] [TRACE 2] Starting location provider...`);
     await this.locationProvider.start((rawSample) => {
       this.handleIncomingReading(rawSample);
     });
 
     this.started = true;
+    console.log(`[LIVE LOCATION TRACE] TelemetryModule started | groupCode=${options.groupCode} socketConnected=${this.socketClient.isConnected()}`);
 
     // App Restart Recovery: Check for unsynced readings from previous abruptly-ended sessions
     const unsyncedCount = await this.db.getUnsyncedCount();
@@ -131,6 +126,7 @@ export class TelemetryModule {
    */
   async stop(): Promise<void> {
     if (!this.started) return;
+    console.log(`[LIVE LOCATION TRACE] TelemetryModule stopping...`);
 
     // Reset state synchronously so start() can proceed immediately
     this.started = false;
@@ -208,8 +204,14 @@ export class TelemetryModule {
     // Emit to reading stream subscribers (Person 2 & 4 UI components)
     this.notifyReadingListeners(reading);
 
-    if (this.currentStatus === 'online' && this.socketClient.isConnected()) {
-      // Online Path: Stream live reading via location:update
+    // Try to emit live via socket. SocketClient.emitLocationUpdate() already
+    // guards on this.connected internally, so no separate connectivity check needed.
+    // Previous code gated on this.currentStatus === 'online' (ConnectivityManager),
+    // which starts as 'offline' and debounces by 2.5s — blocking ALL live emission
+    // during every stop/start cycle. The ConnectivityManager gate is redundant:
+    // if the socket is connected, the backend is reachable; if not, emitLocationUpdate
+    // silently no-ops and we fall back to cache.
+    if (this.socketClient.isConnected()) {
       try {
         console.log(`[LIVE LOCATION AUDIT] Emitting location:update lat=${reading.latitude} lng=${reading.longitude}`);
         this.socketClient.emitLocationUpdate({
@@ -219,13 +221,15 @@ export class TelemetryModule {
           accuracy: reading.accuracy,
           speed: reading.speed,
         });
+        console.log(`[LIVE LOCATION TRACE] [TRACE 3] Location emitted via socket | lat=${reading.latitude.toFixed(6)} lng=${reading.longitude.toFixed(6)} ts=${reading.timestamp}`);
       } catch (err) {
-        console.warn('Failed to emit live location update, writing to local cache fallback:', err);
+        console.warn('[LIVE LOCATION TRACE] [TRACE 3x] Emit failed, caching:', err);
         await this.db.insertReading(reading);
       }
     } else {
       // Offline Path: Write reading to local SQLite cache
       console.log(`[LIVE LOCATION AUDIT] Offline — caching reading locally (status=${this.currentStatus}, connected=${this.socketClient.isConnected()})`);
+      console.log(`[LIVE LOCATION TRACE] [TRACE 3-BLOCKED] Socket not connected — caching locally`);
       await this.db.insertReading(reading);
     }
   }
