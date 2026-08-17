@@ -200,31 +200,55 @@ function App() {
     return () => subscription.unsubscribe();
   }, [telemetryStream$]);
 
+  // Track event-listener cleanup functions so reconnects don't accumulate duplicates
+  const eventCleanupsRef = useRef<Array<() => void>>([]);
+
   useEffect(() => {
     if (!authToken) return;
     const unsubscribeConnect = socketRef.current.onConnect(() => {
+      console.log(`[LIVE LOCATION AUDIT] Socket connected, registering event listeners`);
       setConnection('live');
-      if (activeRoomCode) socketRef.current.joinSession(activeRoomCode).catch(() => setConnection('offline'));
-      socketRef.current.onEvent('session:joined', (payload: any) => {
+
+      // Tear down previous event listeners before registering new ones
+      for (const cleanup of eventCleanupsRef.current) cleanup();
+      eventCleanupsRef.current = [];
+
+      if (activeRoomCode) {
+        console.log(`[LIVE LOCATION AUDIT] Joining session: ${activeRoomCode}`);
+        socketRef.current.joinSession(activeRoomCode).catch(() => setConnection('offline'));
+      }
+
+      // Register event listeners and collect their cleanup functions
+      const listen = (event: string, handler: (payload: any) => void) => {
+        eventCleanupsRef.current.push(socketRef.current.onEvent(event, handler));
+      };
+
+      listen('session:joined', (payload: any) => {
+        console.log(`[LIVE LOCATION AUDIT] session:joined received, members: ${payload?.members?.length ?? 0}`);
         if (payload?.members && Array.isArray(payload.members)) {
-          setRoomMembers(
-            payload.members.map((m: any) => ({
-              user_id: m.user_id,
-              name: m.name,
-              role: m.role,
-              isYou: m.name === riderName,
-              latitude: m.latitude,
-              longitude: m.longitude,
-            }))
-          );
+          setRoomMembers((prev) => {
+            const prevMap = new Map(prev.map((m) => [m.user_id, m]));
+            return payload.members.map((m: any) => {
+              const existing = prevMap.get(m.user_id);
+              return {
+                user_id: m.user_id,
+                name: m.name,
+                role: m.role,
+                isYou: m.name === riderName,
+                // Preserve existing coordinates if the server payload has none
+                latitude: m.latitude ?? existing?.latitude,
+                longitude: m.longitude ?? existing?.longitude,
+              };
+            });
+          });
         }
-        // If the ride has already started when we (re)join, go directly to the map
         if (payload?.ride_started_at) {
           setRideStarted(true);
           setScreen('map');
         }
       });
-      socketRef.current.onEvent('session:member_joined', (payload: any) => {
+
+      listen('session:member_joined', (payload: any) => {
         if (payload?.user_id) {
           setRoomMembers((prev) => {
             if (prev.some((m) => m.user_id === payload.user_id || m.name === payload.name)) return prev;
@@ -232,12 +256,15 @@ function App() {
           });
         }
       });
-      socketRef.current.onEvent('session:member_left', (payload: any) => {
+
+      listen('session:member_left', (payload: any) => {
         if (payload?.user_id) {
           setRoomMembers((prev) => prev.filter((m) => m.user_id !== payload.user_id));
         }
       });
-      socketRef.current.onEvent('location:broadcast', (payload: any) => {
+
+      listen('location:broadcast', (payload: any) => {
+        console.log(`[LIVE LOCATION AUDIT] location:broadcast from ${payload?.name} (${payload?.user_id}) lat=${payload?.latitude} lng=${payload?.longitude}`);
         if (payload?.user_id && payload?.name) {
           setRoomMembers((prev) => {
             const existing = prev.find((m) => m.user_id === payload.user_id);
@@ -261,36 +288,62 @@ function App() {
           });
         }
       });
-      socketRef.current.onEvent('refill:notified', (payload) => {
+
+      listen('peer:lastKnown', (payload: any) => {
+        if (payload?.user_id && payload?.name) {
+          setRoomMembers((prev) => {
+            const existing = prev.find((m) => m.user_id === payload.user_id);
+            if (existing) {
+              return prev.map((m) =>
+                m.user_id === payload.user_id
+                  ? { ...m, latitude: payload.latitude, longitude: payload.longitude }
+                  : m
+              );
+            }
+            return [...prev, {
+              user_id: payload.user_id,
+              name: payload.name,
+              isYou: false,
+              latitude: payload.latitude,
+              longitude: payload.longitude,
+            }];
+          });
+        }
+      });
+
+      listen('refill:notified', (payload) => {
         setRefuelRiderName(payload.name);
         setRefuelNote(payload.note || 'Need petrol stop soon.');
         setRefuelActive(true);
       });
-      socketRef.current.onEvent('group:separationAlert', (payload: any) => {
+
+      listen('group:separationAlert', (payload: any) => {
         if (payload?.separated_rider) {
           setSeparationActive(true);
-          // Determine role: if the separated rider is this user, role = 'rider', else 'group'
           const isThisUser = payload.separated_rider.name === riderName;
           setSeparationRole(isThisUser ? 'rider' : 'group');
         }
       });
-      socketRef.current.onEvent('group:reunited', (payload: any) => {
-        // Clear separation alert when rider reunites
+
+      listen('group:reunited', (payload: any) => {
         if (payload?.user_id) {
           setSeparationActive(false);
           setSeparationRole('rider');
         }
       });
-      socketRef.current.onEvent('ride:started', (payload: any) => {
+
+      listen('ride:started', (payload: any) => {
         if (payload?.group_code) {
           setRideStarted(true);
           setScreen('map');
         }
       });
     });
+
     const unsubscribeDisconnect = socketRef.current.onDisconnect(() => {
       setConnection('offline');
     });
+
     socketRef.current.connect(API_BASE_URL, authToken).catch(() => setConnection('offline'));
     telemetryModuleRef.current.start({
       socketUrl: API_BASE_URL,
@@ -299,9 +352,13 @@ function App() {
       healthEndpointUrl: `${API_BASE_URL}/api/health`,
       socketClient: socketRef.current,
     }).catch(() => {});
+
     return () => {
       unsubscribeConnect();
       unsubscribeDisconnect();
+      // Clean up all event listeners
+      for (const cleanup of eventCleanupsRef.current) cleanup();
+      eventCleanupsRef.current = [];
       socketRef.current.disconnect();
       telemetryModuleRef.current.stop().catch(() => {});
     };

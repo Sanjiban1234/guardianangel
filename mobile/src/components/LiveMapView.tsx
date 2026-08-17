@@ -27,6 +27,16 @@ const DEFAULT_REGION: Region = {
   longitudeDelta: 0.05,
 };
 
+const RIDER_COLORS = ['#2F80ED', '#E879F9', '#F59E0B', '#06B6D4', '#F43F5E', '#8B5CF6', '#14B8A6', '#FB923C'];
+
+function stableColorForId(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = ((hash << 5) - hash + id.charCodeAt(i)) | 0;
+  }
+  return RIDER_COLORS[Math.abs(hash) % RIDER_COLORS.length];
+}
+
 export function LiveMapView({
   currentLocation,
   riders,
@@ -139,7 +149,7 @@ export function LiveMapView({
               coordinate={{ latitude: rider.latitude, longitude: rider.longitude }}
               title={rider.name}
               description="Group member"
-              pinColor="green"
+              pinColor={stableColorForId(rider.user_id)}
             />
           ))}
 

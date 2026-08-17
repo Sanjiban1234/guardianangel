@@ -36,6 +36,7 @@ export class LocationHandler {
     try {
       await this.telemetryService.saveTelemetry(groupCode, userId, reading);
 
+      console.log(`[LIVE LOCATION AUDIT] Broadcasting location:broadcast for ${name} (${userId}) in group ${groupCode}`);
       this.socket.to(`group:${groupCode}`).emit('location:broadcast', {
         user_id: userId,
         name,

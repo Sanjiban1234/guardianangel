@@ -211,6 +211,7 @@ export class TelemetryModule {
     if (this.currentStatus === 'online' && this.socketClient.isConnected()) {
       // Online Path: Stream live reading via location:update
       try {
+        console.log(`[LIVE LOCATION AUDIT] Emitting location:update lat=${reading.latitude} lng=${reading.longitude}`);
         this.socketClient.emitLocationUpdate({
           timestamp: reading.timestamp,
           latitude: reading.latitude,
@@ -224,6 +225,7 @@ export class TelemetryModule {
       }
     } else {
       // Offline Path: Write reading to local SQLite cache
+      console.log(`[LIVE LOCATION AUDIT] Offline — caching reading locally (status=${this.currentStatus}, connected=${this.socketClient.isConnected()})`);
       await this.db.insertReading(reading);
     }
   }
