@@ -75,7 +75,13 @@ export class ForegroundGeolocationProvider implements ILocationProvider {
   private tracking = false;
   private watchId: number | null = null;
 
-  constructor(private readonly geolocation = Geolocation) {}
+  constructor(
+    private readonly geolocation = Geolocation,
+    private readonly hasFineLocationPermission = async (): Promise<boolean> => {
+      if (Platform.OS !== 'android') return true;
+      return PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+    },
+  ) {}
 
   async start(onReading: (reading: Omit<TelemetryReading, 'client_reading_id'>) => void): Promise<void> {
     console.log('[GPS PROVIDER START CALLED]', {
@@ -89,19 +95,16 @@ export class ForegroundGeolocationProvider implements ILocationProvider {
       return;
     }
 
-    // Check (but do not request) Android location permission.
-    // Permission requests are handled exclusively by the PermissionGate UI.
-    if (Platform.OS === 'android') {
-      try {
-        const granted = await PermissionsAndroid.check(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-        );
-        if (!granted) {
-          console.warn('[ForegroundGeo] Fine location permission not yet granted. Location updates will resume once permission is granted via PermissionGate.');
-        }
-      } catch (err) {
-        console.warn('[ForegroundGeo] Permission check error:', err);
+    // PermissionGate owns prompts. Never create a native watcher until it has
+    // granted ACCESS_FINE_LOCATION.
+    try {
+      if (!await this.hasFineLocationPermission()) {
+        console.warn('[ForegroundGeo] Fine location permission not yet granted. GPS watcher not started.');
+        return;
       }
+    } catch (err) {
+      console.warn('[ForegroundGeo] Permission check error. GPS watcher not started:', err);
+      return;
     }
 
     this.tracking = true;
@@ -187,7 +190,7 @@ export class CommunityGeolocationProvider implements ILocationProvider {
       stack: new Error('CommunityGeolocationProvider.start').stack,
     });
     await this.communityProvider.start(onReading);
-    this.tracking = true;
+    this.tracking = this.communityProvider.isTracking();
   }
 
   async stop(): Promise<void> {

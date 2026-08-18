@@ -53,4 +53,32 @@ describe('ForegroundGeolocationProvider', () => {
     });
     expect(received).toEqual([]);
   });
+
+  it('waits for fine location permission before creating a watcher, then starts once and supplies a cached sample for member-join resend', async () => {
+    const geolocation = createGeolocation();
+    let permissionGranted = false;
+    const provider = new ForegroundGeolocationProvider(geolocation as any, async () => permissionGranted);
+    const received: any[] = [];
+
+    await provider.start((reading) => received.push(reading));
+    expect(geolocation.watchPosition).not.toHaveBeenCalled();
+
+    permissionGranted = true;
+    await provider.start((reading) => received.push(reading));
+    await provider.start((reading) => received.push(reading));
+    expect(geolocation.watchPosition).toHaveBeenCalledTimes(1);
+
+    const onWatchPosition = (geolocation.watchPosition.mock.calls as any[][])[0][0] as (position: any) => void;
+    onWatchPosition({
+      timestamp: 12345,
+      coords: { latitude: 27.689915, longitude: 85.310267, accuracy: 4, speed: null },
+    });
+    expect(received).toEqual([{
+      timestamp: 12345,
+      latitude: 27.689915,
+      longitude: 85.310267,
+      accuracy: 4,
+      speed: 0,
+    }]);
+  });
 });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import {
 type PermissionStatus = 'checking' | 'granted' | 'denied' | 'blocked';
 
 interface PermissionGateProps {
+  onFineLocationGranted?: () => void;
   onPermissionsGranted: () => void;
   onCancel: () => void;
 }
@@ -35,12 +36,20 @@ const COLORS = {
 };
 
 export default function PermissionGate({
+  onFineLocationGranted,
   onPermissionsGranted,
   onCancel,
 }: PermissionGateProps) {
   const [foregroundStatus, setForegroundStatus] = useState<PermissionStatus>('checking');
   const [backgroundStatus, setBackgroundStatus] = useState<PermissionStatus>('checking');
   const [step, setStep] = useState<'foreground' | 'background' | 'complete'>('foreground');
+  const didNotifyFineLocationGranted = useRef(false);
+
+  const notifyFineLocationGranted = () => {
+    if (didNotifyFineLocationGranted.current) return;
+    didNotifyFineLocationGranted.current = true;
+    onFineLocationGranted?.();
+  };
 
   useEffect(() => {
     checkInitialPermissions();
@@ -59,6 +68,7 @@ export default function PermissionGate({
       if (foregroundResult === RESULTS.GRANTED) {
         setForegroundStatus('granted');
         setStep('background');
+        notifyFineLocationGranted();
 
         // Check background location
         const backgroundPermission =
@@ -100,6 +110,7 @@ export default function PermissionGate({
       if (result === RESULTS.GRANTED) {
         setForegroundStatus('granted');
         setStep('background');
+        notifyFineLocationGranted();
         // Auto-check background permission
         checkInitialPermissions();
       } else if (result === RESULTS.BLOCKED) {

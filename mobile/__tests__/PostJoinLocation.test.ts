@@ -1,5 +1,6 @@
 import {
   emitLatestLocationAfterJoin,
+  getCurrentPositionAfterJoin,
   resendLatestLocationForJoinedMember,
 } from '../src/telemetry/location/postJoinLocation';
 
@@ -87,5 +88,52 @@ describe('post-join location emission', () => {
       { timestamp: 1, latitude: 27, longitude: 85, accuracy: 4, speed: 0 },
     )).toBe(false);
     expect(socketClient.emitLocationUpdate).not.toHaveBeenCalled();
+  });
+
+  test('gets a current position after join when no cached location exists, then emits it', async () => {
+    const geolocation = {
+      getCurrentPosition: jest.fn((success) => success({
+        timestamp: 12345,
+        coords: { latitude: 27.689915, longitude: 85.310267, accuracy: 5, speed: null },
+      })),
+    };
+    const emitted: Array<Record<string, number>> = [];
+    const location = await getCurrentPositionAfterJoin(geolocation);
+
+    expect(emitLatestLocationAfterJoin({ emitLocationUpdate: (payload) => emitted.push(payload) }, 'RIDE123', location)).toBe(true);
+    expect(geolocation.getCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(emitted[0]).toMatchObject({ latitude: 27.689915, longitude: 85.310267, speed: 0 });
+  });
+
+  test('an existing member can obtain a current position and resend it when a peer joins without a cache', async () => {
+    const geolocation = {
+      getCurrentPosition: jest.fn((success) => success({
+        timestamp: 67890,
+        coords: { latitude: 28.2096, longitude: 83.9856, accuracy: 7, speed: undefined },
+      })),
+    };
+    const emitted: Array<Record<string, number>> = [];
+    const socketClient = {
+      isConnected: () => true,
+      emitLocationUpdate: (payload: Record<string, number>) => emitted.push(payload),
+    };
+
+    const location = await getCurrentPositionAfterJoin(geolocation);
+    expect(resendLatestLocationForJoinedMember(
+      socketClient,
+      'RIDE123',
+      'Host',
+      { user_id: 'rider-id', name: 'Rider' },
+      location,
+    )).toBe(true);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({ latitude: 28.2096, longitude: 83.9856, speed: 0 });
+  });
+
+  test('handles a current-position failure without emitting', async () => {
+    const geolocation = {
+      getCurrentPosition: jest.fn((_success, failure) => failure({ code: 2, message: 'Location not available' })),
+    };
+    await expect(getCurrentPositionAfterJoin(geolocation)).rejects.toThrow('Location not available');
   });
 });

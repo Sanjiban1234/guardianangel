@@ -12,6 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import Geolocation from '@react-native-community/geolocation';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import {
   check,
@@ -39,6 +40,8 @@ import { TelemetryModule } from './src/telemetry';
 import { CommunityGeolocationProvider } from './src/telemetry/location/LocationProvider';
 import {
   emitLatestLocationAfterJoin,
+  getCurrentPositionAfterJoin,
+  hasValidLatestLocation,
   LatestLocationSnapshot,
   resendLatestLocationForJoinedMember,
 } from './src/telemetry/location/postJoinLocation';
@@ -110,6 +113,8 @@ function App() {
   const [screen, setScreen] = useState<Screen>('login');
   const [connection, setConnection] = useState<Connection>('live');
   const [authToken, setAuthToken] = useState('');
+  const [fineLocationGranted, setFineLocationGranted] = useState(false);
+  const fineLocationGrantedRef = useRef(false);
   const socketRef = useRef(new SocketClient());
   const socketLifecycleGuard = React.useMemo(() => {
     const real = socketRef.current;
@@ -172,12 +177,17 @@ function App() {
   const [roomMembers, setRoomMembers] = useState<Array<{ user_id: string; name: string; role?: string; isYou?: boolean; latitude?: number; longitude?: number }>>([]);
   const [currentLocation, setCurrentLocation] = useState<LatestLocationSnapshot | null>(null);
   const currentLocationRef = useRef<LatestLocationSnapshot | null>(null);
+  const postJoinCurrentPositionRef = useRef<Promise<LatestLocationSnapshot> | null>(null);
   const [destination, setDestination] = useState<{ latitude: number; longitude: number; label: string } | null>(null);
   const activeRoomCodeRef = useRef(activeRoomCode);
 
   useEffect(() => {
     activeRoomCodeRef.current = activeRoomCode;
   }, [activeRoomCode]);
+
+  useEffect(() => {
+    fineLocationGrantedRef.current = fineLocationGranted;
+  }, [fineLocationGranted]);
 
   useEffect(() => {
     riderNameRef.current = riderName;
@@ -231,6 +241,64 @@ function App() {
     return () => subscription.unsubscribe();
   }, [telemetryStream$]);
 
+  const updateLatestLocation = (location: LatestLocationSnapshot) => {
+    currentLocationRef.current = location;
+    setCurrentLocation(location);
+  };
+
+  const getPostJoinCurrentPosition = async (): Promise<LatestLocationSnapshot | null> => {
+    if (!fineLocationGrantedRef.current) return null;
+    if (!postJoinCurrentPositionRef.current) {
+      postJoinCurrentPositionRef.current = getCurrentPositionAfterJoin(Geolocation)
+        .finally(() => { postJoinCurrentPositionRef.current = null; });
+    }
+    try {
+      const location = await postJoinCurrentPositionRef.current;
+      updateLatestLocation(location);
+      return location;
+    } catch {
+      return null;
+    }
+  };
+
+  const emitLocationAfterJoinWithFallback = async (groupCode: string) => {
+    const cachedLocation = currentLocationRef.current;
+    if (hasValidLatestLocation(cachedLocation)) {
+      emitLatestLocationAfterJoin(socketRef.current, groupCode, cachedLocation);
+      return;
+    }
+    console.log(`[POST-JOIN LOCATION CACHE MISS] groupCode=${groupCode}`);
+    const location = await getPostJoinCurrentPosition();
+    if (location) emitLatestLocationAfterJoin(socketRef.current, groupCode, location);
+  };
+
+  const resendLocationForJoinedMemberWithFallback = async (groupCode: string, payload: any) => {
+    if (!socketRef.current.isConnected() || !payload?.user_id || payload.name === riderNameRef.current) return;
+    const cachedLocation = currentLocationRef.current;
+    if (hasValidLatestLocation(cachedLocation)) {
+      resendLatestLocationForJoinedMember(socketRef.current, groupCode, riderNameRef.current, payload, cachedLocation);
+      return;
+    }
+    console.log(`[POST-JOIN LOCATION CACHE MISS] groupCode=${groupCode}`);
+    const location = await getPostJoinCurrentPosition();
+    if (location) {
+      resendLatestLocationForJoinedMember(socketRef.current, groupCode, riderNameRef.current, payload, location);
+    }
+  };
+
+  useEffect(() => {
+    if (!authToken) {
+      setFineLocationGranted(false);
+      return;
+    }
+    const foregroundPermission = Platform.OS === 'ios'
+      ? PERMISSIONS.IOS.LOCATION_WHEN_IN_USE
+      : PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION;
+    check(foregroundPermission)
+      .then((result) => setFineLocationGranted(result === RESULTS.GRANTED))
+      .catch(() => setFineLocationGranted(false));
+  }, [authToken]);
+
   // Track event-listener cleanup functions so reconnects don't accumulate duplicates
   const eventCleanupsRef = useRef<Array<() => void>>([]);
   const telemetryEffectGenerationRef = useRef(0);
@@ -254,7 +322,7 @@ function App() {
         console.log(`[SOCKET DIAG] [APP_JOINING_SESSION] groupCode=${roomCode}`);
         socketRef.current.joinSession(roomCode).then(() => {
           console.log(`[SOCKET DIAG] [APP_SESSION_JOINED_OK] groupCode=${roomCode}`);
-          emitLatestLocationAfterJoin(socketRef.current, roomCode, currentLocationRef.current);
+          emitLocationAfterJoinWithFallback(roomCode);
         }).catch((err: any) => {
           console.log(`[SOCKET DIAG] [APP_SESSION_JOIN_FAILED] groupCode=${roomCode} error=${err?.message}`);
           setConnection('offline');
@@ -299,13 +367,7 @@ function App() {
             if (prev.some((m) => m.user_id === payload.user_id || m.name === payload.name)) return prev;
             return [...prev, { user_id: payload.user_id, name: payload.name, isYou: false }];
           });
-          resendLatestLocationForJoinedMember(
-            socketRef.current,
-            activeRoomCodeRef.current,
-            riderNameRef.current,
-            payload,
-            currentLocationRef.current,
-          );
+          resendLocationForJoinedMemberWithFallback(activeRoomCodeRef.current, payload);
         }
       });
 
@@ -430,8 +492,23 @@ function App() {
       console.log(`[SOCKET DIAG] [APP_ONDISCONNECT] role=${deviceRole} activeRoom=${activeRoomCode || 'none'}`);
       setConnection('offline');
     });
-    console.log(`[TELEMETRY START] context=App authToken effect generation=${effectGeneration} role=${deviceRole} authToken=${authToken ? 'present' : 'MISSING'}`);
+    console.log(`[SOCKET DIAG] [APP_EFFECT_START] role=${deviceRole} authToken=${authToken ? 'present' : 'MISSING'}`);
     socketRef.current.connect(API_BASE_URL, authToken).catch(() => setConnection('offline'));
+
+    return () => {
+      console.log(`[SOCKET DIAG] [APP_EFFECT_CLEANUP] generation=${effectGeneration} role=${deviceRole} activeRoom=${activeRoomCodeRef.current || 'none'}`);
+      unsubscribeConnect();
+      unsubscribeDisconnect();
+      // Clean up all event listeners
+      for (const cleanup of eventCleanupsRef.current) cleanup();
+      eventCleanupsRef.current = [];
+      socketRef.current.disconnect();
+    };
+  }, [authToken]);
+
+  useEffect(() => {
+    if (!authToken || !fineLocationGranted) return;
+    console.log('[LOCATION PERMISSION GRANTED -> START GPS]');
     telemetryModuleRef.current.start({
       socketUrl: API_BASE_URL,
       authToken,
@@ -440,16 +517,10 @@ function App() {
     }).catch(() => {});
 
     return () => {
-      console.warn(`[TELEMETRY STOP] context=App authToken effect cleanup generation=${effectGeneration} role=${deviceRole} activeRoom=${activeRoomCodeRef.current || 'none'}`);
-      unsubscribeConnect();
-      unsubscribeDisconnect();
-      // Clean up all event listeners
-      for (const cleanup of eventCleanupsRef.current) cleanup();
-      eventCleanupsRef.current = [];
-      socketRef.current.disconnect();
+      console.warn('[TELEMETRY STOP] context=App fine-location permission lifecycle');
       telemetryModuleRef.current.stop().catch(() => {});
     };
-  }, [authToken]);
+  }, [authToken, fineLocationGranted]);
 
   // Joining a room is a session operation, not a connection operation. Keeping
   // it separate prevents a room-code state update from disconnecting GPS and
@@ -457,7 +528,7 @@ function App() {
   useEffect(() => {
     if (!authToken || !activeRoomCode || !socketRef.current.isConnected()) return;
     socketRef.current.joinSession(activeRoomCode)
-      .then(() => emitLatestLocationAfterJoin(socketRef.current, activeRoomCode, currentLocationRef.current))
+      .then(() => emitLocationAfterJoinWithFallback(activeRoomCode))
       .catch((err: any) => {
         console.log(`[SOCKET DIAG] [APP_SESSION_JOIN_FAILED] groupCode=${activeRoomCode} error=${err?.message}`);
         setConnection('offline');
@@ -703,6 +774,7 @@ function App() {
 
       {screen === 'permission_gate' && (
         <PermissionGate
+          onFineLocationGranted={() => setFineLocationGranted(true)}
           onPermissionsGranted={() => {
             if (permissionIntent === 'create') {
               setScreen('create_destination');
