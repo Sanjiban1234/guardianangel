@@ -27,6 +27,7 @@ interface MapScreenProps {
     isYou?: boolean;
   }>;
   onStartRide?: () => void;
+  isStartingRide?: boolean;
   onLeaveRoom: () => void;
 }
 
@@ -138,6 +139,7 @@ export default function MapScreen({
   rideStarted,
   members,
   onStartRide,
+  isStartingRide = false,
   onLeaveRoom,
 }: MapScreenProps) {
   const [routeCoordinates, setRouteCoordinates] = useState<
@@ -294,9 +296,10 @@ export default function MapScreen({
             onPress={() => {
               onStartRide?.();
             }}
-            style={styles.startBtn}
+            disabled={isStartingRide}
+            style={[styles.startBtn, isStartingRide && styles.startBtnDisabled]}
           >
-            <Text style={styles.startBtnText}>Start Ride →</Text>
+            <Text style={styles.startBtnText}>{isStartingRide ? 'Starting Ride...' : 'Start Ride →'}</Text>
           </Pressable>
         ) : (
           <View style={styles.waitingBanner}>
@@ -513,6 +516,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
   },
+  startBtnDisabled: { opacity: 0.6 },
   startBtnText: {
     color: COLORS.ink,
     fontWeight: '900',

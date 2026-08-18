@@ -36,7 +36,12 @@ import RiderProfileScreen, {
 } from './src/ui/RiderProfileScreen';
 import { SocketClient } from './src/telemetry/socket/SocketClient';
 import { TelemetryModule } from './src/telemetry';
-import { BackgroundGeolocationProvider } from './src/telemetry/location/LocationProvider';
+import { CommunityGeolocationProvider } from './src/telemetry/location/LocationProvider';
+import {
+  emitLatestLocationAfterJoin,
+  LatestLocationSnapshot,
+  resendLatestLocationForJoinedMember,
+} from './src/telemetry/location/postJoinLocation';
 import { useCrashDetection } from './src/safety/crash/useCrashDetection';
 import { useCountdown } from './src/safety/countdown/useCountdown';
 import { API_BASE_URL } from './src/config/env';
@@ -126,7 +131,7 @@ function App() {
   const telemetryModuleRef = useRef(
     new TelemetryModule({
       socketClient: socketLifecycleGuard as any,
-      locationProvider: new BackgroundGeolocationProvider(),
+      locationProvider: new CommunityGeolocationProvider(),
     })
   );
 
@@ -155,6 +160,7 @@ function App() {
   // Registration gate state
   const [hasCompletedRegistration, setHasCompletedRegistration] = useState(false);
   const [riderName, setRiderName] = useState('');
+  const riderNameRef = useRef(riderName);
   const [riderEmail, setRiderEmail] = useState('');
 
   // Profile data state
@@ -164,13 +170,18 @@ function App() {
   const [activeRoomCode, setActiveRoomCode] = useState<string>('');
   const [destinationTitle, setDestinationTitle] = useState<string>('');
   const [roomMembers, setRoomMembers] = useState<Array<{ user_id: string; name: string; role?: string; isYou?: boolean; latitude?: number; longitude?: number }>>([]);
-  const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<LatestLocationSnapshot | null>(null);
+  const currentLocationRef = useRef<LatestLocationSnapshot | null>(null);
   const [destination, setDestination] = useState<{ latitude: number; longitude: number; label: string } | null>(null);
   const activeRoomCodeRef = useRef(activeRoomCode);
 
   useEffect(() => {
     activeRoomCodeRef.current = activeRoomCode;
   }, [activeRoomCode]);
+
+  useEffect(() => {
+    riderNameRef.current = riderName;
+  }, [riderName]);
 
   // Refuel alert state
   const [refuelActive, setRefuelActive] = useState<boolean>(false);
@@ -194,6 +205,8 @@ function App() {
 
   // Ride start state
   const [rideStarted, setRideStarted] = useState<boolean>(false);
+  const [isStartingRide, setIsStartingRide] = useState<boolean>(false);
+  const startRideInFlightRef = useRef(false);
   const [isHost, setIsHost] = useState<boolean>(false);
   const [deviceRole, setDeviceRole] = useState<'HOST' | 'RIDER' | 'UNKNOWN'>('UNKNOWN');
 
@@ -201,18 +214,30 @@ function App() {
   useEffect(() => {
     const subscription = telemetryStream$.subscribe((reading) => {
       setCurrentLocation({
+        timestamp: reading.timestamp,
         latitude: reading.latitude,
         longitude: reading.longitude,
+        accuracy: reading.accuracy,
+        speed: reading.speed,
       });
+      currentLocationRef.current = {
+        timestamp: reading.timestamp,
+        latitude: reading.latitude,
+        longitude: reading.longitude,
+        accuracy: reading.accuracy,
+        speed: reading.speed,
+      };
     });
     return () => subscription.unsubscribe();
   }, [telemetryStream$]);
 
   // Track event-listener cleanup functions so reconnects don't accumulate duplicates
   const eventCleanupsRef = useRef<Array<() => void>>([]);
+  const telemetryEffectGenerationRef = useRef(0);
 
   useEffect(() => {
     if (!authToken) return;
+    const effectGeneration = ++telemetryEffectGenerationRef.current;
     const unsubscribeConnect = socketRef.current.onConnect(() => {
       const transport = (socketRef.current as any).socket?.io?.engine?.transport?.name || 'unknown';
       const roomCode = activeRoomCodeRef.current;
@@ -229,6 +254,7 @@ function App() {
         console.log(`[SOCKET DIAG] [APP_JOINING_SESSION] groupCode=${roomCode}`);
         socketRef.current.joinSession(roomCode).then(() => {
           console.log(`[SOCKET DIAG] [APP_SESSION_JOINED_OK] groupCode=${roomCode}`);
+          emitLatestLocationAfterJoin(socketRef.current, roomCode, currentLocationRef.current);
         }).catch((err: any) => {
           console.log(`[SOCKET DIAG] [APP_SESSION_JOIN_FAILED] groupCode=${roomCode} error=${err?.message}`);
           setConnection('offline');
@@ -273,6 +299,13 @@ function App() {
             if (prev.some((m) => m.user_id === payload.user_id || m.name === payload.name)) return prev;
             return [...prev, { user_id: payload.user_id, name: payload.name, isYou: false }];
           });
+          resendLatestLocationForJoinedMember(
+            socketRef.current,
+            activeRoomCodeRef.current,
+            riderNameRef.current,
+            payload,
+            currentLocationRef.current,
+          );
         }
       });
 
@@ -397,7 +430,7 @@ function App() {
       console.log(`[SOCKET DIAG] [APP_ONDISCONNECT] role=${deviceRole} activeRoom=${activeRoomCode || 'none'}`);
       setConnection('offline');
     });
-    console.log(`[SOCKET DIAG] [APP_EFFECT_START] role=${deviceRole} authToken=${authToken ? 'present' : 'MISSING'}`);
+    console.log(`[TELEMETRY START] context=App authToken effect generation=${effectGeneration} role=${deviceRole} authToken=${authToken ? 'present' : 'MISSING'}`);
     socketRef.current.connect(API_BASE_URL, authToken).catch(() => setConnection('offline'));
     telemetryModuleRef.current.start({
       socketUrl: API_BASE_URL,
@@ -407,7 +440,7 @@ function App() {
     }).catch(() => {});
 
     return () => {
-      console.log(`[SOCKET DIAG] [APP_EFFECT_CLEANUP] role=${deviceRole} activeRoom=${activeRoomCodeRef.current || 'none'}`);
+      console.warn(`[TELEMETRY STOP] context=App authToken effect cleanup generation=${effectGeneration} role=${deviceRole} activeRoom=${activeRoomCodeRef.current || 'none'}`);
       unsubscribeConnect();
       unsubscribeDisconnect();
       // Clean up all event listeners
@@ -423,10 +456,12 @@ function App() {
   // tearing down the Socket.IO client while other riders are already online.
   useEffect(() => {
     if (!authToken || !activeRoomCode || !socketRef.current.isConnected()) return;
-    socketRef.current.joinSession(activeRoomCode).catch((err: any) => {
-      console.log(`[SOCKET DIAG] [APP_SESSION_JOIN_FAILED] groupCode=${activeRoomCode} error=${err?.message}`);
-      setConnection('offline');
-    });
+    socketRef.current.joinSession(activeRoomCode)
+      .then(() => emitLatestLocationAfterJoin(socketRef.current, activeRoomCode, currentLocationRef.current))
+      .catch((err: any) => {
+        console.log(`[SOCKET DIAG] [APP_SESSION_JOIN_FAILED] groupCode=${activeRoomCode} error=${err?.message}`);
+        setConnection('offline');
+      });
   }, [authToken, activeRoomCode]);
 
   useEffect(() => {
@@ -539,6 +574,10 @@ function App() {
   };
 
   const handleStartRide = () => {
+    if (startRideInFlightRef.current) {
+      console.log('[RIDE START DIAG] duplicate press ignored');
+      return;
+    }
     if (!activeRoomCode) {
       Alert.alert('No room', 'You are not in a ride room.');
       return;
@@ -550,12 +589,18 @@ function App() {
     }
 
     try {
+      startRideInFlightRef.current = true;
+      setIsStartingRide(true);
       socketRef.current.emitWithAck('ride:start', (response: any) => {
+        startRideInFlightRef.current = false;
+        setIsStartingRide(false);
         if (response?.error) {
           Alert.alert('Could not start ride', response.error);
         }
       });
     } catch (err: any) {
+      startRideInFlightRef.current = false;
+      setIsStartingRide(false);
       Alert.alert('Start failed', 'Could not reach server: ' + (err?.message || 'unknown error'));
     }
   };
@@ -740,6 +785,7 @@ function App() {
             isYou: m.isYou || m.name === riderName,
           }))}
           onStartRide={isHost ? handleStartRide : undefined}
+          isStartingRide={isStartingRide}
           onLeaveRoom={() => {
             console.warn(`[SESSION LEAVE DIAG] App pre-ride leave pressed | room=${activeRoomCode} connected=${socketRef.current.isConnected()}`);
             console.trace?.('[SESSION LEAVE DIAG] client call stack');

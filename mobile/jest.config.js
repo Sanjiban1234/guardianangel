@@ -5,7 +5,7 @@ module.exports = {
     '^@react-native-community/geolocation$': '<rootDir>/__mocks__/react-native-community-geolocation.js',
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(jest-)?react-native|@react-native(-community)?|react-native-maps|react-native-safe-area-context|react-native-background-geolocation|@react-native-async-storage/async-storage)/',
+    'node_modules/(?!(jest-)?react-native|@react-native(-community)?|react-native-maps|react-native-safe-area-context|@react-native-async-storage/async-storage)/',
   ],
   testMatch: [
     '**/__tests__/**/*.test.[jt]s?(x)',

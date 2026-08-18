@@ -6,7 +6,7 @@
 
 export { TelemetryModule } from './TelemetryModule';
 export { InMemoryTelemetryDatabase, OpSqliteTelemetryDatabase } from './database/TelemetryDatabase';
-export { MockLocationProvider, BackgroundGeolocationProvider, ForegroundGeolocationProvider } from './location/LocationProvider';
+export { MockLocationProvider, CommunityGeolocationProvider, ForegroundGeolocationProvider } from './location/LocationProvider';
 export { ConnectivityManager } from './connectivity/ConnectivityManager';
 export { MockSocketClient, SocketClient } from './socket/SocketClient';
 export type {

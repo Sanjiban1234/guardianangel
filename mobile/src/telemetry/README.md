@@ -58,8 +58,8 @@ await telemetry.stop();
 
 ## Library Selection Justification & Platform Setup Guide
 
-### 1. Background GPS Sampling (`react-native-background-geolocation`)
-Chosen over simple `react-native-location` / JS-level timers because standard timers freeze when iOS/Android background or lock the phone during multi-hour motorcycling rides.
+### 1. Foreground GPS Sampling (`@react-native-community/geolocation`)
+Uses the supported React Native community module with a native `watchPosition` subscription while the app remains active.
 
 #### Android Setup (`android/app/src/main/AndroidManifest.xml`)
 Required permissions:
@@ -72,7 +72,7 @@ Required permissions:
 <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />           <!-- Android 13+ -->
 ```
 
-Persistent notification configuration is handled inside `BackgroundGeolocationProvider.ts` with sticky title *"Guardian Angel Active Ride Safety"*.
+The Android community provider is started through `CommunityGeolocationProvider` and maintains one native `watchPosition` subscription while telemetry is active.
 
 #### iOS Setup (`ios/GuardianAngelMobile/Info.plist`)
 Required background keys and descriptions:

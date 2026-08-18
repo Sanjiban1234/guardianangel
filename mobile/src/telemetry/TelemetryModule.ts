@@ -52,6 +52,12 @@ export class TelemetryModule {
    * Starts continuous telemetry ingestion for a ride session.
    */
   async start(options: TelemetryModuleOptions): Promise<void> {
+    console.log('[TELEMETRY START]', {
+      context: 'TelemetryModule.start',
+      alreadyStarted: this.started,
+      groupCode: options.groupCode || 'none',
+      stack: new Error('TelemetryModule.start').stack,
+    });
     if (this.started) {
       console.warn('TelemetryModule is already running');
       return;
@@ -125,6 +131,11 @@ export class TelemetryModule {
    * concurrent `start()` call does not short-circuit.
    */
   async stop(): Promise<void> {
+    console.warn('[TELEMETRY STOP]', {
+      context: 'TelemetryModule.stop',
+      wasStarted: this.started,
+      stack: new Error('TelemetryModule.stop').stack,
+    });
     if (!this.started) return;
     console.log(`[LIVE LOCATION TRACE] TelemetryModule stopping...`);
 
