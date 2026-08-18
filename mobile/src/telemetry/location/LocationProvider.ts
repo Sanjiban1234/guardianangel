@@ -13,6 +13,7 @@
  */
 
 import { Platform, PermissionsAndroid } from 'react-native';
+import Geolocation from '@react-native-community/geolocation';
 import { ILocationProvider, TelemetryReading } from '../types';
 
 /**
@@ -73,14 +74,21 @@ export class MockLocationProvider implements ILocationProvider {
 }
 
 /**
- * Foreground Location Provider using React Native's built-in Geolocation API.
+ * Foreground Location Provider using the community native geolocation module.
  * License-free fallback when react-native-background-geolocation is unavailable.
  */
 export class ForegroundGeolocationProvider implements ILocationProvider {
   private tracking = false;
   private watchId: number | null = null;
 
+  constructor(private readonly geolocation = Geolocation) {}
+
   async start(onReading: (reading: Omit<TelemetryReading, 'client_reading_id'>) => void): Promise<void> {
+    if (this.tracking || this.watchId !== null) {
+      console.log('[GPS FALLBACK READY] watcher already active; start ignored');
+      return;
+    }
+
     // Check (but do not request) Android location permission.
     // Permission requests are handled exclusively by the PermissionGate UI.
     if (Platform.OS === 'android') {
@@ -96,52 +104,43 @@ export class ForegroundGeolocationProvider implements ILocationProvider {
       }
     }
 
-    const geolocation = (globalThis as any).navigator?.geolocation;
-    if (!geolocation) {
-      console.warn('[ForegroundGeo] Geolocation API not available on this device');
-      this.tracking = true;
-      return;
-    }
-
     this.tracking = true;
+    this.geolocation.setRNConfiguration({
+      // PermissionGate owns all user prompts, avoiding duplicate native prompts.
+      skipPermissionRequests: true,
+      locationProvider: 'playServices',
+    });
+    console.log('[GPS FALLBACK READY] provider=@react-native-community/geolocation mode=watchPosition');
 
-    // Get initial position
-    geolocation.getCurrentPosition(
+    const handlePosition = (source: 'foreground_initial' | 'foreground_watch', position: any) => {
+      if (!this.tracking) return;
+      const timestamp = typeof position.timestamp === 'number' ? position.timestamp : Date.now();
+      const latitude = Number(position.coords?.latitude);
+      const longitude = Number(position.coords?.longitude);
+      const accuracy = Number.isFinite(position.coords?.accuracy) ? position.coords.accuracy : 10.0;
+      const speed = Number.isFinite(position.coords?.speed) ? position.coords.speed : 0.0;
+      console.log(`[GPS SAMPLE] source=${source} timestamp=${timestamp} lat=${latitude.toFixed(6)} lng=${longitude.toFixed(6)} accuracy=${accuracy} speed=${speed}`);
+      onReading({ timestamp, latitude, longitude, accuracy, speed });
+    };
+    const handleError = (source: string, error: any) => {
+      console.warn(`[GPS WATCH ERROR] source=${source} code=${error?.code ?? 'unknown'} message=${error?.message ?? 'unknown'}`);
+    };
+
+    // Produce an initial fix while the continuous watcher is establishing.
+    this.geolocation.getCurrentPosition(
       (position: any) => {
-        if (this.tracking) {
-          console.log(`[LIVE LOCATION TRACE] [TRACE 1] GPS fix acquired (initial) | lat=${position.coords.latitude?.toFixed(6)} lng=${position.coords.longitude?.toFixed(6)} accuracy=${position.coords.accuracy} ts=${position.timestamp || Date.now()}`);
-          onReading({
-            timestamp: position.timestamp || Date.now(),
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy ?? 10.0,
-            speed: position.coords.speed ?? 0.0,
-          });
-        }
+        handlePosition('foreground_initial', position);
       },
-      (error: any) => {
-        console.warn('[ForegroundGeo] Initial position error:', error?.message);
-      },
+      (error: any) => handleError('foreground_initial', error),
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 },
     );
 
     // Watch for continuous updates
-    this.watchId = geolocation.watchPosition(
+    this.watchId = this.geolocation.watchPosition(
       (position: any) => {
-        if (this.tracking) {
-          console.log(`[LIVE LOCATION TRACE] [TRACE 1] GPS fix acquired (watch) | lat=${position.coords.latitude?.toFixed(6)} lng=${position.coords.longitude?.toFixed(6)} accuracy=${position.coords.accuracy} speed=${position.coords.speed} ts=${position.timestamp || Date.now()}`);
-          onReading({
-            timestamp: position.timestamp || Date.now(),
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy ?? 10.0,
-            speed: position.coords.speed ?? 0.0,
-          });
-        }
+        handlePosition('foreground_watch', position);
       },
-      (error: any) => {
-        console.warn('[ForegroundGeo] Watch position error:', error?.message);
-      },
+      (error: any) => handleError('foreground_watch', error),
       {
         enableHighAccuracy: true,
         distanceFilter: 10,
@@ -154,10 +153,7 @@ export class ForegroundGeolocationProvider implements ILocationProvider {
   async stop(): Promise<void> {
     this.tracking = false;
     if (this.watchId !== null) {
-      const geolocation = (globalThis as any).navigator?.geolocation;
-      if (geolocation) {
-        geolocation.clearWatch(this.watchId);
-      }
+      this.geolocation.clearWatch(this.watchId);
       this.watchId = null;
     }
   }
@@ -187,6 +183,7 @@ export class BackgroundGeolocationProvider implements ILocationProvider {
     if (!this.bgGeo) {
       try {
         this.bgGeo = require('react-native-background-geolocation').default;
+        console.log('[GPS PROVIDER] BackgroundGeolocation native module loaded');
       } catch {
         console.warn(
           '[BGGeoProvider] react-native-background-geolocation not installed. ' +
@@ -199,7 +196,7 @@ export class BackgroundGeolocationProvider implements ILocationProvider {
     if (this.bgGeo) {
       try {
         // Configure native foreground service & iOS background options
-        await this.bgGeo.ready({
+        const state = await this.bgGeo.ready({
           desiredAccuracy: this.bgGeo.DESIRED_ACCURACY_HIGH,
           distanceFilter: 10,
           stopTimeout: 1,
@@ -214,11 +211,12 @@ export class BackgroundGeolocationProvider implements ILocationProvider {
             smallIcon: 'mipmap/ic_launcher',
           },
         });
+        console.log(`[GPS PROVIDER READY] enabled=${state?.enabled ?? 'unknown'} authorization=${state?.authorization ?? 'unknown'}`);
 
         // Register location event handler
         this.bgGeo.onLocation((location: any) => {
           const ts = location.timestamp ? new Date(location.timestamp).getTime() : Date.now();
-          console.log(`[LIVE LOCATION TRACE] [TRACE 1] GPS fix acquired (BGGeo) | lat=${location.coords.latitude?.toFixed(6)} lng=${location.coords.longitude?.toFixed(6)} accuracy=${location.coords.accuracy} speed=${location.coords.speed} ts=${ts}`);
+          console.log(`[GPS SAMPLE] source=background_geolocation timestamp=${ts} lat=${location.coords.latitude?.toFixed(6)} lng=${location.coords.longitude?.toFixed(6)} accuracy=${location.coords.accuracy ?? 10.0} speed=${location.coords.speed ?? 0.0}`);
           onReading({
             timestamp: ts,
             latitude: location.coords.latitude,
@@ -230,11 +228,12 @@ export class BackgroundGeolocationProvider implements ILocationProvider {
 
         await this.bgGeo.start();
         this.tracking = true;
+        console.log('[GPS PROVIDER STARTED] source=background_geolocation');
       } catch (error: any) {
         // License validation errors or other BGGeo initialization failures
         const errorMessage = error?.message || String(error);
         console.warn(
-          '[BGGeoProvider] Background Geolocation initialization failed: ' + errorMessage +
+          '[GPS PROVIDER FAILED] Background Geolocation initialization failed: ' + errorMessage +
           '. Falling back to foreground geolocation.'
         );
         // Clean up any partial BGGeo state
@@ -256,6 +255,7 @@ export class BackgroundGeolocationProvider implements ILocationProvider {
     onReading: (reading: Omit<TelemetryReading, 'client_reading_id'>) => void,
   ): Promise<void> {
     this.fallbackProvider = new ForegroundGeolocationProvider();
+    console.warn('[GPS PROVIDER FALLBACK] switching to @react-native-community/geolocation');
     await this.fallbackProvider.start(onReading);
     this.tracking = true;
   }

@@ -741,6 +741,8 @@ function App() {
           }))}
           onStartRide={isHost ? handleStartRide : undefined}
           onLeaveRoom={() => {
+            console.warn(`[SESSION LEAVE DIAG] App pre-ride leave pressed | room=${activeRoomCode} connected=${socketRef.current.isConnected()}`);
+            console.trace?.('[SESSION LEAVE DIAG] client call stack');
             socketRef.current.emitEvent('session:leave');
             setActiveRoomCode('');
             setRoomMembers([]);

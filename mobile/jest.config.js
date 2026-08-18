@@ -2,6 +2,7 @@ module.exports = {
   preset: '@react-native/jest-preset',
   moduleNameMapper: {
     '^react-native-sensors$': '<rootDir>/__mocks__/react-native-sensors.js',
+    '^@react-native-community/geolocation$': '<rootDir>/__mocks__/react-native-community-geolocation.js',
   },
   transformIgnorePatterns: [
     'node_modules/(?!(jest-)?react-native|@react-native(-community)?|react-native-maps|react-native-safe-area-context|react-native-background-geolocation|@react-native-async-storage/async-storage)/',

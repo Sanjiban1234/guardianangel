@@ -189,6 +189,7 @@ export class TelemetryModule {
   private async handleIncomingReading(
     rawSample: Omit<TelemetryReading, 'client_reading_id' | 'synced'>
   ): Promise<void> {
+    console.log(`[TELEMETRY RX] timestamp=${rawSample.timestamp} lat=${rawSample.latitude?.toFixed(6)} lng=${rawSample.longitude?.toFixed(6)} accuracy=${rawSample.accuracy} speed=${rawSample.speed}`);
     const clientReadingId = this.generateUUIDv4();
 
     const reading: TelemetryReading = {
@@ -211,7 +212,9 @@ export class TelemetryModule {
     // during every stop/start cycle. The ConnectivityManager gate is redundant:
     // if the socket is connected, the backend is reachable; if not, emitLocationUpdate
     // silently no-ops and we fall back to cache.
-    if (this.socketClient.isConnected()) {
+    const socketConnected = this.socketClient.isConnected();
+    console.log(`[TELEMETRY SOCKET CHECK] connected=${socketConnected}`);
+    if (socketConnected) {
       try {
         console.log(`[LIVE LOCATION AUDIT] Emitting location:update lat=${reading.latitude} lng=${reading.longitude}`);
         this.socketClient.emitLocationUpdate({

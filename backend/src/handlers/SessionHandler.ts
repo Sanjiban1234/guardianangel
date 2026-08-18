@@ -84,6 +84,13 @@ export class SessionHandler {
 
   private handleLeave(): void {
     const groupCode = this.roomState.currentGroupCode;
+    console.warn('[SESSION LEAVE DIAG] session:leave received', {
+      socketId: this.socket.id,
+      userId: this.socket.user?.id,
+      name: this.socket.user?.name,
+      currentGroupCode: groupCode,
+      stack: new Error('session:leave handler').stack,
+    });
     if (!groupCode) return;
 
     const userId = this.socket.user!.id;
@@ -97,5 +104,10 @@ export class SessionHandler {
 
     this.socket.leave(`group:${groupCode}`);
     this.roomState.currentGroupCode = null;
+    console.warn('[SESSION LEAVE DIAG] roomState cleared', {
+      socketId: this.socket.id,
+      userId,
+      groupCode,
+    });
   }
 }

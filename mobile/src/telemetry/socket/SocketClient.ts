@@ -212,7 +212,7 @@ export class SocketClient implements ISocketClient {
 
   emitLocationUpdate(payload: Omit<TelemetryReading, 'client_reading_id' | 'synced'>): void {
     if (this.socket && this.connected) {
-      console.log(`[LIVE LOCATION TRACE] [TRACE 4] Socket emit location:update | connected=${this.connected} lat=${payload.latitude?.toFixed(6)} lng=${payload.longitude?.toFixed(6)}`);
+      console.log(`[SOCKET LOCATION EMIT] socketId=${this.socket.id || 'unknown'} connected=${this.connected} lat=${payload.latitude?.toFixed(6)} lng=${payload.longitude?.toFixed(6)}`);
       this.socket.emit('location:update', payload);
     } else {
       console.log(`[LIVE LOCATION TRACE] [TRACE 4-BLOCKED] SocketClient cannot emit | socket=${!!this.socket} connected=${this.connected}`);
