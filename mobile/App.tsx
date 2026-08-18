@@ -166,6 +166,11 @@ function App() {
   const [roomMembers, setRoomMembers] = useState<Array<{ user_id: string; name: string; role?: string; isYou?: boolean; latitude?: number; longitude?: number }>>([]);
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [destination, setDestination] = useState<{ latitude: number; longitude: number; label: string } | null>(null);
+  const activeRoomCodeRef = useRef(activeRoomCode);
+
+  useEffect(() => {
+    activeRoomCodeRef.current = activeRoomCode;
+  }, [activeRoomCode]);
 
   // Refuel alert state
   const [refuelActive, setRefuelActive] = useState<boolean>(false);
@@ -210,7 +215,8 @@ function App() {
     if (!authToken) return;
     const unsubscribeConnect = socketRef.current.onConnect(() => {
       const transport = (socketRef.current as any).socket?.io?.engine?.transport?.name || 'unknown';
-      console.log(`[SOCKET DIAG] [APP_ONCONNECT] role=${deviceRole} activeRoom=${activeRoomCode || 'none'} transport=${transport} riderName=${riderName}`);
+      const roomCode = activeRoomCodeRef.current;
+      console.log(`[SOCKET DIAG] [APP_ONCONNECT] role=${deviceRole} activeRoom=${roomCode || 'none'} transport=${transport} riderName=${riderName}`);
       console.log(`[LIVE LOCATION AUDIT] Socket connected, registering event listeners`);
       setConnection('live');
 
@@ -218,13 +224,13 @@ function App() {
       for (const cleanup of eventCleanupsRef.current) cleanup();
       eventCleanupsRef.current = [];
 
-      if (activeRoomCode) {
-        console.log(`[LIVE LOCATION AUDIT] Joining session: ${activeRoomCode}`);
-        console.log(`[SOCKET DIAG] [APP_JOINING_SESSION] groupCode=${activeRoomCode}`);
-        socketRef.current.joinSession(activeRoomCode).then(() => {
-          console.log(`[SOCKET DIAG] [APP_SESSION_JOINED_OK] groupCode=${activeRoomCode}`);
+      if (roomCode) {
+        console.log(`[LIVE LOCATION AUDIT] Joining session: ${roomCode}`);
+        console.log(`[SOCKET DIAG] [APP_JOINING_SESSION] groupCode=${roomCode}`);
+        socketRef.current.joinSession(roomCode).then(() => {
+          console.log(`[SOCKET DIAG] [APP_SESSION_JOINED_OK] groupCode=${roomCode}`);
         }).catch((err: any) => {
-          console.log(`[SOCKET DIAG] [APP_SESSION_JOIN_FAILED] groupCode=${activeRoomCode} error=${err?.message}`);
+          console.log(`[SOCKET DIAG] [APP_SESSION_JOIN_FAILED] groupCode=${roomCode} error=${err?.message}`);
           setConnection('offline');
         });
       }
@@ -391,17 +397,17 @@ function App() {
       console.log(`[SOCKET DIAG] [APP_ONDISCONNECT] role=${deviceRole} activeRoom=${activeRoomCode || 'none'}`);
       setConnection('offline');
     });
-    console.log(`[SOCKET DIAG] [APP_EFFECT_START] role=${deviceRole} activeRoom=${activeRoomCode || 'none'} authToken=${authToken ? 'present' : 'MISSING'}`);
+    console.log(`[SOCKET DIAG] [APP_EFFECT_START] role=${deviceRole} authToken=${authToken ? 'present' : 'MISSING'}`);
     socketRef.current.connect(API_BASE_URL, authToken).catch(() => setConnection('offline'));
     telemetryModuleRef.current.start({
       socketUrl: API_BASE_URL,
       authToken,
-      groupCode: activeRoomCode,
+      groupCode: activeRoomCodeRef.current,
       healthEndpointUrl: `${API_BASE_URL}/api/health`,
     }).catch(() => {});
 
     return () => {
-      console.log(`[SOCKET DIAG] [APP_EFFECT_CLEANUP] role=${deviceRole} activeRoom=${activeRoomCode || 'none'}`);
+      console.log(`[SOCKET DIAG] [APP_EFFECT_CLEANUP] role=${deviceRole} activeRoom=${activeRoomCodeRef.current || 'none'}`);
       unsubscribeConnect();
       unsubscribeDisconnect();
       // Clean up all event listeners
@@ -410,6 +416,17 @@ function App() {
       socketRef.current.disconnect();
       telemetryModuleRef.current.stop().catch(() => {});
     };
+  }, [authToken]);
+
+  // Joining a room is a session operation, not a connection operation. Keeping
+  // it separate prevents a room-code state update from disconnecting GPS and
+  // tearing down the Socket.IO client while other riders are already online.
+  useEffect(() => {
+    if (!authToken || !activeRoomCode || !socketRef.current.isConnected()) return;
+    socketRef.current.joinSession(activeRoomCode).catch((err: any) => {
+      console.log(`[SOCKET DIAG] [APP_SESSION_JOIN_FAILED] groupCode=${activeRoomCode} error=${err?.message}`);
+      setConnection('offline');
+    });
   }, [authToken, activeRoomCode]);
 
   useEffect(() => {
@@ -498,7 +515,7 @@ function App() {
       setDestination({
         latitude: preview.destination.latitude,
         longitude: preview.destination.longitude,
-        label: preview.destinationTitle,
+        label: preview.destination.label || preview.destinationTitle,
       });
     }
     setRoomMembers([]);
@@ -696,8 +713,8 @@ function App() {
         const computedRiders = roomMembers.map((m) => ({
           user_id: m.user_id,
           name: m.name,
-          latitude: m.latitude || 0,
-          longitude: m.longitude || 0,
+          latitude: m.isYou || m.name === riderName ? (currentLocation?.latitude ?? 0) : (m.latitude ?? 0),
+          longitude: m.isYou || m.name === riderName ? (currentLocation?.longitude ?? 0) : (m.longitude ?? 0),
           isYou: m.isYou || m.name === riderName,
         }));
         const peerMarkers = computedRiders.filter(r => !r.isYou && (r.latitude !== 0 || r.longitude !== 0));

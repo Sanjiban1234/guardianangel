@@ -274,8 +274,13 @@ export class SocketClient implements ISocketClient {
   }
 
   onEvent(event: string, listener: (payload: any) => void): () => void {
-    if (!this.socket) return () => undefined;
-    this.socket.on(event, listener);
-    return () => this.socket?.off(event, listener);
+    // Capture the instance which received the listener.  Referring to
+    // `this.socket` from the cleanup can remove a listener from a newer
+    // connection after a reconnect/replacement, while leaking it on the old
+    // connection.
+    const socket = this.socket;
+    if (!socket) return () => undefined;
+    socket.on(event, listener);
+    return () => socket.off(event, listener);
   }
 }

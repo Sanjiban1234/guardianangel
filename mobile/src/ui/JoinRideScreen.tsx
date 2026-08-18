@@ -34,6 +34,7 @@ export interface RoomPreviewDetails {
   destination?: {
     latitude: number;
     longitude: number;
+    label?: string | null;
   };
 }
 
@@ -126,13 +127,13 @@ export function JoinRideScreen({
         if (message === '__ALREADY_MEMBER__') {
           onConfirmJoin({
             groupCode,
-            destinationTitle: 'Group Ride',
+            destinationTitle: body.destination?.label || 'Group Ride',
             locationName: `Room ${body.room_id || groupCode}`,
             hostName: 'Unknown',
             activeRiderCount: 0,
             routeDistanceKm: 0,
             destination: body.destination
-              ? { latitude: body.destination.latitude, longitude: body.destination.longitude }
+              ? { latitude: body.destination.latitude, longitude: body.destination.longitude, label: body.destination.label }
               : undefined,
           });
           return;
@@ -149,13 +150,13 @@ export function JoinRideScreen({
 
       onConfirmJoin({
         groupCode,
-        destinationTitle: 'Group Ride',
+        destinationTitle: body.destination?.label || 'Group Ride',
         locationName: `Room ${body.room_id}`,
         hostName: 'Unknown',
         activeRiderCount: 0,
         routeDistanceKm: 0,
         destination: body.destination
-          ? { latitude: body.destination.latitude, longitude: body.destination.longitude }
+          ? { latitude: body.destination.latitude, longitude: body.destination.longitude, label: body.destination.label }
           : undefined,
       });
     } catch (error) {

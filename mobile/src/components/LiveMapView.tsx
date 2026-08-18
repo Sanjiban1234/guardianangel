@@ -17,6 +17,8 @@ interface LiveMapViewProps {
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
   onRecenterPress?: () => void;
   onMapPress?: (coordinate: { latitude: number; longitude: number }) => void;
+  /** Temporary field-test aid: confirms state changes before marker rendering. */
+  showDiagnostics?: boolean;
 }
 
 // Default region: Kathmandu, Nepal (app's primary area of operation)
@@ -44,6 +46,7 @@ export function LiveMapView({
   routeCoordinates,
   onRecenterPress,
   onMapPress,
+  showDiagnostics = __DEV__,
 }: LiveMapViewProps) {
   const mapRef = useRef<MapView>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -195,6 +198,19 @@ export function LiveMapView({
           <Text style={styles.fitText}>🎯</Text>
         </Pressable>
       )}
+
+      {showDiagnostics && (
+        <View style={styles.diagnosticPanel} pointerEvents="none">
+          <Text style={styles.diagnosticTitle}>LIVE RIDER STATE</Text>
+          {riders.length === 0 ? (
+            <Text style={styles.diagnosticRow}>No room members received.</Text>
+          ) : riders.map((rider) => (
+            <Text key={rider.user_id} style={styles.diagnosticRow} numberOfLines={1}>
+              {rider.isYou ? 'YOU' : rider.name} · {rider.user_id} · {rider.latitude.toFixed(6)}, {rider.longitude.toFixed(6)}
+            </Text>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -254,6 +270,17 @@ const styles = StyleSheet.create({
   fitText: {
     fontSize: 24,
   },
+  diagnosticPanel: {
+    position: 'absolute',
+    left: 12,
+    right: 84,
+    bottom: 16,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(11, 19, 14, 0.86)',
+  },
+  diagnosticTitle: { color: '#86EFAC', fontSize: 10, fontWeight: '800', letterSpacing: 0.7 },
+  diagnosticRow: { color: '#F0FDF4', fontSize: 10, marginTop: 3, fontFamily: 'monospace' },
 });
 
 export default LiveMapView;

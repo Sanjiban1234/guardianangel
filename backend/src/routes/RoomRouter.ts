@@ -117,7 +117,16 @@ export class RoomRouter {
       } else if (err?.code === 'ROOM_FULL') {
         res.status(409).json({ error: 'This ride group is full', code: 'ROOM_FULL' });
       } else if (err?.code === 'ALREADY_MEMBER') {
-        res.status(409).json({ error: 'You are already a member of this ride group', code: 'ALREADY_MEMBER', room_id: err.room_id });
+        // A retry must be able to restore the same client state as a fresh
+        // join.  In particular, the mobile client needs the persisted
+        // destination to render its map after a transient REST retry.
+        const room = await this.roomService.getRoomByCode(group_code);
+        res.status(409).json({
+          error: 'You are already a member of this ride group',
+          code: 'ALREADY_MEMBER',
+          room_id: err.room_id,
+          destination: room?.destination ?? null,
+        });
       } else if (err?.code === 'PROFILE_INCOMPLETE') {
         res.status(403).json({ error: err.message, code: 'PROFILE_INCOMPLETE' });
       } else {

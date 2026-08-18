@@ -131,6 +131,28 @@ export class RoomService {
     };
   }
 
+  /** Return persisted room details needed to recover an idempotent join. */
+  async getRoomByCode(groupCode: string): Promise<{ room_id: string; destination?: { latitude: number; longitude: number; label: string | null } } | null> {
+    const tokenHash = this.hashToken(groupCode.toUpperCase());
+    const result = await this.db.run(
+      `SELECT id, destination_latitude, destination_longitude, destination_label
+       FROM ride_rooms WHERE token_hash = $1 LIMIT 1`,
+      [tokenHash],
+    );
+    if (result.rows.length === 0) return null;
+    const room = result.rows[0];
+    return {
+      room_id: room.id,
+      destination: room.destination_latitude != null && room.destination_longitude != null
+        ? {
+            latitude: Number(room.destination_latitude),
+            longitude: Number(room.destination_longitude),
+            label: room.destination_label,
+          }
+        : undefined,
+    };
+  }
+
   private async assertProfileComplete(userId: string): Promise<void> {
     const result = await this.db.run(
       'SELECT profile_complete FROM users WHERE id = $1 LIMIT 1',
