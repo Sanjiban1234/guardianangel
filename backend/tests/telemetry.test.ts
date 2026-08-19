@@ -118,15 +118,18 @@ describe('WebSocket Telemetry & Bulk Sync Integration Tests', () => {
     });
 
     clientSocket2.on('location:broadcast', (data) => {
-      expect(data).toEqual({
+      expect(data).toEqual(expect.objectContaining({
         user_id: user1.id,
         name: user1.name,
         timestamp: now,
         latitude: 28.2096,
         longitude: 83.9856,
         accuracy: 5.0,
-        speed: 15.0
-      });
+        speed: 15.0,
+        connection_state: 'CONNECTED',
+        location_freshness: 'FRESH',
+        last_updated_at: expect.any(Number),
+      }));
       expect(mockedQuery).toHaveBeenCalled();
       done();
     });

@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text, Pressable, Alert, Share } from 'react-native';
 import LiveMapView from '../components/LiveMapView';
+import RideAlertOverlay from '../components/RideAlertOverlay';
+import { RideAlertState } from '../ride/RideAlertStore';
 
 interface MapScreenProps {
   roomCode: string;
@@ -12,6 +14,11 @@ interface MapScreenProps {
     latitude: number;
     longitude: number;
     isYou?: boolean;
+    vehicleModel?: string;
+    plateNumber?: string;
+    lastUpdatedAt?: number;
+    connectionState?: 'CONNECTED' | 'DISCONNECTED';
+    locationFreshness?: 'FRESH' | 'STALE';
   }>;
   destination?: { latitude: number; longitude: number; label: string } | null;
   onOpenControls: () => void;
@@ -25,10 +32,16 @@ interface MapScreenProps {
     name: string;
     role?: string;
     isYou?: boolean;
+    vehicleModel?: string;
+    plateNumber?: string;
+    connectionState?: 'CONNECTED' | 'DISCONNECTED';
+    locationFreshness?: 'FRESH' | 'STALE';
   }>;
   onStartRide?: () => void;
   isStartingRide?: boolean;
   onLeaveRoom: () => void;
+  rideAlertState: RideAlertState;
+  onDismissRideAlert: (alertId: string) => void;
 }
 
 const COLORS = {
@@ -141,6 +154,8 @@ export default function MapScreen({
   onStartRide,
   isStartingRide = false,
   onLeaveRoom,
+  rideAlertState,
+  onDismissRideAlert,
 }: MapScreenProps) {
   const [routeCoordinates, setRouteCoordinates] = useState<
     Array<{ latitude: number; longitude: number }> | undefined
@@ -218,6 +233,12 @@ export default function MapScreen({
           </View>
         )}
 
+        <RideAlertOverlay
+          alerts={rideAlertState.alerts}
+          criticalAlert={rideAlertState.criticalAlert}
+          onDismiss={onDismissRideAlert}
+        />
+
         <Pressable onPress={onOpenControls} style={styles.controlsButton}>
           <Text style={styles.controlsButtonIcon}>⚙️</Text>
           <Text style={styles.controlsButtonText}>Ride Controls</Text>
@@ -274,7 +295,13 @@ export default function MapScreen({
                   <View
                     style={[
                       styles.memberDot,
-                      member.role === 'owner' ? styles.hostDot : styles.riderDot,
+                      member.connectionState === 'DISCONNECTED'
+                        ? styles.disconnectedDot
+                        : member.locationFreshness === 'STALE'
+                          ? styles.staleDot
+                          : member.connectionState === 'CONNECTED'
+                            ? styles.connectedDot
+                            : styles.unknownDot,
                     ]}
                   />
                   <Text style={styles.memberName} numberOfLines={1}>
@@ -283,6 +310,12 @@ export default function MapScreen({
                   </Text>
                   {member.role === 'owner' && (
                     <Text style={styles.hostBadge}>HOST</Text>
+                  )}
+                  {!member.isYou && member.connectionState === 'DISCONNECTED' && (
+                    <Text style={styles.memberPresence}>OFFLINE</Text>
+                  )}
+                  {!member.isYou && member.connectionState !== 'DISCONNECTED' && member.locationFreshness === 'STALE' && (
+                    <Text style={styles.memberPresence}>STALE</Text>
                   )}
                 </View>
               ))}
@@ -487,11 +520,17 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
   },
-  hostDot: {
+  connectedDot: {
     backgroundColor: COLORS.green,
   },
-  riderDot: {
-    backgroundColor: COLORS.blue,
+  staleDot: {
+    backgroundColor: '#F59E0B',
+  },
+  disconnectedDot: {
+    backgroundColor: '#6B7280',
+  },
+  unknownDot: {
+    backgroundColor: COLORS.muted,
   },
   memberName: {
     flex: 1,
@@ -515,6 +554,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
+  },
+  memberPresence: {
+    color: COLORS.muted,
+    fontSize: 10,
+    fontWeight: '800',
+    marginLeft: 6,
   },
   startBtnDisabled: { opacity: 0.6 },
   startBtnText: {

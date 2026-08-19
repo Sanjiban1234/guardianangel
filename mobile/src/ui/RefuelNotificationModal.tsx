@@ -53,7 +53,7 @@ export function RefuelNotificationModal({
     }
     onSendRefuelAlert({
       riderName,
-      note: note.trim() || 'Need petrol stop soon.',
+      note: note.trim() || undefined,
       timestamp: Date.now(),
     });
     setNote('');

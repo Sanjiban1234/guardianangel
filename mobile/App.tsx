@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -59,6 +59,19 @@ import {
   saveActiveRide,
   saveSession,
 } from './src/ride/ActiveRideStore';
+import {
+  clearAllSeparations,
+  clearRiderSeparation,
+  recordSeparation,
+  RiderSeparations,
+} from './src/separation/SeparationState';
+import {
+  clearRideAlerts,
+  dismissRideAlert,
+  enqueueRideAlert,
+  RideAlert,
+  RideAlertState,
+} from './src/ride/RideAlertStore';
 
 type Screen =
   | 'login'
@@ -76,6 +89,16 @@ type Screen =
 
 type Connection = 'live' | 'offline';
 type BreakdownReason = 'flat_tire' | 'mechanical_failure' | 'fuel' | 'other';
+
+function formatDistanceMeters(distance: unknown): string | undefined {
+  if (typeof distance !== 'number' || !Number.isFinite(distance) || distance < 0) return undefined;
+  return distance >= 1000 ? `${(distance / 1000).toFixed(1)} km` : `${Math.round(distance)} m`;
+}
+
+function formatSpeedKph(speedMetersPerSecond: unknown): string | undefined {
+  if (typeof speedMetersPerSecond !== 'number' || !Number.isFinite(speedMetersPerSecond) || speedMetersPerSecond < 0) return undefined;
+  return `${Math.round(speedMetersPerSecond * 3.6)} km/h`;
+}
 
 const COLORS = {
   forest: '#14532D',
@@ -120,7 +143,7 @@ function readCurrentLocation(): Promise<{ latitude: number; longitude: number }>
 function App() {
   const [screen, setScreen] = useState<Screen>('login');
   const [restoringRide, setRestoringRide] = useState(true);
-  const [connection, setConnection] = useState<Connection>('live');
+  const [connection, setConnection] = useState<Connection>('offline');
   const [authToken, setAuthToken] = useState('');
   const [fineLocationGranted, setFineLocationGranted] = useState(false);
   const fineLocationGrantedRef = useRef(false);
@@ -184,7 +207,13 @@ function App() {
   // Room / Destination state
   const [activeRoomCode, setActiveRoomCode] = useState<string>('');
   const [destinationTitle, setDestinationTitle] = useState<string>('');
-  const [roomMembers, setRoomMembers] = useState<Array<{ user_id: string; name: string; role?: string; isYou?: boolean; latitude?: number; longitude?: number }>>([]);
+  const [roomMembers, setRoomMembers] = useState<Array<{
+    user_id: string; name: string; role?: string; isYou?: boolean;
+    vehicleModel?: string; plateNumber?: string;
+    latitude?: number; longitude?: number; accuracy?: number; lastUpdatedAt?: number;
+    connectionState?: 'CONNECTED' | 'DISCONNECTED'; locationFreshness?: 'FRESH' | 'STALE';
+  }>>([]);
+  const roomMembersRef = useRef(roomMembers);
   const [currentLocation, setCurrentLocation] = useState<LatestLocationSnapshot | null>(null);
   const currentLocationRef = useRef<LatestLocationSnapshot | null>(null);
   const postJoinCurrentPositionRef = useRef<Promise<LatestLocationSnapshot> | null>(null);
@@ -194,6 +223,10 @@ function App() {
   useEffect(() => {
     activeRoomCodeRef.current = activeRoomCode;
   }, [activeRoomCode]);
+
+  useEffect(() => {
+    roomMembersRef.current = roomMembers;
+  }, [roomMembers]);
 
   useEffect(() => {
     fineLocationGrantedRef.current = fineLocationGranted;
@@ -212,15 +245,24 @@ function App() {
   // Breakdown state
   const [breakdownActive, setBreakdownActive] = useState<boolean>(false);
   const [breakdownReason, setBreakdownReason] = useState<BreakdownReason>('flat_tire');
-  const [breakdownNote, setBreakdownNote] = useState<string>('Rear tire punctured on gravel segment.');
+  const [breakdownNote, setBreakdownNote] = useState<string>('');
   const [breakdownRiderName, setBreakdownRiderName] = useState<string>('');
+  const [breakdownVehicleModel, setBreakdownVehicleModel] = useState<string>('');
+  const [breakdownPlateNumber, setBreakdownPlateNumber] = useState<string>('');
   const [breakdownRiderId, setBreakdownRiderId] = useState<string>('');
   const breakdownRiderIdRef = useRef<string>('');
   const [showReasonModal, setShowReasonModal] = useState<boolean>(false);
 
-  // Group separation state
-  const [separationActive, setSeparationActive] = useState<boolean>(false);
-  const [separationRole, setSeparationRole] = useState<'rider' | 'group'>('rider');
+  // Separation is keyed by the rider the server identified, so one reunion
+  // cannot erase a different rider's active warning.
+  const [separationsByRider, setSeparationsByRider] = useState<RiderSeparations>({});
+  const [rideAlertState, setRideAlertState] = useState<RideAlertState>(clearRideAlerts());
+  const dismissActiveRideAlert = useCallback((alertId: string) => {
+    setRideAlertState(previous => dismissRideAlert(previous, alertId));
+  }, []);
+  const addRideAlert = useCallback((alert: RideAlert) => {
+    setRideAlertState(previous => enqueueRideAlert(previous, alert));
+  }, []);
   const [permissionIntent, setPermissionIntent] = useState<'create' | 'join' | null>(null);
 
   // Ride start state
@@ -239,6 +281,8 @@ function App() {
     setDestinationTitle('');
     setDestination(null);
     setRoomMembers([]);
+    setSeparationsByRider(clearAllSeparations());
+    setRideAlertState(clearRideAlerts());
     setRideStarted(false);
     setIsHost(false);
     setDeviceRole('UNKNOWN');
@@ -276,6 +320,24 @@ function App() {
     currentLocationRef.current = location;
     setCurrentLocation(location);
   };
+
+  // Freshness is server-authored on socket events, then aged locally so a
+  // quiet/stalled peer is not rendered as live indefinitely between events.
+  useEffect(() => {
+    if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') return;
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setRoomMembers((prev) => prev.map((member) => {
+        if (member.isYou || member.name === riderName || member.connectionState === 'DISCONNECTED') {
+          return member;
+        }
+        const freshness = member.lastUpdatedAt != null && now - member.lastUpdatedAt <= 15_000
+          ? 'FRESH' : 'STALE';
+        return member.locationFreshness === freshness ? member : { ...member, locationFreshness: freshness };
+      }));
+    }, 5_000);
+    return () => clearInterval(interval);
+  }, [riderName]);
 
   const getPostJoinCurrentPosition = async (): Promise<LatestLocationSnapshot | null> => {
     if (!fineLocationGrantedRef.current) return null;
@@ -360,6 +422,7 @@ function App() {
       }
       console.log(`[ACTIVE RIDE RESTORE] found groupCode=${ride.groupCode}`);
       if (!cancelled) {
+        setRideAlertState(clearRideAlerts());
         // Restore authentication independently of whether this particular ride
         // remains valid, so an ended ride returns to the normal portal flow.
         setAuthToken(token);
@@ -448,10 +511,16 @@ function App() {
                 user_id: m.user_id,
                 name: m.name,
                 role: m.role,
+                vehicleModel: m.vehicle_model ?? existing?.vehicleModel,
+                plateNumber: m.plate_number ?? existing?.plateNumber,
                 isYou: m.name === riderName,
                 // Preserve existing coordinates if the server payload has none
                 latitude: m.latitude ?? existing?.latitude,
                 longitude: m.longitude ?? existing?.longitude,
+                accuracy: m.accuracy ?? existing?.accuracy,
+                lastUpdatedAt: m.last_updated_at ?? existing?.lastUpdatedAt,
+                connectionState: m.connection_state ?? existing?.connectionState ?? 'DISCONNECTED',
+                locationFreshness: m.location_freshness ?? existing?.locationFreshness ?? 'STALE',
               };
             });
           });
@@ -464,9 +533,38 @@ function App() {
 
       listen('session:member_joined', (payload: any) => {
         if (payload?.user_id) {
+          const existingMember = roomMembersRef.current.find((member) =>
+            member.user_id === payload.user_id || member.name === payload.name
+          );
+          if (existingMember?.connectionState === 'DISCONNECTED') {
+            addRideAlert({
+              id: `reconnected:${payload.user_id}:${payload.timestamp || Date.now()}`,
+              type: 'RIDER_RECONNECTED', severity: 'info', timestamp: payload.timestamp || Date.now(),
+              title: `${payload.name} reconnected`, riderId: payload.user_id, riderName: payload.name,
+              dedupeKey: `reconnected:${payload.user_id}`,
+            });
+          } else if (!existingMember) {
+            addRideAlert({
+              id: `joined:${payload.user_id}:${payload.timestamp || Date.now()}`,
+              type: 'RIDER_JOINED', severity: 'info', timestamp: payload.timestamp || Date.now(),
+              title: `${payload.name} joined the ride`, riderId: payload.user_id, riderName: payload.name,
+              vehicleModel: payload.vehicle_model, plateNumber: payload.plate_number,
+              dedupeKey: `joined:${payload.user_id}`,
+            });
+          }
           setRoomMembers((prev) => {
-            if (prev.some((m) => m.user_id === payload.user_id || m.name === payload.name)) return prev;
-            return [...prev, { user_id: payload.user_id, name: payload.name, isYou: false }];
+            const existing = prev.find((m) => m.user_id === payload.user_id || m.name === payload.name);
+            if (existing) {
+              return prev.map(member => member.user_id === existing.user_id
+                ? { ...member, vehicleModel: payload.vehicle_model ?? member.vehicleModel,
+                  plateNumber: payload.plate_number ?? member.plateNumber,
+                  connectionState: payload.connection_state || 'CONNECTED',
+                  locationFreshness: payload.location_freshness || member.locationFreshness }
+                : member);
+            }
+            return [...prev, { user_id: payload.user_id, name: payload.name, isYou: false,
+              vehicleModel: payload.vehicle_model, plateNumber: payload.plate_number,
+              connectionState: payload.connection_state || 'CONNECTED', locationFreshness: payload.location_freshness || 'STALE' }];
           });
           resendLocationForJoinedMemberWithFallback(activeRoomCodeRef.current, payload);
         }
@@ -475,7 +573,13 @@ function App() {
       listen('session:member_left', (payload: any) => {
         if (payload?.user_id) {
           setRoomMembers((prev) => prev.filter((m) => m.user_id !== payload.user_id));
-          if (payload?.name) Alert.alert('Ride member left', `${payload.name} left the ride`);
+          setSeparationsByRider((prev) => clearRiderSeparation(prev, payload.user_id));
+          if (payload?.name) addRideAlert({
+            id: `left:${payload.user_id}:${payload.timestamp || Date.now()}`,
+            type: 'RIDER_LEFT', severity: 'warning', timestamp: payload.timestamp || Date.now(),
+            title: `${payload.name} left the ride`, riderId: payload.user_id, riderName: payload.name,
+            dedupeKey: `left:${payload.user_id}`,
+          });
         }
       });
       listen('ride:ended', () => {
@@ -486,13 +590,24 @@ function App() {
         console.log(`[LIVE LOCATION AUDIT] location:broadcast from ${payload?.name} (${payload?.user_id}) lat=${payload?.latitude} lng=${payload?.longitude}`);
         console.log(`[LIVE LOCATION DIAG] [BOUNDARY-F] location:broadcast | role=${deviceRole} from=${payload?.name}(${payload?.user_id}) lat=${payload?.latitude?.toFixed(6)} lng=${payload?.longitude?.toFixed(6)}`);
         if (payload?.user_id && payload?.name) {
+          const existingMember = roomMembersRef.current.find(member => member.user_id === payload.user_id);
+          if (existingMember?.connectionState === 'DISCONNECTED') {
+            addRideAlert({
+              id: `reconnected:${payload.user_id}:${payload.last_updated_at || Date.now()}`,
+              type: 'RIDER_RECONNECTED', severity: 'info', timestamp: payload.last_updated_at || Date.now(),
+              title: `${payload.name} reconnected`, riderId: payload.user_id, riderName: payload.name,
+              dedupeKey: `reconnected:${payload.user_id}`,
+            });
+          }
           setRoomMembers((prev) => {
             const existing = prev.find((m) => m.user_id === payload.user_id);
             if (existing) {
               console.log(`[LIVE LOCATION DIAG]   UPDATE: prev had ${prev.length} members, updating user_id=${payload.user_id}`);
               return prev.map((m) =>
                 m.user_id === payload.user_id
-                  ? { ...m, latitude: payload.latitude, longitude: payload.longitude }
+                  ? { ...m, latitude: payload.latitude, longitude: payload.longitude, accuracy: payload.accuracy,
+                    lastUpdatedAt: payload.last_updated_at, connectionState: payload.connection_state || 'CONNECTED',
+                    locationFreshness: payload.location_freshness || 'FRESH' }
                   : m
               );
             }
@@ -502,8 +617,14 @@ function App() {
                 user_id: payload.user_id,
                 name: payload.name,
                 isYou: false,
+                vehicleModel: payload.vehicle_model,
+                plateNumber: payload.plate_number,
                 latitude: payload.latitude,
                 longitude: payload.longitude,
+                accuracy: payload.accuracy,
+                lastUpdatedAt: payload.last_updated_at,
+                connectionState: payload.connection_state || 'CONNECTED',
+                locationFreshness: payload.location_freshness || 'FRESH',
               }];
             }
             console.log(`[LIVE LOCATION DIAG]   SKIP: broadcast is from self (name=${payload.name} = riderName=${riderName})`);
@@ -516,12 +637,24 @@ function App() {
 
       listen('peer:lastKnown', (payload: any) => {
         if (payload?.user_id && payload?.name) {
+          const existingMember = roomMembersRef.current.find(member => member.user_id === payload.user_id);
+          if (existingMember?.connectionState !== 'DISCONNECTED') {
+            addRideAlert({
+              id: `disconnected:${payload.user_id}:${payload.timestamp || Date.now()}`,
+              type: 'RIDER_DISCONNECTED', severity: 'warning', timestamp: payload.timestamp || Date.now(),
+              title: `${payload.name} disconnected`, message: 'Showing their last known location.',
+              riderId: payload.user_id, riderName: payload.name,
+              vehicleModel: existingMember?.vehicleModel, plateNumber: existingMember?.plateNumber,
+              dedupeKey: `disconnected:${payload.user_id}`,
+            });
+          }
           setRoomMembers((prev) => {
             const existing = prev.find((m) => m.user_id === payload.user_id);
             if (existing) {
               return prev.map((m) =>
                 m.user_id === payload.user_id
-                  ? { ...m, latitude: payload.latitude, longitude: payload.longitude }
+                  ? { ...m, latitude: payload.latitude, longitude: payload.longitude,
+                    lastUpdatedAt: payload.timestamp, connectionState: 'DISCONNECTED', locationFreshness: 'STALE' }
                   : m
               );
             }
@@ -530,7 +663,10 @@ function App() {
               name: payload.name,
               isYou: false,
               latitude: payload.latitude,
-              longitude: payload.longitude,
+                longitude: payload.longitude,
+                lastUpdatedAt: payload.timestamp,
+                connectionState: 'DISCONNECTED',
+                locationFreshness: 'STALE',
             }];
           });
         }
@@ -538,8 +674,13 @@ function App() {
 
       listen('refill:notified', (payload) => {
         setRefuelRiderName(payload.name);
-        setRefuelNote(payload.note || 'Need petrol stop soon.');
+        setRefuelNote(payload.note || '');
         setRefuelActive(true);
+        addRideAlert({
+          id: `refuel:${payload.refill_id}`, type: 'REFUEL_REQUEST', severity: 'info', timestamp: payload.timestamp || Date.now(),
+          title: `${payload.name} requested a fuel stop`, message: payload.note || undefined,
+          riderId: payload.user_id, riderName: payload.name, dedupeKey: `refuel:${payload.refill_id}`,
+        });
       });
 
       listen('vehicle:breakdownReported', (payload: any) => {
@@ -547,9 +688,18 @@ function App() {
           setBreakdownRiderId(payload.user_id);
           breakdownRiderIdRef.current = payload.user_id;
           setBreakdownRiderName(payload.name);
+          setBreakdownVehicleModel(payload.vehicle_model || '');
+          setBreakdownPlateNumber(payload.plate_number || '');
           setBreakdownReason(payload.reason || 'other');
           setBreakdownNote(payload.note || '');
           setBreakdownActive(true);
+          addRideAlert({
+            id: `breakdown:${payload.breakdown_id}`, type: 'BREAKDOWN', severity: 'warning', timestamp: payload.reported_at || Date.now(),
+            title: `${payload.name} reported a breakdown`, message: payload.note || payload.reason?.replace(/_/g, ' '),
+            riderId: payload.user_id, riderName: payload.name,
+            vehicleModel: payload.vehicle_model, plateNumber: payload.plate_number,
+            dedupeKey: `breakdown:${payload.breakdown_id}`,
+          });
         }
       });
 
@@ -558,38 +708,63 @@ function App() {
           setBreakdownActive(false);
           setBreakdownRiderId('');
           breakdownRiderIdRef.current = '';
+          addRideAlert({
+            id: `breakdown-resolved:${payload.breakdown_id}`, type: 'BREAKDOWN_RESOLVED', severity: 'info', timestamp: payload.resolved_at || Date.now(),
+            title: `${payload.name} resolved their breakdown`, riderId: payload.user_id, riderName: payload.name,
+            dedupeKey: `breakdown-resolved:${payload.breakdown_id}`,
+          });
         }
       });
 
       listen('group:separationAlert', (payload: any) => {
-        if (payload?.separated_rider) {
-          setSeparationActive(true);
-          const isThisUser = payload.separated_rider.name === riderName;
-          setSeparationRole(isThisUser ? 'rider' : 'group');
+        setSeparationsByRider((prev) => recordSeparation(prev, payload));
+        const rider = payload?.separated_rider;
+        if (rider?.user_id && rider?.name) {
+          const distance = formatDistanceMeters(rider.distance_from_nearest_meters);
+          const groupSpeed = formatSpeedKph(payload?.group_recommendation?.recommended_speed);
+          addRideAlert({
+            id: `separation:${rider.user_id}:${payload.timestamp || Date.now()}`,
+            type: 'SEPARATION', severity: 'warning', timestamp: payload.timestamp || Date.now(),
+            title: `${rider.name} is separated`,
+            message: [distance && `${distance} from the nearest rider`, groupSpeed && `Suggested group speed: ${groupSpeed}`].filter(Boolean).join('\n') || undefined,
+            riderId: rider.user_id, riderName: rider.name,
+            vehicleModel: rider.vehicle_model, plateNumber: rider.plate_number,
+            dedupeKey: `separation:${rider.user_id}`,
+          });
         }
       });
 
       listen('group:reunited', (payload: any) => {
-        if (payload?.user_id) {
-          setSeparationActive(false);
-          setSeparationRole('rider');
-        }
+        setSeparationsByRider((prev) => clearRiderSeparation(prev, payload?.user_id));
+        if (payload?.user_id && payload?.name) addRideAlert({
+          id: `reunion:${payload.user_id}:${payload.timestamp || Date.now()}`,
+          type: 'REUNION', severity: 'info', timestamp: payload.timestamp || Date.now(),
+          title: `${payload.name} reunited with the group`, riderId: payload.user_id, riderName: payload.name,
+          dedupeKey: `reunion:${payload.user_id}`,
+        });
       });
 
       listen('ride:started', (payload: any) => {
         if (payload?.group_code) {
           setRideStarted(true);
           setScreen('map');
+          addRideAlert({
+            id: `ride-started:${payload.group_code}:${payload.started_at || Date.now()}`,
+            type: 'RIDE_STARTED', severity: 'info', timestamp: payload.started_at || Date.now(),
+            title: 'Ride started', dedupeKey: `ride-started:${payload.group_code}`,
+          });
         }
       });
 
       listen('sos:broadcast', (payload: any) => {
         if (payload?.name && payload?.user_id) {
-          Alert.alert(
-            'EMERGENCY SOS',
-            `${payload.name} has triggered an emergency SOS alert.\n\nLocation: ${payload.latitude?.toFixed(5)}, ${payload.longitude?.toFixed(5)}${payload.medical_info ? '\n\nMedical info attached.' : ''}`,
-            [{ text: 'OK' }],
-          );
+          addRideAlert({
+            id: `sos:${payload.alarm_no}`, type: 'SOS', severity: 'critical', timestamp: payload.timestamp || Date.now(),
+            title: 'Emergency SOS', riderId: payload.user_id, riderName: payload.name,
+            vehicleModel: payload.vehicle_model, plateNumber: payload.plate_number,
+            message: 'An emergency SOS was received. Use Ride Controls for persistent ride information.',
+            dedupeKey: `sos:${payload.alarm_no}`,
+          });
         }
       });
 
@@ -688,12 +863,15 @@ function App() {
 
   const handleLoginSuccess = (
     token: string,
-    userData: { id: string; name: string; email: string; profile_complete: boolean }
+    userData: { id: string; name: string; email: string; profile_complete: boolean; vehicle_model?: string; plate_number?: string }
   ) => {
+    setSeparationsByRider(clearAllSeparations());
+    setRideAlertState(clearRideAlerts());
     setAuthToken(token);
     setUserId(userData.id);
     setRiderName(userData.name);
     setRiderEmail(userData.email);
+    setProfile(prev => ({ ...prev, vehicleModel: userData.vehicle_model || '', plateNumber: userData.plate_number || '' }));
     setHasCompletedRegistration(userData.profile_complete !== false);
     setScreen(userData.profile_complete === false ? 'registration' : 'portal');
     saveSession(token).catch(() => {});
@@ -736,6 +914,8 @@ function App() {
       label: roomData.destination.title,
     });
     setRoomMembers([]);
+    setSeparationsByRider(clearAllSeparations());
+    setRideAlertState(clearRideAlerts());
     setIsHost(true);
     setDeviceRole('HOST');
     setRideStarted(false);
@@ -759,6 +939,8 @@ function App() {
       });
     }
     setRoomMembers([]);
+    setSeparationsByRider(clearAllSeparations());
+    setRideAlertState(clearRideAlerts());
     setIsHost(false);
     setDeviceRole('RIDER');
     setRideStarted(false);
@@ -816,7 +998,7 @@ function App() {
     try {
       socketRef.current.emitEvent('refill:requested', {
         group_code: activeRoomCode,
-        note: payload.note || 'Need petrol stop soon.',
+        note: payload.note || undefined,
       });
       setShowRefuelModal(false);
     } catch (error) {
@@ -888,6 +1070,8 @@ function App() {
     setBreakdownReason(reason);
     setBreakdownNote(note);
     setBreakdownRiderName(`${riderName} (You)`);
+    setBreakdownVehicleModel(profile.vehicleModel);
+    setBreakdownPlateNumber(profile.plateNumber);
     setBreakdownRiderId('self');
     breakdownRiderIdRef.current = 'self';
     setBreakdownActive(true);
@@ -1010,9 +1194,14 @@ function App() {
         const computedRiders = roomMembers.map((m) => ({
           user_id: m.user_id,
           name: m.name,
+          vehicleModel: m.vehicleModel,
+          plateNumber: m.plateNumber,
+          lastUpdatedAt: m.lastUpdatedAt,
           latitude: m.isYou || m.name === riderName ? (currentLocation?.latitude ?? 0) : (m.latitude ?? 0),
-          longitude: m.isYou || m.name === riderName ? (currentLocation?.longitude ?? 0) : (m.longitude ?? 0),
-          isYou: m.isYou || m.name === riderName,
+           longitude: m.isYou || m.name === riderName ? (currentLocation?.longitude ?? 0) : (m.longitude ?? 0),
+           isYou: m.isYou || m.name === riderName,
+           connectionState: m.isYou || m.name === riderName ? 'CONNECTED' : m.connectionState,
+           locationFreshness: m.isYou || m.name === riderName ? 'FRESH' : m.locationFreshness,
         }));
         const peerMarkers = computedRiders.filter(r => !r.isYou && (r.latitude !== 0 || r.longitude !== 0));
         console.log(`[LIVE LOCATION DIAG] [BOUNDARY-G] riders prop | role=${deviceRole} totalMembers=${roomMembers.length} totalRiders=${computedRiders.length} peerMarkersVisible=${peerMarkers.length}`);
@@ -1034,11 +1223,21 @@ function App() {
             user_id: m.user_id,
             name: m.name,
             role: m.role,
+            vehicleModel: m.vehicleModel,
+            plateNumber: m.plateNumber,
             isYou: m.isYou || m.name === riderName,
+            connectionState: m.isYou || m.name === riderName
+              ? (connection === 'live' ? 'CONNECTED' : 'DISCONNECTED')
+              : m.connectionState,
+            locationFreshness: m.isYou || m.name === riderName
+              ? (connection === 'live' ? 'FRESH' : 'STALE')
+              : m.locationFreshness,
           }))}
           onStartRide={isHost ? handleStartRide : undefined}
           isStartingRide={isStartingRide}
           onLeaveRoom={handleLeaveRoom}
+          rideAlertState={rideAlertState}
+          onDismissRideAlert={dismissActiveRideAlert}
         />
         );
       })()}
@@ -1047,6 +1246,7 @@ function App() {
         <RideControlsScreen
           roomCode={activeRoomCode}
           riderName={riderName}
+          currentUserId={userId}
           connection={connection}
           roomMembers={roomMembers}
           refuelActive={refuelActive}
@@ -1056,8 +1256,9 @@ function App() {
           breakdownReason={breakdownReason}
           breakdownNote={breakdownNote}
           breakdownRiderName={breakdownRiderName}
-          separationActive={separationActive}
-          separationRole={separationRole}
+          breakdownVehicleModel={breakdownVehicleModel}
+          breakdownPlateNumber={breakdownPlateNumber}
+          separationsByRider={separationsByRider}
           profile={profile}
           onClose={() => setScreen('map')}
           onOpenRefuelModal={() => setShowRefuelModal(true)}
@@ -1070,6 +1271,8 @@ function App() {
             setBreakdownActive(false);
             setBreakdownRiderId('');
             breakdownRiderIdRef.current = '';
+            setBreakdownVehicleModel('');
+            setBreakdownPlateNumber('');
           }}
           onOpenProfile={() => setScreen('profile')}
         />
@@ -1093,9 +1296,6 @@ function App() {
           authToken={authToken}
           apiBaseUrl={API_BASE_URL}
           onReturnToPortal={() => setScreen('portal')}
-          onExportGpx={() =>
-            Alert.alert('GPX export', 'Track export will be available when the ride file service is connected.')
-          }
         />
       )}
 
@@ -1225,9 +1425,6 @@ function Portal({
           <Button label="Join ride with group code / link →" tone="secondary" onPress={onJoinRide} />
         </View>
 
-        <Pressable onPress={() => Alert.alert('Past rides', 'Ride history will appear here when browsing is added.')}>
-          <Text style={styles.link}>View past ride summaries</Text>
-        </Pressable>
       </ScrollView>
     </Shell>
   );

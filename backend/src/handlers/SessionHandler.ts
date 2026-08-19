@@ -1,6 +1,7 @@
 import { Server } from 'socket.io';
 import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { RoomService } from '../services/RoomService';
+import { PresenceService } from '../services/PresenceService';
 
 export interface RoomState {
   currentGroupCode: string | null;
@@ -11,7 +12,8 @@ export class SessionHandler {
     private readonly io: Server,
     private readonly socket: AuthenticatedSocket,
     private readonly roomState: RoomState,
-    private readonly roomService: RoomService
+    private readonly roomService: RoomService,
+    private readonly presenceService: PresenceService,
   ) {}
 
   register(): void {
@@ -53,8 +55,10 @@ export class SessionHandler {
       this.roomState.currentGroupCode = group_code;
 
       this.socket.join(`group:${group_code}`);
+      this.presenceService.markConnected(group_code, userId, this.socket.id);
 
-      const members = await this.roomService.getMembers(group_code);
+      const members = await this.presenceService.getRiderPresence(group_code);
+      const joiningRider = members.find((member) => member.user_id === userId);
       const rideStatus = await this.roomService.getRoomRideStatus(group_code);
 
       const roomSockets = this.socket.nsp?.adapter?.rooms?.get(`group:${group_code}`);
@@ -68,7 +72,14 @@ export class SessionHandler {
 
       this.socket
         .to(`group:${group_code}`)
-        .emit('session:member_joined', { user_id: userId, name });
+        .emit('session:member_joined', {
+          user_id: userId,
+          name,
+          vehicle_model: joiningRider?.vehicle_model,
+          plate_number: joiningRider?.plate_number,
+          connection_state: 'CONNECTED',
+          location_freshness: 'STALE',
+        });
 
       if (callback) callback({ group_code, members, ride_started_at: rideStatus?.rideStartedAt || null });
 
@@ -119,6 +130,7 @@ export class SessionHandler {
       .emit('session:member_left', { user_id: userId, name });
 
     this.socket.leave(`group:${groupCode}`);
+    this.presenceService.markLeft(groupCode, userId, this.socket.id);
     this.roomState.currentGroupCode = null;
     console.warn('[SESSION LEAVE DIAG] roomState cleared', {
       socketId: this.socket.id,

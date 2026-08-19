@@ -23,7 +23,7 @@ describe('Authentication REST Endpoints & Security Controls', () => {
     it('should register a new user successfully with strong password and valid E.164 phone', async () => {
       mockedQuery.mockResolvedValueOnce({ rows: [] } as any);
       mockedQuery.mockResolvedValueOnce({
-        rows: [{ id: 'user-uuid-123', name: 'testrider', email: 'test@example.com' }]
+        rows: [{ id: 'user-uuid-123', name: 'testrider', email: 'test@example.com', vehicle_model: 'Yamaha MT-15', plate_number: 'BA 99 PA 1234' }]
       } as any);
 
       const response = await request(app)
@@ -32,13 +32,21 @@ describe('Authentication REST Endpoints & Security Controls', () => {
           name: 'testrider',
           email: 'test@example.com',
           password: 'Password123',
-          phone: '+9779812345678'
+          phone: '+9779812345678',
+          vehicle_model: '  Yamaha MT-15  ',
+          plate_number: ' BA 99   PA 1234 '
         });
 
       expect(response.status).toBe(201);
       expect(response.body).toHaveProperty('message', 'User registered successfully');
-      expect(response.body.user).toEqual({ id: 'user-uuid-123', name: 'testrider', email: 'test@example.com' });
+      expect(response.body.user).toEqual({
+        id: 'user-uuid-123', name: 'testrider', email: 'test@example.com', vehicle_model: 'Yamaha MT-15', plate_number: 'BA 99 PA 1234',
+      });
       expect(mockedQuery).toHaveBeenCalledTimes(2);
+      expect(mockedQuery).toHaveBeenLastCalledWith(
+        expect.stringContaining('vehicle_model'),
+        expect.arrayContaining(['Yamaha MT-15', 'BA 99 PA 1234'])
+      );
     });
 
     it('should return 409 if email already exists', async () => {
@@ -58,6 +66,19 @@ describe('Authentication REST Endpoints & Security Controls', () => {
       expect(response.status).toBe(409);
       expect(response.body).toHaveProperty('error', 'Email is already registered');
       expect(mockedQuery).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects blank vehicle values when a client supplies them', async () => {
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          name: 'testrider', email: 'test@example.com', password: 'Password123', phone: '+9779812345678',
+          vehicle_model: '   ', plate_number: 'BA 99 PA 1234',
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toContain('Vehicle model');
+      expect(mockedQuery).not.toHaveBeenCalled();
     });
 
     it('should return 400 if required fields are missing', async () => {

@@ -59,6 +59,8 @@ export const initDb = async (): Promise<void> => {
         password_hash VARCHAR(255) NOT NULL,
         role TEXT NOT NULL DEFAULT 'rider' CHECK (role IN ('rider', 'admin')),
         profile_complete BOOLEAN NOT NULL DEFAULT true,
+        vehicle_model VARCHAR(100),
+        plate_number VARCHAR(50),
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
@@ -70,6 +72,10 @@ export const initDb = async (): Promise<void> => {
     await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_complete BOOLEAN NOT NULL DEFAULT true");
     // Email-based authentication support (unique constraint enforces no duplicate emails)
     await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255)");
+    // Additive migration: legacy users retain NULL vehicle fields until they
+    // update their profile; no backfill or destructive rewrite is required.
+    await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS vehicle_model VARCHAR(100)");
+    await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS plate_number VARCHAR(50)");
     await client.query("CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique_idx ON users(email) WHERE email IS NOT NULL");
     // Remove legacy UNIQUE(name) constraint — names are display-only, not unique identifiers
     await client.query("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_name_key");

@@ -7,16 +7,22 @@ import {
   Pressable,
   SafeAreaView,
 } from 'react-native';
+import type { RiderSeparations } from '../separation/SeparationState';
 
 interface RoomMember {
   user_id: string;
   name: string;
   isYou?: boolean;
+  vehicleModel?: string;
+  plateNumber?: string;
+  connectionState?: 'CONNECTED' | 'DISCONNECTED';
+  locationFreshness?: 'FRESH' | 'STALE';
 }
 
 interface RideControlsScreenProps {
   roomCode: string;
   riderName: string;
+  currentUserId: string;
   connection: 'live' | 'offline';
   roomMembers: RoomMember[];
   refuelActive: boolean;
@@ -26,8 +32,9 @@ interface RideControlsScreenProps {
   breakdownReason: string;
   breakdownNote: string;
   breakdownRiderName: string;
-  separationActive: boolean;
-  separationRole: 'rider' | 'group';
+  breakdownVehicleModel: string;
+  breakdownPlateNumber: string;
+  separationsByRider: RiderSeparations;
   profile: any;
   onClose: () => void;
   onOpenRefuelModal: () => void;
@@ -60,6 +67,7 @@ const REASON_LABELS: Record<string, string> = {
 export default function RideControlsScreen({
   roomCode,
   riderName,
+  currentUserId,
   connection,
   roomMembers,
   refuelActive,
@@ -69,8 +77,9 @@ export default function RideControlsScreen({
   breakdownReason,
   breakdownNote,
   breakdownRiderName,
-  separationActive,
-  separationRole,
+  breakdownVehicleModel,
+  breakdownPlateNumber,
+  separationsByRider,
   profile,
   onClose,
   onOpenRefuelModal,
@@ -79,6 +88,34 @@ export default function RideControlsScreen({
   onResolveBreakdown,
   onOpenProfile,
 }: RideControlsScreenProps) {
+  const separations = Object.values(separationsByRider);
+
+  const formatDistance = (meters: unknown) => {
+    if (typeof meters !== 'number' || !Number.isFinite(meters) || meters < 0) return null;
+    return meters >= 1000
+      ? `${(meters / 1000).toFixed(1)} km`
+      : `${Math.round(meters)} m`;
+  };
+
+  const formatSpeed = (metersPerSecond: unknown) => {
+    if (typeof metersPerSecond !== 'number' || !Number.isFinite(metersPerSecond) || metersPerSecond < 0) return null;
+    return `${Math.round(metersPerSecond * 3.6)} km/h`;
+  };
+
+  const presenceFor = (member: RoomMember) => {
+    if (member.isYou) {
+      return connection === 'live'
+        ? { label: 'Connected', color: COLORS.green }
+        : { label: 'Reconnecting', color: COLORS.amber };
+    }
+    if (member.connectionState === 'DISCONNECTED') return { label: 'Disconnected', color: '#6B7280' };
+    if (member.locationFreshness === 'STALE') return { label: 'Stale location', color: COLORS.amber };
+    if (member.connectionState === 'CONNECTED' && member.locationFreshness === 'FRESH') {
+      return { label: 'Connected', color: COLORS.green };
+    }
+    return { label: 'Status unknown', color: COLORS.muted };
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -96,7 +133,7 @@ export default function RideControlsScreen({
         <View style={[styles.statusBanner, connection === 'live' ? styles.liveBanner : styles.offlineBanner]}>
           <View style={[styles.statusDot, { backgroundColor: connection === 'live' ? COLORS.green : COLORS.amber }]} />
           <Text style={styles.statusText}>
-            {connection === 'live' ? 'LIVE — Location sharing active' : 'OFFLINE — Reconnecting...'}
+            {connection === 'live' ? 'CONNECTED — Socket active' : 'OFFLINE — Reconnecting...'}
           </Text>
         </View>
 
@@ -124,41 +161,57 @@ export default function RideControlsScreen({
               </Pressable>
             </View>
             <Text style={styles.alertMainText}>{breakdownRiderName}</Text>
+            {breakdownVehicleModel ? <Text style={styles.alertNote}>{breakdownVehicleModel}</Text> : null}
+            {breakdownPlateNumber ? <Text style={styles.alertNote}>{breakdownPlateNumber}</Text> : null}
             <Text style={styles.breakdownReason}>{REASON_LABELS[breakdownReason] || breakdownReason}</Text>
             {breakdownNote && <Text style={styles.alertNote}>"{breakdownNote}"</Text>}
           </View>
         )}
 
         {/* SEPARATION ALERT */}
-        {separationActive && !breakdownActive && (
-          <View style={styles.separationBanner}>
-            <Text style={styles.separationBadge}>📍 GROUP SEPARATION</Text>
-            <Text style={styles.alertMainText}>
-              {separationRole === 'rider'
-                ? 'You are behind the main group'
-                : 'A rider is separated from group'}
-            </Text>
-            <Text style={styles.separationGuidance}>
-              {separationRole === 'rider'
-                ? '⚡ Suggested: 45-55 km/h (catch up)'
-                : '🐢 Suggested: 30-40 km/h (slow down)'}
-            </Text>
-          </View>
-        )}
+        {separations.map((separation) => {
+          const rider = separation.separated_rider;
+          const distance = formatDistance(rider?.distance_from_nearest_meters);
+          const riderSpeed = formatSpeed(rider?.recommended_speed);
+          const groupSpeed = formatSpeed(separation.group_recommendation?.recommended_speed);
+          const isYou = rider?.user_id === currentUserId;
+          return (
+            <View key={rider?.user_id} style={styles.separationBanner}>
+              <Text style={styles.separationBadge}>📍 GROUP SEPARATION</Text>
+              <Text style={styles.alertMainText}>
+                {isYou ? 'You are separated from the group' : `${rider?.name || 'A rider'} is separated`}
+              </Text>
+              {distance && <Text style={styles.separationDetail}>Distance: {distance}</Text>}
+              {rider?.vehicle_model && <Text style={styles.alertNote}>{rider.vehicle_model}{rider.plate_number ? ` • ${rider.plate_number}` : ''}</Text>}
+              {!rider?.vehicle_model && rider?.plate_number && <Text style={styles.alertNote}>{rider.plate_number}</Text>}
+              {riderSpeed && <Text style={styles.separationGuidance}>Suggested rider speed: {riderSpeed}</Text>}
+              {groupSpeed && <Text style={styles.separationGuidance}>Suggested group speed: {groupSpeed}</Text>}
+            </View>
+          );
+        })}
 
         {/* GROUP ROSTER */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>
             Group Roster ({roomMembers.length} {roomMembers.length === 1 ? 'Rider' : 'Riders'})
           </Text>
-          {roomMembers.map((member) => (
-            <View key={member.user_id} style={styles.rosterItem}>
-              <View style={[styles.rosterDot, { backgroundColor: COLORS.green }]} />
-              <Text style={styles.rosterName}>
-                {member.isYou || member.name === riderName ? `${riderName} (You)` : member.name}
-              </Text>
-            </View>
-          ))}
+          {roomMembers.map((member) => {
+            const presence = presenceFor(member);
+            return (
+              <View key={member.user_id} style={styles.rosterItem}>
+                <View style={[styles.rosterDot, { backgroundColor: presence.color }]} />
+                <Text style={styles.rosterName}>
+                  {member.isYou || member.name === riderName ? `${riderName} (You)` : member.name}
+                </Text>
+                <Text style={[styles.rosterStatus, { color: presence.color }]}>{presence.label}</Text>
+                {(member.vehicleModel || member.plateNumber) ? (
+                  <Text style={styles.rosterVehicle}>
+                    {[member.vehicleModel, member.plateNumber].filter(Boolean).join(' • ')}
+                  </Text>
+                ) : null}
+              </View>
+            );
+          })}
         </View>
 
         {/* SAFETY CONTROLS */}
@@ -333,6 +386,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  separationDetail: {
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: '600',
+  },
   card: {
     backgroundColor: COLORS.card,
     borderColor: COLORS.line,
@@ -360,6 +418,17 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 14,
     fontWeight: '600',
+  },
+  rosterStatus: {
+    marginLeft: 'auto',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  rosterVehicle: {
+    color: COLORS.muted,
+    fontSize: 11,
+    marginLeft: 18,
+    flexBasis: '100%',
   },
   refuelButton: {
     backgroundColor: COLORS.green,

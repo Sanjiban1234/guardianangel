@@ -1,10 +1,11 @@
-import crypto from 'crypto';
-import { QueryRunner } from '../db/QueryRunner';
+import { PresenceService, RiderPresence } from './PresenceService';
 import type { GroupSeparationAlertPayload, GroupReunitedPayload } from '@guardian-angel/contracts/websocket-events';
 
 export interface RiderLocation {
   user_id: string;
   name: string;
+  vehicle_model?: string;
+  plate_number?: string;
   latitude: number;
   longitude: number;
   speed: number;
@@ -37,6 +38,7 @@ interface RiderState {
   lastAlertEmittedAt: number | null;
   isSeparated: boolean;
   reunionPendingSince: number | null;
+  dataState: 'ACTIVE' | 'INSUFFICIENT_DATA';
 }
 
 export class GroupCoherenceService {
@@ -46,14 +48,10 @@ export class GroupCoherenceService {
   private readonly riderStates = new Map<string, RiderState>();
 
   constructor(
-    private readonly db: QueryRunner,
+    private readonly presenceService: PresenceService,
     configPartial?: Partial<CoherenceConfig>
   ) {
     this.config = { ...DEFAULT_CONFIG, ...configPartial };
-  }
-
-  private hashToken(token: string): string {
-    return crypto.createHash('sha256').update(token.toUpperCase()).digest('hex');
   }
 
   /**
@@ -136,39 +134,17 @@ export class GroupCoherenceService {
     const reunions: GroupReunitedPayload[] = [];
 
     try {
-      const tokenHash = this.hashToken(groupCode);
-      const result = await this.db.run(
-        `SELECT rcl.user_id,
-                u.name,
-                ST_Y(rcl.location::geometry) AS latitude,
-                ST_X(rcl.location::geometry) AS longitude,
-                rcl.speed,
-                rcl.device_timestamp_ms AS timestamp,
-                EXISTS (
-                  SELECT 1 FROM vehicle_breakdowns vb
-                  WHERE vb.room_id = rcl.room_id
-                    AND vb.user_id = rcl.user_id
-                    AND vb.resolved_at IS NULL
-                ) AS has_active_breakdown
-         FROM rider_current_locations rcl
-         JOIN ride_rooms rr ON rr.id = rcl.room_id
-         JOIN users u ON u.id = rcl.user_id
-         WHERE rr.token_hash = $1 AND rr.status = 'active'`,
-        [tokenHash]
-      );
-
-      const riders: (RiderLocation & { has_active_breakdown?: boolean })[] =
-        result.rows.map((row) => ({
-          user_id: row.user_id,
-          name: row.name,
-          latitude: Number(row.latitude),
-          longitude: Number(row.longitude),
-          speed: Number(row.speed),
-          timestamp: Number(row.timestamp),
-          has_active_breakdown: Boolean(row.has_active_breakdown),
-        }));
+      const presence = await this.presenceService.getRiderPresence(groupCode, now);
+      const riders: (RiderLocation & { has_active_breakdown?: boolean })[] = presence
+        .filter((r): r is RiderPresence & Required<Pick<RiderPresence, 'latitude' | 'longitude' | 'speed' | 'last_updated_at'>> =>
+          r.connection_state === 'CONNECTED' && r.location_freshness === 'FRESH' &&
+          r.latitude != null && r.longitude != null && r.speed != null && r.last_updated_at != null,
+        )
+        .map((r) => ({ user_id: r.user_id, name: r.name, vehicle_model: r.vehicle_model, plate_number: r.plate_number, latitude: r.latitude, longitude: r.longitude,
+          speed: r.speed, timestamp: r.last_updated_at, has_active_breakdown: r.has_active_breakdown }));
 
       if (riders.length < 2) {
+        for (const state of this.riderStates.values()) state.dataState = 'INSUFFICIENT_DATA';
         return { alerts, reunions };
       }
 
@@ -182,9 +158,11 @@ export class GroupCoherenceService {
             lastAlertEmittedAt: null,
             isSeparated: false,
             reunionPendingSince: null,
+            dataState: 'ACTIVE',
           });
         }
         const state = this.riderStates.get(stateKey)!;
+        state.dataState = 'ACTIVE';
 
         // Calculate distance to all other riders
         const otherRiders = riders.filter((_, idx) => idx !== i);
@@ -266,6 +244,8 @@ export class GroupCoherenceService {
                 separated_rider: {
                   user_id: rider.user_id,
                   name: rider.name,
+                  vehicle_model: rider.vehicle_model,
+                  plate_number: rider.plate_number,
                   current_speed: rider.speed,
                   recommended_speed: separatedRecommendedSpeed,
                   distance_from_nearest_meters: Math.round(minDistanceMeters * 10) / 10,

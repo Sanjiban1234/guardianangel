@@ -24,6 +24,16 @@ export interface SessionJoinedPayload {
   members: Array<{
     user_id: string;
     name: string;
+    role: string;
+    vehicle_model?: string;
+    plate_number?: string;
+    latitude?: number;
+    longitude?: number;
+    accuracy?: number;
+    device_timestamp?: number;
+    last_updated_at?: number;
+    connection_state: 'CONNECTED' | 'DISCONNECTED';
+    location_freshness: 'FRESH' | 'STALE';
   }>;
 }
 
@@ -34,6 +44,10 @@ export interface SessionJoinedPayload {
 export interface SessionMemberJoinedPayload {
   user_id: string;
   name: string;
+  vehicle_model?: string;
+  plate_number?: string;
+  connection_state: 'CONNECTED';
+  location_freshness: 'STALE';
 }
 
 /**
@@ -71,6 +85,9 @@ export interface LocationUpdatePayload {
 export interface LocationBroadcastPayload extends LocationUpdatePayload {
   user_id: string;
   name: string;
+  last_updated_at: number;
+  connection_state: 'CONNECTED';
+  location_freshness: 'FRESH';
 }
 
 /**
@@ -139,6 +156,8 @@ export interface SosBroadcastPayload {
   alarm_no: string;  // Database alert primary key
   user_id: string;   // Impacted rider ID
   name: string;      // Impacted rider name
+  vehicle_model?: string;
+  plate_number?: string;
   timestamp: number; // SOS event timestamp
   latitude: number;
   longitude: number;
@@ -155,6 +174,8 @@ export interface PeerLastKnownPayload {
   timestamp: number;
   latitude: number;
   longitude: number;
+  connection_state: 'DISCONNECTED';
+  location_freshness: 'STALE';
 }
 
 /**
@@ -165,6 +186,8 @@ export interface GroupSeparationAlertPayload {
   separated_rider: {
     user_id: string;
     name: string;
+    vehicle_model?: string;
+    plate_number?: string;
     current_speed: number;
     recommended_speed: number | null;
     distance_from_nearest_meters: number;
@@ -213,6 +236,8 @@ export interface VehicleBreakdownReportedPayload {
   breakdown_id: string;
   user_id: string;
   name: string;
+  vehicle_model?: string;
+  plate_number?: string;
   reason?: VehicleBreakdownReason;
   note?: string;
   latitude: number;

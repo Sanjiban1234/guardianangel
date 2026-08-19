@@ -27,6 +27,8 @@ export interface RoomMember {
   user_id: string;
   name: string;
   role: string;
+  vehicle_model?: string;
+  plate_number?: string;
 }
 
 export interface RoomVerification {
@@ -200,14 +202,18 @@ export class RoomService {
     const tokenHash = this.hashToken(groupCode.toUpperCase());
     try {
       const result = await this.db.run(
-        `SELECT rm.user_id, u.name, rm.role
+        `SELECT rm.user_id, u.name, rm.role, u.vehicle_model, u.plate_number
          FROM room_members rm
          JOIN ride_rooms rr ON rr.id = rm.room_id
          JOIN users u ON rm.user_id = u.id
          WHERE rr.token_hash = $1 AND rr.status = 'active'`,
         [tokenHash]
       );
-      return result.rows as RoomMember[];
+      return result.rows.map((row) => ({
+        ...row,
+        vehicle_model: row.vehicle_model || undefined,
+        plate_number: row.plate_number || undefined,
+      })) as RoomMember[];
     } catch {
       return [];
     }

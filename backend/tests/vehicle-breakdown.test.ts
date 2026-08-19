@@ -7,6 +7,7 @@ import { FcmPushService } from '../src/services/FcmPushService';
 import { VehicleBreakdownService } from '../src/services/VehicleBreakdownService';
 import { VehicleBreakdownHandler } from '../src/handlers/VehicleBreakdownHandler';
 import { GroupCoherenceService } from '../src/services/GroupCoherenceService';
+import { PresenceService } from '../src/services/PresenceService';
 import { Server } from 'socket.io';
 import crypto from 'crypto';
 
@@ -327,7 +328,7 @@ describe('Vehicle Breakdown Module Tests', () => {
     it('should suppress generic separation alert when separated rider has an active breakdown', async () => {
       const mockQueryFn = jest.fn();
       const queryRunner = new QueryRunner(mockQueryFn);
-      const coherenceService = new GroupCoherenceService(queryRunner);
+      const coherenceService = new GroupCoherenceService(new PresenceService(queryRunner));
 
       const tokenHash = crypto
         .createHash('sha256')

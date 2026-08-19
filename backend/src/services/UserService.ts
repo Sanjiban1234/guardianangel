@@ -8,11 +8,13 @@ export interface RegisterResult {
   id: string;
   name: string;
   email: string;
+  vehicle_model?: string;
+  plate_number?: string;
 }
 
 export interface LoginResult {
   token: string;
-  user: { id: string; name: string; email: string; profile_complete: boolean };
+  user: { id: string; name: string; email: string; profile_complete: boolean; vehicle_model?: string; plate_number?: string };
 }
 
 export class UserService {
@@ -22,7 +24,9 @@ export class UserService {
     name: string,
     email: string,
     password: string,
-    phone: string
+    phone: string,
+    vehicleModel?: string,
+    plateNumber?: string,
   ): Promise<RegisterResult> {
     // Check if email is already registered
     const existingEmail = await this.db.run(
@@ -37,8 +41,10 @@ export class UserService {
     const passwordHash = await bcrypt.hash(password, salt);
 
     const result = await this.db.run(
-      'INSERT INTO users (name, email, password_hash, phone, profile_complete) VALUES ($1, $2, $3, $4, true) RETURNING id, name, email',
-      [name, email, passwordHash, phone]
+      `INSERT INTO users (name, email, password_hash, phone, vehicle_model, plate_number, profile_complete)
+       VALUES ($1, $2, $3, $4, $5, $6, true)
+       RETURNING id, name, email, vehicle_model, plate_number`,
+      [name, email, passwordHash, phone, vehicleModel, plateNumber]
     );
 
     return result.rows[0] as RegisterResult;
@@ -69,7 +75,14 @@ export class UserService {
 
     return {
       token,
-      user: { id: user.id, name: user.name, email: user.email, profile_complete: user.profile_complete !== false },
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        profile_complete: user.profile_complete !== false,
+        vehicle_model: user.vehicle_model || undefined,
+        plate_number: user.plate_number || undefined,
+      },
     };
   }
 

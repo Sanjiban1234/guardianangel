@@ -50,15 +50,15 @@ export class RideSocketController {
 
       const roomState: RoomState = { currentGroupCode: null };
 
-      new SessionHandler(io, socket, roomState, this.roomService).register();
+      new SessionHandler(io, socket, roomState, this.roomService, this.presenceService).register();
       new RideStartHandler(io, socket, roomState, this.roomService).register();
       new RideEndHandler(io, socket, roomState, this.roomService).register();
       new LocationHandler(socket, roomState, this.telemetryService, this.coherenceService).register();
       new BulkSyncHandler(socket, roomState, this.telemetryService).register();
-      new CrashHandler(io, socket, roomState, this.alertService, this.crashRepo, this.medicalService).register();
+      new CrashHandler(io, socket, roomState, this.alertService, this.crashRepo, this.medicalService, this.presenceService).register();
       new DisconnectHandler(socket, roomState, this.presenceService).register();
       if (this.breakdownService) {
-        new VehicleBreakdownHandler(io, socket, roomState, this.breakdownService, this.medicalService).register();
+        new VehicleBreakdownHandler(io, socket, roomState, this.breakdownService, this.medicalService, this.presenceService).register();
       }
       if (this.refillService) new RefillNotificationHandler(io, socket, this.refillService).register();
 

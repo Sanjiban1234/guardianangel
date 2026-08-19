@@ -2,6 +2,7 @@ import { Server } from 'socket.io';
 import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { VehicleBreakdownService } from '../services/VehicleBreakdownService';
 import { MedicalInfoService } from '../services/MedicalInfoService';
+import { PresenceService } from '../services/PresenceService';
 import { RoomState } from './SessionHandler';
 import type {
   VehicleBreakdownPayload,
@@ -15,7 +16,8 @@ export class VehicleBreakdownHandler {
     private readonly socket: AuthenticatedSocket,
     private readonly roomState: RoomState,
     private readonly breakdownService: VehicleBreakdownService,
-    private readonly medicalService?: MedicalInfoService
+    private readonly medicalService?: MedicalInfoService,
+    private readonly presenceService?: PresenceService,
   ) {}
 
   register(): void {
@@ -55,11 +57,16 @@ export class VehicleBreakdownHandler {
       const medicalInfo = this.medicalService
         ? await this.medicalService.getMedicalInfoSnapshot(userId)
         : undefined;
+      const riderIdentity = this.presenceService
+        ? (await this.presenceService.getRiderPresence(groupCode)).find((rider) => rider.user_id === userId)
+        : undefined;
 
       const broadcastPayload: VehicleBreakdownReportedPayload = {
         breakdown_id: record.id,
         user_id: userId,
         name,
+        vehicle_model: riderIdentity?.vehicle_model,
+        plate_number: riderIdentity?.plate_number,
         reason: record.reason,
         note: record.note,
         latitude: record.latitude,

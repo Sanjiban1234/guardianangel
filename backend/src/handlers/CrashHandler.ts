@@ -3,6 +3,7 @@ import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { EmergencyAlertService } from '../services/EmergencyAlertService';
 import { CrashCandidateRepository } from '../repositories/CrashCandidateRepository';
 import { MedicalInfoService } from '../services/MedicalInfoService';
+import { PresenceService } from '../services/PresenceService';
 import { RoomState } from './SessionHandler';
 
 export class CrashHandler {
@@ -18,7 +19,8 @@ export class CrashHandler {
     private readonly roomState: RoomState,
     private readonly alertService: EmergencyAlertService,
     private readonly crashRepo: CrashCandidateRepository,
-    private readonly medicalService?: MedicalInfoService
+    private readonly medicalService?: MedicalInfoService,
+    private readonly presenceService?: PresenceService,
   ) {}
 
   register(): void {
@@ -141,11 +143,16 @@ export class CrashHandler {
       const medicalInfo = this.medicalService
         ? await this.medicalService.getMedicalInfoSnapshot(userId)
         : undefined;
+      const riderIdentity = this.presenceService
+        ? (await this.presenceService.getRiderPresence(groupCode)).find((rider) => rider.user_id === userId)
+        : undefined;
 
       this.io.to(`group:${groupCode}`).emit('sos:broadcast', {
         alarm_no: alert.alarm_no,
         user_id: userId,
         name,
+        vehicle_model: riderIdentity?.vehicle_model,
+        plate_number: riderIdentity?.plate_number,
         timestamp: data.timestamp,
         latitude: data.latitude,
         longitude: data.longitude,

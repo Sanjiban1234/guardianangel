@@ -51,6 +51,9 @@ export class LocationHandler {
         longitude: reading.longitude,
         accuracy: reading.accuracy,
         speed: reading.speed,
+        last_updated_at: Date.now(),
+        connection_state: 'CONNECTED',
+        location_freshness: 'FRESH',
       };
 
       console.log(`[LIVE LOCATION AUDIT] Broadcasting location:broadcast for ${name} (${userId}) in group ${groupCode}`);

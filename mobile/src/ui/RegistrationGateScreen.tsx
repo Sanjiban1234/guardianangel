@@ -130,7 +130,14 @@ export function RegistrationGateScreen({
         const response = await fetch(`${apiBaseUrl}/api/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: data.fullName, email: data.email, password: data.password, phone: data.phoneNumber }),
+        body: JSON.stringify({
+          name: data.fullName,
+          email: data.email,
+          password: data.password,
+          phone: data.phoneNumber,
+          vehicle_model: data.vehicleModel,
+          plate_number: data.plateNumber,
+        }),
         });
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || 'Registration failed');

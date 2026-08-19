@@ -36,7 +36,7 @@ export class AuthRouter {
     req: AuthenticatedRequest,
     res: Response
   ): Promise<void> {
-    const { name, email, password, phone } = req.body;
+    const { name, email, password, phone, vehicle_model, plate_number } = req.body;
 
     if (!name || !email || !password || !phone) {
       res.status(400).json({ error: 'Name, email, password, and phone number are required' });
@@ -46,7 +46,9 @@ export class AuthRouter {
       typeof name !== 'string' ||
       typeof email !== 'string' ||
       typeof password !== 'string' ||
-      typeof phone !== 'string'
+      typeof phone !== 'string' ||
+      (vehicle_model !== undefined && typeof vehicle_model !== 'string') ||
+      (plate_number !== undefined && typeof plate_number !== 'string')
     ) {
       res.status(400).json({ error: 'Invalid input format' });
       return;
@@ -71,6 +73,18 @@ export class AuthRouter {
     }
     if (phone.length > 20) {
       res.status(400).json({ error: 'Phone number must not exceed 20 characters' });
+      return;
+    }
+    // Legacy accounts may not have vehicle data. New mobile registration
+    // requires it, while this API safely accepts older clients without it.
+    const vehicleModel = vehicle_model?.trim();
+    const plateNumber = plate_number?.trim().replace(/\s+/g, ' ');
+    if (vehicle_model !== undefined && (!vehicleModel || vehicleModel.length > 100)) {
+      res.status(400).json({ error: 'Vehicle model must be between 1 and 100 characters' });
+      return;
+    }
+    if (plate_number !== undefined && (!plateNumber || plateNumber.length > 50)) {
+      res.status(400).json({ error: 'Plate number must be between 1 and 50 characters' });
       return;
     }
 
@@ -102,10 +116,10 @@ export class AuthRouter {
     }
 
     try {
-      const user = await this.userService.register(name, email.toLowerCase().trim(), password, normalizedPhone);
+      const user = await this.userService.register(name.trim(), email.toLowerCase().trim(), password, normalizedPhone, vehicleModel, plateNumber);
       res.status(201).json({
         message: 'User registered successfully',
-        user: { id: user.id, name: user.name, email: user.email },
+        user: { id: user.id, name: user.name, email: user.email, vehicle_model: user.vehicle_model, plate_number: user.plate_number },
       });
     } catch (err: any) {
       if (err?.code === 'EMAIL_TAKEN') {

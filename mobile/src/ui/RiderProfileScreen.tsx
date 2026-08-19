@@ -35,13 +35,13 @@ export interface RiderProfileData {
 }
 
 export const INITIAL_PROFILE_DATA: RiderProfileData = {
-  vehicleModel: 'Bajaj Pulsar 150',
-  plateNumber: 'BA 2 PA 1234',
-  vehicleColor: 'Matte Black',
-  bloodGroup: 'O+',
-  allergies: 'Penicillin',
-  emergencyContact: 'Sarah Vance (Sister) +1-555-0199',
-  medicalNotes: 'No major surgical history. Wears prescription contacts.',
+  vehicleModel: '',
+  plateNumber: '',
+  vehicleColor: '',
+  bloodGroup: 'Skip / Unknown',
+  allergies: '',
+  emergencyContact: '',
+  medicalNotes: '',
 };
 
 const BLOOD_GROUPS = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'Skip / Unknown'];
@@ -132,10 +132,10 @@ export function RiderProfileScreen({
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>🏍️ Vehicle Details</Text>
-            <Text style={styles.cardBadge}>AMBIENT / VISIBLE TO GROUP</Text>
+            <Text style={styles.cardBadge}>LOCAL PROFILE</Text>
           </View>
           <Text style={styles.cardCopy}>
-            Vehicle information appears in the ride member roster and in breakdown reports so your group can identify your bike.
+            Registered vehicle details identify you to members of your active ride. Changes made here stay local until vehicle-profile updates are available.
           </Text>
 
           <Text style={styles.fieldLabel}>VEHICLE MAKE & MODEL</Text>

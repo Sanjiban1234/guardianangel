@@ -1,12 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View, Text, Pressable, Platform } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, Region } from 'react-native-maps';
+import PeerRiderMarker, { PeerRider } from './PeerRiderMarker';
 
-interface RiderLocation {
-  user_id: string;
-  name: string;
-  latitude: number;
-  longitude: number;
+interface RiderLocation extends PeerRider {
   isYou?: boolean;
 }
 
@@ -29,15 +26,8 @@ const DEFAULT_REGION: Region = {
   longitudeDelta: 0.05,
 };
 
-const RIDER_COLORS = ['#2F80ED', '#E879F9', '#F59E0B', '#06B6D4', '#F43F5E', '#8B5CF6', '#14B8A6', '#FB923C'];
-
-function stableColorForId(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) {
-    hash = ((hash << 5) - hash + id.charCodeAt(i)) | 0;
-  }
-  return RIDER_COLORS[Math.abs(hash) % RIDER_COLORS.length];
-}
+/** Places retain the conventional pin vocabulary; peer riders use PeerRiderMarker. */
+export const DESTINATION_PIN_COLOR = '#DC2626';
 
 export function LiveMapView({
   currentLocation,
@@ -50,6 +40,7 @@ export function LiveMapView({
 }: LiveMapViewProps) {
   const mapRef = useRef<MapView>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [selectedRiderId, setSelectedRiderId] = useState<string | null>(null);
   const hasSetInitialRegion = useRef(false);
 
   // Compute initial region: use current location if available, otherwise default
@@ -149,12 +140,11 @@ export function LiveMapView({
           .map(rider => {
             console.log(`[LIVE LOCATION DIAG] [BOUNDARY-H] PEER_MARKER name=${rider.name} lat=${rider.latitude.toFixed(6)} lng=${rider.longitude.toFixed(6)}`);
             return (
-              <Marker
+              <PeerRiderMarker
                 key={rider.user_id}
-                coordinate={{ latitude: rider.latitude, longitude: rider.longitude }}
-                title={rider.name}
-                description="Group member"
-                pinColor={stableColorForId(rider.user_id)}
+                rider={rider}
+                selected={selectedRiderId === rider.user_id}
+                onPress={() => setSelectedRiderId(rider.user_id)}
               />
             );
           })}
@@ -165,7 +155,7 @@ export function LiveMapView({
             coordinate={{ latitude: destination.latitude, longitude: destination.longitude }}
             title={destination.label || 'Destination'}
             description="Ride destination"
-            pinColor="red"
+            pinColor={DESTINATION_PIN_COLOR}
           />
         )}
 

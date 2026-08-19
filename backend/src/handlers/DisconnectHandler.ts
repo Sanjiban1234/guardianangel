@@ -26,6 +26,8 @@ export class DisconnectHandler {
       return;
     }
 
+    this.presenceService.markDisconnected(groupCode, userId, socketId);
+
     const roomSocketsBefore = this.socket.nsp?.adapter?.rooms?.get(`group:${groupCode}`)?.size ?? 'unknown';
     console.log(`[SOCKET BACKEND DISCONNECT]   roomSocketCountBefore=${roomSocketsBefore} (includes this socket until Socket.IO removes it)`);
 
@@ -35,6 +37,8 @@ export class DisconnectHandler {
       timestamp: Date.now(),
       latitude: 0,
       longitude: 0,
+      connection_state: 'DISCONNECTED' as const,
+      location_freshness: 'STALE' as const,
     };
 
     try {

@@ -9,8 +9,8 @@
  *    - Tapping a node in the chart highlights the distance (km) and speed (km/h) at that point.
  * 
  * 2. EXPECTED TIME vs. ACTUAL TIME:
- *    - Framed post-hoc as "Pace Benchmark (45 km/h group avg)".
- *    - Never presented as a predictive ETA to avoid deceptive precision.
+ *    - Only display a pace benchmark when the backend supplies one.
+ *    - Never present an invented benchmark as a predictive ETA.
  * 
  * 3. GRACEFUL LOW-DATA FALLBACKS:
  *    - If total_distance_meters < 500 or speed_profile.length < 3, `has_low_data` is set.
@@ -43,73 +43,11 @@ import { useRideSummary } from './useRideSummary';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Default sample mock data for testing/previewing full populated state
-export const MOCK_FULL_RIDE_SUMMARY: RideSummaryData = {
-  room_id: 'rm-99201-ph',
-  group_code: 'GA-8821',
-  user_id: 'usr-102',
-  rider_name: 'Alex Vance',
-  start_time_ms: Date.now() - 4320000, // ~1 hr 12 mins ago
-  end_time_ms: Date.now(),
-  total_distance_meters: 48200, // 48.2 km
-  actual_duration_ms: 4320000, // 1h 12m (72 mins)
-  group_members_count: 4,
-  speed_profile: [
-    { distance_km: 0, speed_kmh: 0, timestamp_ms: Date.now() - 4320000 },
-    { distance_km: 4.2, speed_kmh: 38, timestamp_ms: Date.now() - 4000000 },
-    { distance_km: 9.8, speed_kmh: 52, timestamp_ms: Date.now() - 3600000 },
-    { distance_km: 15.1, speed_kmh: 48, timestamp_ms: Date.now() - 3200000 },
-    { distance_km: 21.0, speed_kmh: 64, timestamp_ms: Date.now() - 2800000 },
-    { distance_km: 28.4, speed_kmh: 59, timestamp_ms: Date.now() - 2400000 },
-    { distance_km: 34.2, speed_kmh: 84, timestamp_ms: Date.now() - 1900000, is_speed_spike: true },
-    { distance_km: 39.0, speed_kmh: 45, timestamp_ms: Date.now() - 1400000 },
-    { distance_km: 44.5, speed_kmh: 32, timestamp_ms: Date.now() - 800000 },
-    { distance_km: 48.2, speed_kmh: 0, timestamp_ms: Date.now() },
-  ],
-  pace_benchmark: {
-    expected_duration_ms: 3840000, // 1h 04m (64 mins)
-    benchmark_label: '45 km/h standard group pace',
-    delta_minutes: 8, // +8 mins slower due to traffic/regroup stops
-  },
-  weather_snapshot: {
-    condition: 'Clear Sky',
-    temperature_celsius: 24.5,
-    precipitation_probability: 0,
-    wind_speed_kmh: 14.2,
-    fetched_at: new Date().toISOString(),
-  },
-  has_low_data: false,
-  had_emergency_alert: false,
-};
-
-// Default sample mock data for low-data / telemetry gap state
-export const MOCK_LOW_DATA_RIDE_SUMMARY: RideSummaryData = {
-  room_id: 'rm-99202-ph',
-  group_code: 'GA-3304',
-  user_id: 'usr-102',
-  rider_name: 'Alex Vance',
-  start_time_ms: Date.now() - 300000, // 5 mins ago
-  end_time_ms: Date.now(),
-  total_distance_meters: 350, // 350 meters (under 500m threshold)
-  actual_duration_ms: 300000,
-  group_members_count: 3,
-  speed_profile: [
-    { distance_km: 0, speed_kmh: 0, timestamp_ms: Date.now() - 300000 },
-    { distance_km: 0.35, speed_kmh: 12, timestamp_ms: Date.now() },
-  ],
-  pace_benchmark: null,
-  weather_snapshot: null,
-  has_low_data: true,
-  low_data_reason: 'SHORT_DISTANCE',
-  had_emergency_alert: false,
-};
-
 interface RideSummaryScreenProps {
   groupCode: string;
   authToken: string;
   apiBaseUrl: string;
   onReturnToPortal?: () => void;
-  onExportGpx?: () => void;
 }
 
 export const RideSummaryScreen: React.FC<RideSummaryScreenProps> = ({
@@ -117,7 +55,6 @@ export const RideSummaryScreen: React.FC<RideSummaryScreenProps> = ({
   authToken,
   apiBaseUrl,
   onReturnToPortal,
-  onExportGpx,
 }) => {
   const [selectedPoint, setSelectedPoint] = useState<DownsampledSpeedPoint | null>(null);
   const { data, loading, error } = useRideSummary(groupCode, authToken, apiBaseUrl);
@@ -249,7 +186,7 @@ export const RideSummaryScreen: React.FC<RideSummaryScreenProps> = ({
             ) : (
               <View style={styles.paceNoteBoxEmpty}>
                 <Text style={styles.paceNoteTextEmpty}>
-                  Short ride distance — pace comparison requires at least 1.0 km recorded data.
+                  A server-calculated pace benchmark is unavailable for this ride.
                 </Text>
               </View>
             )}
@@ -282,7 +219,7 @@ export const RideSummaryScreen: React.FC<RideSummaryScreenProps> = ({
               <Text style={styles.lowDataBody}>
                 {data.low_data_reason === 'SHORT_DISTANCE'
                   ? 'Ride distance was under 500 meters. Speed profiles require a minimum route distance to generate meaningful telemetry graphs.'
-                  : 'Telemetry signal gap detected during this session. Insufficient GPS waypoints to plot a complete route speed line.'}
+                  : 'A speed profile was not provided for this ride.'}
               </Text>
             </View>
           ) : (
@@ -362,13 +299,13 @@ export const RideSummaryScreen: React.FC<RideSummaryScreenProps> = ({
                 <Text style={styles.avatarText}>YOU</Text>
               </View>
               <View style={styles.groupMemberInfo}>
-                <Text style={styles.groupMemberName}>{data.rider_name}</Text>
-                <Text style={styles.groupMemberRole}>Completed session with {data.group_members_count - 1} other riders</Text>
+                <Text style={styles.groupMemberName}>{data.rider_name || 'Rider'}</Text>
+                <Text style={styles.groupMemberRole}>Telemetry recorded for {data.group_members_count} rider{data.group_members_count === 1 ? '' : 's'}</Text>
               </View>
             </View>
             <View style={styles.v2NoteBox}>
               <Text style={styles.v2NoteText}>
-                Group comparison pace: All {data.group_members_count} riders arrived safely.
+                Participant count is based on recorded telemetry for this ride.
               </Text>
             </View>
           </View>
@@ -398,7 +335,7 @@ export const RideSummaryScreen: React.FC<RideSummaryScreenProps> = ({
           </View>
         </View>
 
-        {/* 5. ACTION BUTTONS (Concrete, Product-Specific CTAs) */}
+        {/* 5. ACTIONS */}
         <View style={styles.actionContainer}>
           <TouchableOpacity
             style={styles.primaryActionButton}
@@ -408,13 +345,6 @@ export const RideSummaryScreen: React.FC<RideSummaryScreenProps> = ({
             <Text style={styles.primaryActionText}>Return to Session Portal</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.secondaryActionButton}
-            onPress={onExportGpx}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.secondaryActionText}>Export GPX Track Log</Text>
-          </TouchableOpacity>
         </View>
 
       </ScrollView>

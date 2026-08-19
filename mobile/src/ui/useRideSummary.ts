@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { RideSummaryData, DownsampledSpeedPoint, PaceBenchmark } from '../../../contracts/ride-summary';
+import { RideSummaryData } from '../../../contracts/ride-summary';
 import { API_BASE_URL } from '../config/env';
 
 export async function fetchRideSummaryFromBackend(
@@ -25,20 +25,7 @@ export async function fetchRideSummaryFromBackend(
 
   const rawSummary = await response.json();
 
-  // Compute post-hoc pace benchmark (45 km/h group average)
-  const distanceKm = (rawSummary.total_distance_meters || 0) / 1000;
-  const expectedDurationHours = distanceKm / 45;
-  const expectedDurationMs = Math.round(expectedDurationHours * 3600 * 1000);
   const actualDurationMs = rawSummary.duration_ms || 0;
-  const deltaMinutes = Math.round((actualDurationMs - expectedDurationMs) / 60000);
-
-  const paceBenchmark: PaceBenchmark | null = distanceKm >= 0.5 ? {
-    expected_duration_ms: expectedDurationMs,
-    benchmark_label: '45 km/h standard group pace',
-    delta_minutes: deltaMinutes,
-  } : null;
-
-  const hasLowData = (rawSummary.total_distance_meters || 0) < 500;
 
   // Fetch group members count
   let groupMembersCount = 0;
@@ -69,11 +56,13 @@ export async function fetchRideSummaryFromBackend(
     total_distance_meters: rawSummary.total_distance_meters || 0,
     actual_duration_ms: actualDurationMs,
     group_members_count: groupMembersCount,
-    speed_profile: [], // Downsampled from telemetry history endpoint
-    pace_benchmark: paceBenchmark,
+    // This endpoint does not currently return a telemetry profile or a
+    // server-calculated benchmark, so the UI must present both as unavailable.
+    speed_profile: [],
+    pace_benchmark: null,
     weather_snapshot: null,
-    has_low_data: hasLowData,
-    low_data_reason: hasLowData ? 'SHORT_DISTANCE' : 'NONE',
+    has_low_data: true,
+    low_data_reason: 'NONE',
   };
 }
 

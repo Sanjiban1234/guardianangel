@@ -1,16 +1,19 @@
 import { QueryRunner } from '../src/db/QueryRunner';
 import { GroupCoherenceService } from '../src/services/GroupCoherenceService';
+import { PresenceService } from '../src/services/PresenceService';
 
 describe('GroupCoherenceService Unit & Integration Tests', () => {
   let mockQueryFn: jest.Mock;
   let queryRunner: QueryRunner;
+  let presenceService: PresenceService;
   let coherenceService: GroupCoherenceService;
 
   beforeEach(() => {
     jest.clearAllMocks();
     mockQueryFn = jest.fn();
     queryRunner = new QueryRunner(mockQueryFn);
-    coherenceService = new GroupCoherenceService(queryRunner);
+    presenceService = new PresenceService(queryRunner);
+    coherenceService = new GroupCoherenceService(presenceService);
   });
 
   describe('Pure Mathematical Utilities', () => {
@@ -311,6 +314,70 @@ describe('GroupCoherenceService Unit & Integration Tests', () => {
       expect(res.reunions).toHaveLength(1);
       expect(res.reunions[0].user_id).toBe('user-sep');
       expect(res.reunions[0].name).toBe('Dave');
+    });
+
+    it('does not create a new separation when the other rider is disconnected and stale', async () => {
+      const now = Date.now();
+      presenceService.markConnected(groupCode, 'user-a', 'socket-a');
+      presenceService.markConnected(groupCode, 'user-b', 'socket-b');
+      mockQueryFn.mockResolvedValueOnce({ rows: [
+        { user_id: 'user-a', name: 'A', role: 'member', latitude: 28.2, longitude: 83.98, speed: 15, last_updated_at: now },
+        { user_id: 'user-b', name: 'B', role: 'member', latitude: 28.21, longitude: 83.98, speed: 15, last_updated_at: now },
+      ] });
+      await coherenceService.evaluateRoomCoherence(groupCode, now);
+
+      presenceService.markDisconnected(groupCode, 'user-b', 'socket-b');
+      mockQueryFn.mockResolvedValueOnce({ rows: [
+        { user_id: 'user-a', name: 'A', role: 'member', latitude: 28.205, longitude: 83.98, speed: 15, last_updated_at: now + 31_000 },
+        { user_id: 'user-b', name: 'B', role: 'member', latitude: 28.21, longitude: 83.98, speed: 15, last_updated_at: now - 16_000 },
+      ] });
+      const result = await coherenceService.evaluateRoomCoherence(groupCode, now + 31_000);
+      expect(result.alerts).toHaveLength(0);
+      expect(result.reunions).toHaveLength(0);
+    });
+
+    it('keeps a separated rider in insufficient-data state when that rider becomes stale', async () => {
+      const now = Date.now();
+      presenceService.markConnected(groupCode, 'user-a', 'socket-a');
+      presenceService.markConnected(groupCode, 'user-b', 'socket-b');
+      const separated = [
+        { user_id: 'user-a', name: 'A', role: 'member', latitude: 28.2, longitude: 83.98, speed: 15, last_updated_at: now },
+        { user_id: 'user-b', name: 'B', role: 'member', latitude: 28.21, longitude: 83.98, speed: 15, last_updated_at: now },
+      ];
+      mockQueryFn.mockResolvedValueOnce({ rows: separated });
+      await coherenceService.evaluateRoomCoherence(groupCode, now);
+      mockQueryFn.mockResolvedValueOnce({ rows: separated.map(r => ({ ...r, last_updated_at: now + 31_000 })) });
+      expect((await coherenceService.evaluateRoomCoherence(groupCode, now + 31_000)).alerts).toHaveLength(2);
+
+      presenceService.markDisconnected(groupCode, 'user-b', 'socket-b');
+      mockQueryFn.mockResolvedValueOnce({ rows: [
+        { ...separated[0], last_updated_at: now + 32_000 },
+        { ...separated[1], latitude: 28.201, last_updated_at: now - 16_000 },
+      ] });
+      const result = await coherenceService.evaluateRoomCoherence(groupCode, now + 32_000);
+      expect(result.reunions).toHaveLength(0);
+    });
+
+    it('resumes coherence only after a disconnected rider reconnects with fresh telemetry', async () => {
+      const now = Date.now();
+      presenceService.markConnected(groupCode, 'user-a', 'socket-a');
+      presenceService.markConnected(groupCode, 'user-b', 'socket-b');
+      presenceService.markDisconnected(groupCode, 'user-b', 'socket-b');
+      mockQueryFn.mockResolvedValueOnce({ rows: [
+        { user_id: 'user-a', name: 'A', role: 'member', latitude: 28.2, longitude: 83.98, speed: 15, last_updated_at: now },
+        { user_id: 'user-b', name: 'B', role: 'member', latitude: 28.21, longitude: 83.98, speed: 15, last_updated_at: now - 16_000 },
+      ] });
+      expect((await coherenceService.evaluateRoomCoherence(groupCode, now)).alerts).toHaveLength(0);
+
+      presenceService.markConnected(groupCode, 'user-b', 'socket-b2');
+      const fresh = [
+        { user_id: 'user-a', name: 'A', role: 'member', latitude: 28.2, longitude: 83.98, speed: 15, last_updated_at: now + 1_000 },
+        { user_id: 'user-b', name: 'B', role: 'member', latitude: 28.21, longitude: 83.98, speed: 15, last_updated_at: now + 1_000 },
+      ];
+      mockQueryFn.mockResolvedValueOnce({ rows: fresh });
+      await coherenceService.evaluateRoomCoherence(groupCode, now + 1_000);
+      mockQueryFn.mockResolvedValueOnce({ rows: fresh.map(r => ({ ...r, last_updated_at: now + 32_000 })) });
+      expect((await coherenceService.evaluateRoomCoherence(groupCode, now + 32_000)).alerts).toHaveLength(2);
     });
 
   });
