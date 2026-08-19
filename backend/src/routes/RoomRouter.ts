@@ -25,6 +25,12 @@ export class RoomRouter {
       (req, res) => this.handleCreateRoom(req as AuthenticatedRequest, res)
     );
 
+    this.router.get(
+      '/rooms/:groupCode/session',
+      AuthMiddleware.authenticateJWT,
+      (req, res) => this.handleRestoreSession(req as AuthenticatedRequest, res)
+    );
+
     this.router.post(
       '/rooms/join',
       AuthMiddleware.authenticateJWT,
@@ -42,6 +48,20 @@ export class RoomRouter {
       AuthMiddleware.authenticateJWT,
       (req, res) => this.handleGetSummary(req as AuthenticatedRequest, res)
     );
+  }
+
+  private async handleRestoreSession(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized: Missing user credentials' });
+      return;
+    }
+    const room = await this.roomService.getActiveMembership(req.params.groupCode, userId);
+    if (!room) {
+      res.status(404).json({ error: 'Active ride membership not found' });
+      return;
+    }
+    res.status(200).json(room);
   }
 
   private async handleCreateRoom(

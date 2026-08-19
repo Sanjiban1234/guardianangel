@@ -205,8 +205,8 @@ export default function MapScreen({
               {destinationTitle || 'No destination set'}
             </Text>
           </View>
-          <Pressable onPress={onEndRide} style={styles.endButton}>
-            <Text style={styles.endButtonText}>✕ End</Text>
+          <Pressable onPress={isHost ? onEndRide : onLeaveRoom} style={styles.endButton}>
+            <Text style={styles.endButtonText}>{isHost ? '✕ End Ride' : '← Leave Group'}</Text>
           </Pressable>
         </View>
 

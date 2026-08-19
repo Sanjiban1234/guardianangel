@@ -51,6 +51,14 @@ import { API_BASE_URL } from './src/config/env';
 import MapScreen from './src/ui/MapScreen';
 import RideControlsScreen from './src/ui/RideControlsScreen';
 import PermissionGate from './src/permissions/PermissionGate';
+import {
+  ActiveRideRecovery,
+  clearActiveRide,
+  loadActiveRide,
+  loadSession,
+  saveActiveRide,
+  saveSession,
+} from './src/ride/ActiveRideStore';
 
 type Screen =
   | 'login'
@@ -111,6 +119,7 @@ function readCurrentLocation(): Promise<{ latitude: number; longitude: number }>
 
 function App() {
   const [screen, setScreen] = useState<Screen>('login');
+  const [restoringRide, setRestoringRide] = useState(true);
   const [connection, setConnection] = useState<Connection>('live');
   const [authToken, setAuthToken] = useState('');
   const [fineLocationGranted, setFineLocationGranted] = useState(false);
@@ -167,6 +176,7 @@ function App() {
   const [riderName, setRiderName] = useState('');
   const riderNameRef = useRef(riderName);
   const [riderEmail, setRiderEmail] = useState('');
+  const [userId, setUserId] = useState('');
 
   // Profile data state
   const [profile, setProfile] = useState<RiderProfileData>(INITIAL_PROFILE_DATA);
@@ -217,8 +227,29 @@ function App() {
   const [rideStarted, setRideStarted] = useState<boolean>(false);
   const [isStartingRide, setIsStartingRide] = useState<boolean>(false);
   const startRideInFlightRef = useRef(false);
+  const endRideInFlightRef = useRef(false);
+  const leaveRideInFlightRef = useRef(false);
   const [isHost, setIsHost] = useState<boolean>(false);
   const [deviceRole, setDeviceRole] = useState<'HOST' | 'RIDER' | 'UNKNOWN'>('UNKNOWN');
+  const reconnectingRef = useRef(false);
+
+  const clearActiveRideState = async () => {
+    await clearActiveRide().catch(() => {});
+    setActiveRoomCode('');
+    setDestinationTitle('');
+    setDestination(null);
+    setRoomMembers([]);
+    setRideStarted(false);
+    setIsHost(false);
+    setDeviceRole('UNKNOWN');
+    endRideInFlightRef.current = false;
+    leaveRideInFlightRef.current = false;
+    setScreen('portal');
+  };
+
+  const persistActiveRide = (ride: ActiveRideRecovery) => {
+    saveActiveRide(ride).catch((error) => console.warn('[ACTIVE RIDE RESTORE] persist failed', error));
+  };
 
   // Update current location from telemetry
   useEffect(() => {
@@ -286,6 +317,23 @@ function App() {
     }
   };
 
+  const resendLocationAfterReconnect = async (groupCode: string) => {
+    const cachedLocation = currentLocationRef.current;
+    if (hasValidLatestLocation(cachedLocation)) {
+      console.log(`[RECONNECT LOCATION RESEND] lat=${cachedLocation.latitude.toFixed(6)} lng=${cachedLocation.longitude.toFixed(6)}`);
+      emitLatestLocationAfterJoin(socketRef.current, groupCode, cachedLocation);
+      return;
+    }
+    console.log('[RECONNECT LOCATION CACHE MISS]');
+    const location = await getPostJoinCurrentPosition();
+    if (!location) {
+      console.warn('[RECONNECT CURRENT POSITION ERROR] no location available');
+      return;
+    }
+    console.log(`[RECONNECT CURRENT POSITION SUCCESS] lat=${location.latitude.toFixed(6)} lng=${location.longitude.toFixed(6)}`);
+    emitLatestLocationAfterJoin(socketRef.current, groupCode, location);
+  };
+
   useEffect(() => {
     if (!authToken) {
       setFineLocationGranted(false);
@@ -298,6 +346,68 @@ function App() {
       .then((result) => setFineLocationGranted(result === RESULTS.GRANTED))
       .catch(() => setFineLocationGranted(false));
   }, [authToken]);
+
+  // A process kill is not a leave.  Restore only after the backend confirms the
+  // persisted user remains a member of an active room.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [token, ride] = await Promise.all([loadSession(), loadActiveRide()]);
+      if (!ride || !token) {
+        if (ride && !token) await clearActiveRide();
+        if (!cancelled) setRestoringRide(false);
+        return;
+      }
+      console.log(`[ACTIVE RIDE RESTORE] found groupCode=${ride.groupCode}`);
+      if (!cancelled) {
+        // Restore authentication independently of whether this particular ride
+        // remains valid, so an ended ride returns to the normal portal flow.
+        setAuthToken(token);
+        setUserId(ride.userId);
+        setRiderName(ride.riderName);
+        setHasCompletedRegistration(true);
+      }
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/rooms/${ride.groupCode}/session`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) {
+          await clearActiveRide();
+          if (!cancelled) {
+            console.log('[ACTIVE RIDE RESTORE] invalid -> cleared');
+            setScreen('portal');
+          }
+          return;
+        }
+        const restored = await response.json();
+        if (cancelled) return;
+        setAuthToken(token);
+        setUserId(ride.userId);
+        setRiderName(ride.riderName);
+        setActiveRoomCode(ride.groupCode);
+        setDestinationTitle(restored.destination?.label || ride.destinationTitle);
+        setDestination(restored.destination ? {
+          latitude: restored.destination.latitude,
+          longitude: restored.destination.longitude,
+          label: restored.destination.label || ride.destinationTitle,
+        } : ride.destination);
+        const owner = restored.role === 'owner';
+        setIsHost(owner);
+        setDeviceRole(owner ? 'HOST' : 'RIDER');
+        setRideStarted(Boolean(restored.rideStartedAt));
+        setScreen('map');
+        console.log('[ACTIVE RIDE RESTORE] validated');
+      } catch (error) {
+        if (!cancelled) {
+          console.warn('[ACTIVE RIDE RESTORE] validation unavailable; retaining persisted ride for retry', error);
+          setScreen('portal');
+        }
+      } finally {
+        if (!cancelled) setRestoringRide(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Track event-listener cleanup functions so reconnects don't accumulate duplicates
   const eventCleanupsRef = useRef<Array<() => void>>([]);
@@ -312,22 +422,13 @@ function App() {
       console.log(`[SOCKET DIAG] [APP_ONCONNECT] role=${deviceRole} activeRoom=${roomCode || 'none'} transport=${transport} riderName=${riderName}`);
       console.log(`[LIVE LOCATION AUDIT] Socket connected, registering event listeners`);
       setConnection('live');
+      const reconnecting = reconnectingRef.current;
+      reconnectingRef.current = false;
+      if (reconnecting) console.log('[NETWORK RECONNECT] socket reconnected');
 
       // Tear down previous event listeners before registering new ones
       for (const cleanup of eventCleanupsRef.current) cleanup();
       eventCleanupsRef.current = [];
-
-      if (roomCode) {
-        console.log(`[LIVE LOCATION AUDIT] Joining session: ${roomCode}`);
-        console.log(`[SOCKET DIAG] [APP_JOINING_SESSION] groupCode=${roomCode}`);
-        socketRef.current.joinSession(roomCode).then(() => {
-          console.log(`[SOCKET DIAG] [APP_SESSION_JOINED_OK] groupCode=${roomCode}`);
-          emitLocationAfterJoinWithFallback(roomCode);
-        }).catch((err: any) => {
-          console.log(`[SOCKET DIAG] [APP_SESSION_JOIN_FAILED] groupCode=${roomCode} error=${err?.message}`);
-          setConnection('offline');
-        });
-      }
 
       // Register event listeners and collect their cleanup functions
       const listen = (event: string, handler: (payload: any) => void) => {
@@ -374,7 +475,12 @@ function App() {
       listen('session:member_left', (payload: any) => {
         if (payload?.user_id) {
           setRoomMembers((prev) => prev.filter((m) => m.user_id !== payload.user_id));
+          if (payload?.name) Alert.alert('Ride member left', `${payload.name} left the ride`);
         }
+      });
+      listen('ride:ended', () => {
+        Alert.alert('Ride ended', 'The host ended this ride.');
+        void clearActiveRideState();
       });
       listen('location:broadcast', (payload: any) => {
         console.log(`[LIVE LOCATION AUDIT] location:broadcast from ${payload?.name} (${payload?.user_id}) lat=${payload?.latitude} lng=${payload?.longitude}`);
@@ -486,11 +592,32 @@ function App() {
           );
         }
       });
+
+      // The server emits session:joined before acknowledging session:join, so
+      // listeners must be in place before issuing the join/rejoin request.
+      if (roomCode) {
+        if (reconnecting) console.log(`[REJOIN AFTER RECONNECT] groupCode=${roomCode}`);
+        console.log(`[LIVE LOCATION AUDIT] Joining session: ${roomCode}`);
+        console.log(`[SOCKET DIAG] [APP_JOINING_SESSION] groupCode=${roomCode}`);
+        socketRef.current.joinSession(roomCode).then(() => {
+          console.log(`[SOCKET DIAG] [APP_SESSION_JOINED_OK] groupCode=${roomCode}`);
+          if (reconnecting) {
+            console.log('[REJOIN AFTER RECONNECT] success');
+            resendLocationAfterReconnect(roomCode);
+          } else {
+            emitLocationAfterJoinWithFallback(roomCode);
+          }
+        }).catch((err: any) => {
+          console.log(`[SOCKET DIAG] [APP_SESSION_JOIN_FAILED] groupCode=${roomCode} error=${err?.message}`);
+          setConnection('offline');
+        });
+      }
     });
 
     const unsubscribeDisconnect = socketRef.current.onDisconnect(() => {
       console.log(`[SOCKET DIAG] [APP_ONDISCONNECT] role=${deviceRole} activeRoom=${activeRoomCode || 'none'}`);
       setConnection('offline');
+      reconnectingRef.current = true;
     });
     console.log(`[SOCKET DIAG] [APP_EFFECT_START] role=${deviceRole} authToken=${authToken ? 'present' : 'MISSING'}`);
     socketRef.current.connect(API_BASE_URL, authToken).catch(() => setConnection('offline'));
@@ -564,10 +691,12 @@ function App() {
     userData: { id: string; name: string; email: string; profile_complete: boolean }
   ) => {
     setAuthToken(token);
+    setUserId(userData.id);
     setRiderName(userData.name);
     setRiderEmail(userData.email);
     setHasCompletedRegistration(userData.profile_complete !== false);
     setScreen(userData.profile_complete === false ? 'registration' : 'portal');
+    saveSession(token).catch(() => {});
   };
 
   const handleRegistrationComplete = async (data: RegistrationData) => {
@@ -612,6 +741,11 @@ function App() {
     setRideStarted(false);
     console.log(`[LIVE LOCATION DIAG] handleCreatedRoomStart | role=HOST groupCode=${roomData.groupCode}`);
     setScreen('map');
+    persistActiveRide({
+      groupCode: roomData.groupCode, userId, riderName, isHost: true,
+      destinationTitle: roomData.destination.title,
+      destination: { latitude: roomData.destination.latitude, longitude: roomData.destination.longitude, label: roomData.destination.title },
+    });
   };
 
   const handleJoinedRoomConfirm = (preview: RoomPreviewDetails) => {
@@ -630,6 +764,52 @@ function App() {
     setRideStarted(false);
     console.log(`[LIVE LOCATION DIAG] handleJoinedRoomConfirm | role=RIDER groupCode=${preview.groupCode}`);
     setScreen('map');
+    persistActiveRide({
+      groupCode: preview.groupCode, userId, riderName, isHost: false,
+      destinationTitle: preview.destinationTitle,
+      destination: preview.destination ? { latitude: preview.destination.latitude, longitude: preview.destination.longitude, label: preview.destination.label || preview.destinationTitle } : null,
+    });
+  };
+
+  const handleEndRide = () => {
+    if (!isHost || !socketRef.current.isConnected() || endRideInFlightRef.current) return;
+    endRideInFlightRef.current = true;
+    try {
+      socketRef.current.emitWithAck('ride:end', (response: any) => {
+        endRideInFlightRef.current = false;
+        if (response?.error) Alert.alert('Could not end ride', response.error);
+      });
+    } catch (error) {
+      endRideInFlightRef.current = false;
+      Alert.alert('Could not end ride', error instanceof Error ? error.message : 'Unable to reach the server.');
+    }
+  };
+
+  const handleLeaveRoom = () => {
+    if (isHost) {
+      Alert.alert('Host cannot leave', 'End the ride to close the group for all riders.');
+      return;
+    }
+    if (leaveRideInFlightRef.current) return;
+    if (!socketRef.current.isConnected()) {
+      Alert.alert('Not connected', 'Reconnect before leaving the ride.');
+      return;
+    }
+    console.warn(`[SESSION LEAVE DIAG] App leave pressed | room=${activeRoomCode} connected=true`);
+    leaveRideInFlightRef.current = true;
+    try {
+      socketRef.current.emitWithAck('session:leave', (response: any) => {
+        leaveRideInFlightRef.current = false;
+        if (response?.error) {
+          Alert.alert('Could not leave ride', response.error);
+          return;
+        }
+        void clearActiveRideState();
+      });
+    } catch (error) {
+      leaveRideInFlightRef.current = false;
+      Alert.alert('Could not leave ride', error instanceof Error ? error.message : 'Unable to reach the server.');
+    }
   };
 
   const handleSendRefuelAlert = (payload: RefuelAlertPayload) => {
@@ -718,7 +898,7 @@ function App() {
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.ink} />
 
-      {screen === 'login' && (
+      {!restoringRide && screen === 'login' && (
         <LoginScreen
           apiBaseUrl={API_BASE_URL}
           onLoginSuccess={handleLoginSuccess}
@@ -847,7 +1027,7 @@ function App() {
           riders={computedRiders}
           destination={destination}
           onOpenControls={() => setScreen('controls')}
-          onEndRide={() => setScreen('summary')}
+          onEndRide={handleEndRide}
           isHost={isHost}
           rideStarted={rideStarted}
           members={roomMembers.map((m) => ({
@@ -858,16 +1038,7 @@ function App() {
           }))}
           onStartRide={isHost ? handleStartRide : undefined}
           isStartingRide={isStartingRide}
-          onLeaveRoom={() => {
-            console.warn(`[SESSION LEAVE DIAG] App pre-ride leave pressed | room=${activeRoomCode} connected=${socketRef.current.isConnected()}`);
-            console.trace?.('[SESSION LEAVE DIAG] client call stack');
-            socketRef.current.emitEvent('session:leave');
-            setActiveRoomCode('');
-            setRoomMembers([]);
-            setRideStarted(false);
-            setIsHost(false);
-            setScreen('portal');
-          }}
+          onLeaveRoom={handleLeaveRoom}
         />
         );
       })()}

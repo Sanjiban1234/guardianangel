@@ -18,7 +18,7 @@ export class SessionHandler {
     this.socket.on('session:join', (data: { group_code: string }, callback?: (response: any) => void) =>
       this.handleJoin(data, callback)
     );
-    this.socket.on('session:leave', () => this.handleLeave());
+    this.socket.on('session:leave', (callback?: (response: any) => void) => this.handleLeave(callback));
   }
 
   private async handleJoin(data: { group_code: string }, callback?: (response: any) => void): Promise<void> {
@@ -82,7 +82,7 @@ export class SessionHandler {
     }
   }
 
-  private handleLeave(): void {
+  private async handleLeave(callback?: (response: any) => void): Promise<void> {
     const groupCode = this.roomState.currentGroupCode;
     console.warn('[SESSION LEAVE DIAG] session:leave received', {
       socketId: this.socket.id,
@@ -91,12 +91,28 @@ export class SessionHandler {
       currentGroupCode: groupCode,
       stack: new Error('session:leave handler').stack,
     });
-    if (!groupCode) return;
+    if (!groupCode) {
+      callback?.({ error: 'Not currently in a room' });
+      return;
+    }
 
     const userId = this.socket.user!.id;
     const name = this.socket.user!.name;
 
-    console.log(`SessionHandler: ${name} leaving group ${groupCode}`);
+    let didLeave = false;
+    try {
+      didLeave = await this.roomService.leaveRoom(groupCode, userId);
+    } catch (err) {
+      console.error('SessionHandler.handleLeave error:', err);
+      callback?.({ error: 'Unable to leave ride' });
+      return;
+    }
+    if (!didLeave) {
+      callback?.({ error: 'Only a member can leave this ride. Hosts must end the ride.' });
+      return;
+    }
+
+    console.log(`SessionHandler: ${name} explicitly left group ${groupCode}`);
 
     this.socket
       .to(`group:${groupCode}`)
@@ -109,5 +125,6 @@ export class SessionHandler {
       userId,
       groupCode,
     });
+    callback?.({ success: true });
   }
 }

@@ -227,6 +227,38 @@ export class RoomService {
     }
   }
 
+  /** Authoritative state used by a client to restore an interrupted active ride. */
+  async getActiveMembership(groupCode: string, userId: string): Promise<{
+    group_code: string;
+    role: string;
+    rideStartedAt: string | null;
+    destination?: Destination;
+  } | null> {
+    const tokenHash = this.hashToken(groupCode.toUpperCase());
+    const result = await this.db.run(
+      `SELECT rm.role, rr.ride_started_at, rr.destination_latitude, rr.destination_longitude, rr.destination_label
+       FROM ride_rooms rr
+       JOIN room_members rm ON rm.room_id = rr.id
+       WHERE rr.token_hash = $1 AND rm.user_id = $2 AND rr.status = 'active'
+       LIMIT 1`,
+      [tokenHash, userId],
+    );
+    if (result.rows.length === 0) return null;
+    const room = result.rows[0];
+    return {
+      group_code: groupCode.toUpperCase(),
+      role: room.role,
+      rideStartedAt: room.ride_started_at,
+      destination: room.destination_latitude != null && room.destination_longitude != null
+        ? {
+            latitude: Number(room.destination_latitude),
+            longitude: Number(room.destination_longitude),
+            label: room.destination_label || undefined,
+          }
+        : undefined,
+    };
+  }
+
   async startRide(groupCode: string, userId: string): Promise<boolean> {
     const tokenHash = this.hashToken(groupCode.toUpperCase());
     const result = await this.db.run(
@@ -263,11 +295,30 @@ export class RoomService {
     return result.rows;
   }
 
-  async endRoom(groupCode: string): Promise<void> {
+  async endRoom(groupCode: string, userId: string): Promise<boolean> {
     const tokenHash = this.hashToken(groupCode.toUpperCase());
-    await this.db.run(
-      "UPDATE ride_rooms SET status = 'ended', ended_at = now() WHERE token_hash = $1",
-      [tokenHash]
+    const result = await this.db.run(
+      `UPDATE ride_rooms rr SET status = 'ended', ended_at = now()
+       FROM room_members rm
+       WHERE rr.token_hash = $1 AND rr.status = 'active'
+         AND rm.room_id = rr.id AND rm.user_id = $2 AND rm.role = 'owner'
+       RETURNING rr.id`,
+      [tokenHash, userId],
     );
+    return result.rows.length > 0;
+  }
+
+  /** Explicit leave only: network disconnects deliberately never call this. */
+  async leaveRoom(groupCode: string, userId: string): Promise<boolean> {
+    const tokenHash = this.hashToken(groupCode.toUpperCase());
+    const result = await this.db.run(
+      `DELETE FROM room_members rm
+       USING ride_rooms rr
+       WHERE rm.room_id = rr.id AND rr.token_hash = $1 AND rr.status = 'active'
+         AND rm.user_id = $2 AND rm.role <> 'owner'
+       RETURNING rm.user_id`,
+      [tokenHash, userId],
+    );
+    return result.rows.length > 0;
   }
 }
