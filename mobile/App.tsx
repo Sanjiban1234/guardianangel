@@ -281,6 +281,7 @@ function App() {
 
   const clearActiveRideState = async (nextScreen: Screen = 'portal') => {
     await clearActiveRide().catch(() => {});
+    console.log(`[ACTIVE RIDE CLEARED] nextScreen=${nextScreen}`);
     setActiveRoomCode('');
     setDestinationTitle('');
     setDestination(null);
@@ -293,10 +294,12 @@ function App() {
     endRideInFlightRef.current = false;
     leaveRideInFlightRef.current = false;
     setScreen(nextScreen);
+    console.log(`[SCREEN -> ${nextScreen.toUpperCase()}]`);
   };
 
   const showCompletedRideSummary = (groupCode: string) => {
     if (!groupCode) return;
+    console.log(`[SUMMARY CONTEXT SET] groupCode=${groupCode}`);
     setCompletedRideSummaryContext({ groupCode });
     void clearActiveRideState('summary');
   };
@@ -457,6 +460,23 @@ function App() {
         setAuthToken(token);
         setUserId(ride.userId);
         setRiderName(ride.riderName);
+        void fetch(`${API_BASE_URL}/api/users/profile`, { headers: { Authorization: `Bearer ${token}` } })
+          .then(response => response.ok ? response.json() : null)
+          .then(body => body?.profile && setProfile(prev => ({ ...prev,
+            vehicleModel: body.profile.vehicle_model || '',
+            plateNumber: body.profile.plate_number || '',
+            vehicleColor: body.profile.vehicle_color || '',
+          })))
+          .catch(error => console.warn('[PROFILE HYDRATE] vehicle profile unavailable', error));
+        void fetch(`${API_BASE_URL}/api/users/medical-info`, { headers: { Authorization: `Bearer ${token}` } })
+          .then(response => response.ok ? response.json() : null)
+          .then(body => {
+            const medical = body?.medical_info;
+            if (!medical) return;
+            setProfile(prev => ({ ...prev, bloodGroup: medical.blood_group || 'Skip / Unknown', allergies: medical.allergies || '',
+              emergencyContact: [medical.emergency_contact_name, medical.emergency_contact_phone].filter(Boolean).join(' '), medicalNotes: medical.notes || '' }));
+          })
+          .catch(error => console.warn('[PROFILE HYDRATE] medical info unavailable', error));
         setActiveRoomCode(ride.groupCode);
         setDestinationTitle(restored.destination?.label || ride.destinationTitle);
         setDestination(restored.destination ? {
@@ -595,6 +615,7 @@ function App() {
       listen('ride:ended', (payload: { group_code?: string }) => {
         const groupCode = payload?.group_code || activeRoomCodeRef.current;
         if (!groupCode) return;
+        console.log(`[RIDE ENDED EVENT] groupCode=${groupCode}`);
         Alert.alert('Ride ended', 'The host ended this ride.');
         showCompletedRideSummary(groupCode);
       });
@@ -875,7 +896,7 @@ function App() {
 
   const handleLoginSuccess = (
     token: string,
-    userData: { id: string; name: string; email: string; profile_complete: boolean; vehicle_model?: string; plate_number?: string }
+    userData: { id: string; name: string; email: string; profile_complete: boolean; vehicle_model?: string; plate_number?: string; vehicle_color?: string }
   ) => {
     setSeparationsByRider(clearAllSeparations());
     setRideAlertState(clearRideAlerts());
@@ -883,10 +904,35 @@ function App() {
     setUserId(userData.id);
     setRiderName(userData.name);
     setRiderEmail(userData.email);
-    setProfile(prev => ({ ...prev, vehicleModel: userData.vehicle_model || '', plateNumber: userData.plate_number || '' }));
+    setProfile(prev => ({ ...prev, vehicleModel: userData.vehicle_model || '', plateNumber: userData.plate_number || '', vehicleColor: userData.vehicle_color || '' }));
     setHasCompletedRegistration(userData.profile_complete !== false);
     setScreen(userData.profile_complete === false ? 'registration' : 'portal');
     saveSession(token).catch(() => {});
+    void fetch(`${API_BASE_URL}/api/users/profile`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(response => response.ok ? response.json() : null)
+      .then(body => body?.profile && setProfile(prev => ({ ...prev,
+        vehicleModel: body.profile.vehicle_model || '',
+        plateNumber: body.profile.plate_number || '',
+        vehicleColor: body.profile.vehicle_color || '',
+      })))
+      .catch(error => console.warn('[PROFILE HYDRATE] vehicle profile unavailable', error));
+    void fetch(`${API_BASE_URL}/api/users/medical-info`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(async response => {
+        if (!response.ok) throw new Error(`Medical profile request failed (${response.status})`);
+        return response.json();
+      })
+      .then(body => {
+        const medical = body.medical_info;
+        if (!medical) return;
+        const emergencyContact = [medical.emergency_contact_name, medical.emergency_contact_phone].filter(Boolean).join(' ');
+        setProfile(prev => ({ ...prev,
+          bloodGroup: medical.blood_group || 'Skip / Unknown',
+          allergies: medical.allergies || '',
+          emergencyContact,
+          medicalNotes: medical.notes || '',
+        }));
+      })
+      .catch(error => console.warn('[PROFILE HYDRATE] medical info unavailable', error));
   };
 
   const handleRegistrationComplete = async (data: RegistrationData) => {
@@ -967,10 +1013,12 @@ function App() {
 
   const handleEndRide = () => {
     if (!isHost || !socketRef.current.isConnected() || endRideInFlightRef.current) return;
+    console.log(`[END RIDE CLICK] groupCode=${activeRoomCode}`);
     endRideInFlightRef.current = true;
     try {
       socketRef.current.emitWithAck('ride:end', (response: any) => {
         endRideInFlightRef.current = false;
+        console.log(`[RIDE END ACK] ${response?.success ? 'success' : response?.error || 'unknown'}`);
         if (response?.error) Alert.alert('Could not end ride', response.error);
       });
     } catch (error) {

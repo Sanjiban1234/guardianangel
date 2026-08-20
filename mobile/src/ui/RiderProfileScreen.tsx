@@ -82,12 +82,20 @@ export function RiderProfileScreen({
       medicalNotes,
     };
     if (!isOnline) {
-      Alert.alert('Offline', 'Medical ID changes require a live connection. Vehicle fields remain local until a vehicle-profile API is available.');
+      Alert.alert('Offline', 'Profile changes require a live connection and were not saved.');
       return;
     }
     const phoneMatch = emergencyContact.match(/(\+[1-9]\d{1,14})\s*$/);
     try {
-      const response = await fetch(`${apiBaseUrl}/api/users/medical-info`, {
+      const vehicleResponse = await fetch(`${apiBaseUrl}/api/users/profile`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vehicle_model: vehicleModel, plate_number: plateNumber, vehicle_color: vehicleColor }),
+      });
+      const vehicleBody = await vehicleResponse.json();
+      if (!vehicleResponse.ok) throw new Error(vehicleBody.error || 'Unable to save vehicle details');
+
+      const medicalResponse = await fetch(`${apiBaseUrl}/api/users/medical-info`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -98,9 +106,20 @@ export function RiderProfileScreen({
           notes: medicalNotes || undefined,
         }),
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || 'Unable to save medical ID');
-      onSave(data);
+      const medicalBody = await medicalResponse.json();
+      if (!medicalResponse.ok) throw new Error(medicalBody.error || 'Unable to save medical ID');
+      const medical = medicalBody.medical_info || {};
+      const contact = [medical.emergency_contact_name, medical.emergency_contact_phone].filter(Boolean).join(' ');
+      onSave({
+        ...data,
+        vehicleModel: vehicleBody.profile.vehicle_model || '',
+        plateNumber: vehicleBody.profile.plate_number || '',
+        vehicleColor: vehicleBody.profile.vehicle_color || '',
+        bloodGroup: medical.blood_group || 'Skip / Unknown',
+        allergies: medical.allergies || '',
+        emergencyContact: contact,
+        medicalNotes: medical.notes || '',
+      });
     } catch (error) {
       Alert.alert('Save Failed', error instanceof Error ? error.message : 'Unable to save medical ID.');
     }
@@ -132,10 +151,10 @@ export function RiderProfileScreen({
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>🏍️ Vehicle Details</Text>
-            <Text style={styles.cardBadge}>LOCAL PROFILE</Text>
+            <Text style={styles.cardBadge}>ACCOUNT PROFILE</Text>
           </View>
           <Text style={styles.cardCopy}>
-            Registered vehicle details identify you to members of your active ride. Changes made here stay local until vehicle-profile updates are available.
+            Registered vehicle details identify you to members of your active ride.
           </Text>
 
           <Text style={styles.fieldLabel}>VEHICLE MAKE & MODEL</Text>

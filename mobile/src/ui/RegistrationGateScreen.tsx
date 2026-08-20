@@ -137,6 +137,7 @@ export function RegistrationGateScreen({
           phone: data.phoneNumber,
           vehicle_model: data.vehicleModel,
           plate_number: data.plateNumber,
+          vehicle_color: data.vehicleColor,
         }),
         });
         const body = await response.json();
