@@ -58,6 +58,27 @@ describe('GET /api/rooms/:groupCode/summary', () => {
     expect(typeof response.body.duration_ms).toBe('number');
   });
 
+  it('should return ride summary to a former member after the room has ended', async () => {
+    mockedQuery.mockImplementation(async (text: string): Promise<any> => {
+      if (text.includes('ride_rooms') && text.includes('room_members')) {
+        // verifyMembership intentionally does not require an active room.
+        return { rows: [{ id: mockRoomId, status: 'ended' }] };
+      }
+      return { rows: [] };
+    });
+
+    mockedPoolQuery
+      .mockResolvedValueOnce({ rows: [{ distance_meters: 1250 }] })
+      .mockResolvedValueOnce({ rows: [{ duration_ms: '60000' }] });
+
+    const response = await request(app)
+      .get(`/api/rooms/${mockGroupCode}/summary`)
+      .set('Authorization', `Bearer ${memberToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ room_id: mockRoomId, user_id: member.id });
+  });
+
   it('should reject non-members with 403', async () => {
     mockedQuery.mockImplementation(async (text: string, params?: any[]): Promise<any> => {
       if (text.includes('ride_rooms') && text.includes('room_members')) {

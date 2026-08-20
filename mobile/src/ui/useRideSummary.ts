@@ -1,95 +1,61 @@
-/**
- * Service & React Hook to fetch live Ride Summary data from backend REST endpoint
- * `GET /api/rooms/:groupCode/summary` & `GET /api/rooms/:groupCode/history`
- */
-
-import { useState, useEffect } from 'react';
-import { RideSummaryData } from '../../../contracts/ride-summary';
+import { useCallback, useEffect, useState } from 'react';
 import { API_BASE_URL } from '../config/env';
+
+export interface RideSummaryData {
+  room_id: string;
+  group_code: string;
+  user_id: string;
+  total_distance_meters: number;
+  actual_duration_ms: number;
+}
 
 export async function fetchRideSummaryFromBackend(
   groupCode: string,
   authToken: string,
-  apiBaseUrl: string = API_BASE_URL
+  apiBaseUrl: string = API_BASE_URL,
 ): Promise<RideSummaryData> {
   const response = await fetch(`${apiBaseUrl}/api/rooms/${groupCode}/summary`, {
-    headers: {
-      'Authorization': `Bearer ${authToken}`,
-      'Content-Type': 'application/json',
-    },
+    headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
   });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ride summary: ${response.statusText}`);
-  }
+  if (!response.ok) throw new Error(`Failed to fetch ride summary: ${response.statusText}`);
 
   const rawSummary = await response.json();
-
-  const actualDurationMs = rawSummary.duration_ms || 0;
-
-  // Fetch group members count
-  let groupMembersCount = 0;
-  try {
-    const membersResponse = await fetch(`${apiBaseUrl}/api/rooms/${groupCode}/history`, {
-      headers: {
-        'Authorization': `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-      },
-    });
-    if (membersResponse.ok) {
-      const historyData = await membersResponse.json();
-      // Count unique user_ids from history
-      const uniqueUsers = new Set(historyData.map((reading: any) => reading.user_id));
-      groupMembersCount = uniqueUsers.size;
-    }
-  } catch {
-    // If we can't fetch members, default to 0
+  const totalDistanceMeters = Number(rawSummary.total_distance_meters);
+  const actualDurationMs = Number(rawSummary.duration_ms);
+  if (!rawSummary.room_id || !rawSummary.user_id || !Number.isFinite(totalDistanceMeters) || !Number.isFinite(actualDurationMs)) {
+    throw new Error('The server returned an incomplete ride summary.');
   }
-
   return {
-    room_id: rawSummary.room_id || '',
+    room_id: rawSummary.room_id,
     group_code: groupCode,
-    user_id: rawSummary.user_id || '',
-    rider_name: '', // Will be set by parent component from auth state
-    start_time_ms: Date.now() - actualDurationMs,
-    end_time_ms: Date.now(),
-    total_distance_meters: rawSummary.total_distance_meters || 0,
+    user_id: rawSummary.user_id,
+    total_distance_meters: totalDistanceMeters,
     actual_duration_ms: actualDurationMs,
-    group_members_count: groupMembersCount,
-    // This endpoint does not currently return a telemetry profile or a
-    // server-calculated benchmark, so the UI must present both as unavailable.
-    speed_profile: [],
-    pace_benchmark: null,
-    weather_snapshot: null,
-    has_low_data: true,
-    low_data_reason: 'NONE',
   };
 }
 
 export function useRideSummary(groupCode: string, authToken: string, apiBaseUrl?: string) {
   const [data, setData] = useState<RideSummaryData | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [requestVersion, setRequestVersion] = useState(0);
+  const retry = useCallback(() => setRequestVersion(version => version + 1), []);
 
   useEffect(() => {
     let isMounted = true;
+    setLoading(true);
+    setError(null);
     fetchRideSummaryFromBackend(groupCode, authToken, apiBaseUrl)
-      .then(result => {
-        if (isMounted) {
-          setData(result);
-          setLoading(false);
-        }
-      })
+      .then(result => { if (isMounted) setData(result); })
       .catch(err => {
         if (isMounted) {
-          setError(err.message || 'Failed to load ride summary');
-          setLoading(false);
+          setData(null);
+          setError(err instanceof Error ? err.message : 'Failed to load ride summary');
         }
-      });
-
+      })
+      .finally(() => { if (isMounted) setLoading(false); });
     return () => { isMounted = false; };
-  }, [groupCode, authToken, apiBaseUrl]);
+  }, [groupCode, authToken, apiBaseUrl, requestVersion]);
 
-  return { data, loading, error };
+  return { data, loading, error, retry };
 }
-

@@ -206,6 +206,10 @@ function App() {
 
   // Room / Destination state
   const [activeRoomCode, setActiveRoomCode] = useState<string>('');
+  // This deliberately is not persisted.  It identifies a completed room long
+  // enough to fetch its authoritative post-ride summary without treating the
+  // ended room as an active membership on a later launch.
+  const [completedRideSummaryContext, setCompletedRideSummaryContext] = useState<{ groupCode: string } | null>(null);
   const [destinationTitle, setDestinationTitle] = useState<string>('');
   const [roomMembers, setRoomMembers] = useState<Array<{
     user_id: string; name: string; role?: string; isYou?: boolean;
@@ -275,7 +279,7 @@ function App() {
   const [deviceRole, setDeviceRole] = useState<'HOST' | 'RIDER' | 'UNKNOWN'>('UNKNOWN');
   const reconnectingRef = useRef(false);
 
-  const clearActiveRideState = async () => {
+  const clearActiveRideState = async (nextScreen: Screen = 'portal') => {
     await clearActiveRide().catch(() => {});
     setActiveRoomCode('');
     setDestinationTitle('');
@@ -288,7 +292,13 @@ function App() {
     setDeviceRole('UNKNOWN');
     endRideInFlightRef.current = false;
     leaveRideInFlightRef.current = false;
-    setScreen('portal');
+    setScreen(nextScreen);
+  };
+
+  const showCompletedRideSummary = (groupCode: string) => {
+    if (!groupCode) return;
+    setCompletedRideSummaryContext({ groupCode });
+    void clearActiveRideState('summary');
   };
 
   const persistActiveRide = (ride: ActiveRideRecovery) => {
@@ -582,9 +592,11 @@ function App() {
           });
         }
       });
-      listen('ride:ended', () => {
+      listen('ride:ended', (payload: { group_code?: string }) => {
+        const groupCode = payload?.group_code || activeRoomCodeRef.current;
+        if (!groupCode) return;
         Alert.alert('Ride ended', 'The host ended this ride.');
-        void clearActiveRideState();
+        showCompletedRideSummary(groupCode);
       });
       listen('location:broadcast', (payload: any) => {
         console.log(`[LIVE LOCATION AUDIT] location:broadcast from ${payload?.name} (${payload?.user_id}) lat=${payload?.latitude} lng=${payload?.longitude}`);
@@ -1290,12 +1302,15 @@ function App() {
         />
       )}
 
-      {screen === 'summary' && activeRoomCode && authToken && (
+      {screen === 'summary' && completedRideSummaryContext && authToken && (
         <RideSummaryScreen
-          groupCode={activeRoomCode}
+          groupCode={completedRideSummaryContext.groupCode}
           authToken={authToken}
           apiBaseUrl={API_BASE_URL}
-          onReturnToPortal={() => setScreen('portal')}
+          onReturnToPortal={() => {
+            setCompletedRideSummaryContext(null);
+            setScreen('portal');
+          }}
         />
       )}
 
