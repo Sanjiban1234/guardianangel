@@ -14,6 +14,7 @@ import {
   PERMISSIONS,
   RESULTS,
   openSettings,
+  requestNotifications,
 } from 'react-native-permissions';
 
 type PermissionStatus = 'checking' | 'granted' | 'denied' | 'blocked';
@@ -46,6 +47,20 @@ export default function PermissionGate({
     checkInitialPermissions();
   }, []);
 
+  const completePermissionFlow = async () => {
+    // Requested only when the rider enters the create/join flow, never at app launch.
+    if (Platform.OS === 'android' && Number(Platform.Version) >= 33) {
+      const notificationResult = await requestNotifications(['alert']);
+      if (notificationResult.status !== RESULTS.GRANTED) {
+        Alert.alert(
+          'Tracking notification disabled',
+          'Android will run ride tracking, but enable notifications in Settings to see its persistent status.',
+        );
+      }
+    }
+    onPermissionsGranted();
+  };
+
   const checkInitialPermissions = async () => {
     try {
       // Check foreground location
@@ -71,7 +86,7 @@ export default function PermissionGate({
         if (backgroundResult === RESULTS.GRANTED) {
           setBackgroundStatus('granted');
           setStep('complete');
-          onPermissionsGranted();
+          await completePermissionFlow();
         } else if (backgroundResult === RESULTS.BLOCKED) {
           setBackgroundStatus('blocked');
         } else {
@@ -135,7 +150,7 @@ export default function PermissionGate({
       if (result === RESULTS.GRANTED) {
         setBackgroundStatus('granted');
         setStep('complete');
-        onPermissionsGranted();
+        await completePermissionFlow();
       } else if (result === RESULTS.BLOCKED) {
         setBackgroundStatus('blocked');
       } else {

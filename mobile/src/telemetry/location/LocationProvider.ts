@@ -2,7 +2,7 @@
  * @file LocationProvider.ts
  * @description Continuous background location provider adapters and mock location provider for testing.
  *
- * BackgroundGeolocationProvider: Uses react-native-background-geolocation (Transistor Software).
+ * BackgroundGeolocationProvider: Uses react-native-background-geolocation on iOS.
  *   - Requires a valid commercial license for production/release builds.
  *   - If the library is not installed or license validation fails, it logs a warning
  *     and falls back to ForegroundGeolocationProvider automatically.
@@ -14,6 +14,7 @@
 
 import { Platform, PermissionsAndroid } from 'react-native';
 import { ILocationProvider, TelemetryReading } from '../types';
+import { AndroidRideLocationProvider } from '../../tracking';
 
 /**
  * Mock Location Provider for unit tests, offline testing, and dev simulation.
@@ -175,13 +176,19 @@ export class ForegroundGeolocationProvider implements ILocationProvider {
 export class BackgroundGeolocationProvider implements ILocationProvider {
   private tracking = false;
   private bgGeo: any = null;
-  private fallbackProvider: ForegroundGeolocationProvider | null = null;
+  private fallbackProvider: ILocationProvider | null = null;
 
   constructor(bgGeoModule?: any) {
     this.bgGeo = bgGeoModule;
   }
 
   async start(onReading: (reading: Omit<TelemetryReading, 'client_reading_id'>) => void): Promise<void> {
+    if (Platform.OS === 'android') {
+      this.fallbackProvider = new AndroidRideLocationProvider();
+      await this.fallbackProvider.start(onReading);
+      this.tracking = true;
+      return;
+    }
     if (!this.bgGeo) {
       try {
         this.bgGeo = require('react-native-background-geolocation').default;

@@ -43,6 +43,7 @@ import { API_BASE_URL } from './src/config/env';
 import MapScreen from './src/ui/MapScreen';
 import RideControlsScreen from './src/ui/RideControlsScreen';
 import PermissionGate from './src/permissions/PermissionGate';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type Screen =
   | 'login'
@@ -82,6 +83,8 @@ const REASON_LABELS: Record<BreakdownReason, string> = {
   fuel: '⛽ Fuel / Empty Tank',
   other: '⚠️ Other Mechanical Issue',
 };
+
+const ACTIVE_RIDE_STORAGE_KEY = '@guardian_angel/active_ride';
 
 type DeviceGeolocation = {
   getCurrentPosition: (
@@ -202,11 +205,33 @@ function App() {
 
   // Track event-listener cleanup functions so reconnects don't accumulate duplicates
   const eventCleanupsRef = useRef<Array<() => void>>([]);
+  const restoringRideRef = useRef(false);
+
+  // Persisted state is only a restoration hint. The socket session response
+  // validates that the room is still active before tracking is resumed.
+  useEffect(() => {
+    if (!authToken) return;
+    AsyncStorage.getItem(ACTIVE_RIDE_STORAGE_KEY).then((stored) => {
+      if (!stored) return;
+      try {
+        const ride = JSON.parse(stored);
+        if (typeof ride.groupCode !== 'string' || !ride.groupCode) return;
+        restoringRideRef.current = true;
+        setActiveRoomCode(ride.groupCode);
+        setDestinationTitle(ride.destinationTitle || '');
+        setDestination(ride.destination || null);
+        setIsHost(Boolean(ride.isHost));
+      } catch {
+        AsyncStorage.removeItem(ACTIVE_RIDE_STORAGE_KEY).catch(() => {});
+      }
+    }).catch(() => {});
+  }, [authToken]);
 
   useEffect(() => {
     if (!authToken) return;
     const unsubscribeConnect = socketRef.current.onConnect(() => {
       console.log(`[LIVE LOCATION AUDIT] Socket connected, registering event listeners`);
+      console.log('[BG SOCKET RECOVERED]');
       setConnection('live');
 
       // Tear down previous event listeners before registering new ones
@@ -214,8 +239,16 @@ function App() {
       eventCleanupsRef.current = [];
 
       if (activeRoomCode) {
-        console.log(`[LIVE LOCATION AUDIT] Joining session: ${activeRoomCode}`);
-        socketRef.current.joinSession(activeRoomCode).catch(() => setConnection('offline'));
+        console.log(`[BG SESSION REJOIN] ${activeRoomCode}`);
+        socketRef.current.joinSession(activeRoomCode).catch(() => {
+          setConnection('offline');
+          if (restoringRideRef.current) {
+            restoringRideRef.current = false;
+            AsyncStorage.removeItem(ACTIVE_RIDE_STORAGE_KEY).catch(() => {});
+            setActiveRoomCode('');
+            setRideStarted(false);
+          }
+        });
       }
 
       // Register event listeners and collect their cleanup functions
@@ -243,6 +276,7 @@ function App() {
           });
         }
         if (payload?.ride_started_at) {
+          restoringRideRef.current = false;
           setRideStarted(true);
           setScreen('map');
         }
@@ -338,21 +372,21 @@ function App() {
           setScreen('map');
         }
       });
+
+      listen('ride:ended', () => {
+        // Keep activeRoomCode until RideSummaryScreen has fetched the completed ride.
+        setRideStarted(false);
+        AsyncStorage.removeItem(ACTIVE_RIDE_STORAGE_KEY).catch(() => {});
+        setScreen('summary');
+      });
     });
 
     const unsubscribeDisconnect = socketRef.current.onDisconnect(() => {
+      console.log('[BG SOCKET DISCONNECTED]');
       setConnection('offline');
     });
 
     socketRef.current.connect(API_BASE_URL, authToken).catch(() => setConnection('offline'));
-    telemetryModuleRef.current.start({
-      socketUrl: API_BASE_URL,
-      authToken,
-      groupCode: activeRoomCode,
-      healthEndpointUrl: `${API_BASE_URL}/api/health`,
-      socketClient: socketRef.current,
-    }).catch(() => {});
-
     return () => {
       unsubscribeConnect();
       unsubscribeDisconnect();
@@ -360,9 +394,36 @@ function App() {
       for (const cleanup of eventCleanupsRef.current) cleanup();
       eventCleanupsRef.current = [];
       socketRef.current.disconnect();
-      telemetryModuleRef.current.stop().catch(() => {});
     };
   }, [authToken, activeRoomCode]);
+
+  useEffect(() => {
+    if (!authToken || !activeRoomCode || !rideStarted) {
+      telemetryModuleRef.current.stop().catch((error) =>
+        console.warn('[BG TRACKING STOP] failed', error));
+      return;
+    }
+
+    AsyncStorage.setItem(ACTIVE_RIDE_STORAGE_KEY, JSON.stringify({
+      groupCode: activeRoomCode,
+      destinationTitle,
+      destination,
+      isHost,
+    })).catch(() => {});
+
+    telemetryModuleRef.current.start({
+      socketUrl: API_BASE_URL,
+      authToken,
+      groupCode: activeRoomCode,
+      healthEndpointUrl: `${API_BASE_URL}/api/health`,
+      socketClient: socketRef.current,
+    }).catch((error) => console.warn('[BG TRACKING START] failed', error));
+
+    return () => {
+      telemetryModuleRef.current.stop().catch((error) =>
+        console.warn('[BG TRACKING STOP] failed', error));
+    };
+  }, [authToken, activeRoomCode, rideStarted]);
 
   useEffect(() => {
     if (!lastCandidate || !socketRef.current.isConnected()) return;
@@ -661,6 +722,7 @@ function App() {
           onStartRide={isHost ? handleStartRide : undefined}
           onLeaveRoom={() => {
             socketRef.current.emitEvent('session:leave');
+            AsyncStorage.removeItem(ACTIVE_RIDE_STORAGE_KEY).catch(() => {});
             setActiveRoomCode('');
             setRoomMembers([]);
             setRideStarted(false);
