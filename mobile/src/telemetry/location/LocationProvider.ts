@@ -9,6 +9,7 @@
 import { Platform, PermissionsAndroid } from 'react-native';
 import Geolocation from '@react-native-community/geolocation';
 import { ILocationProvider, TelemetryReading } from '../types';
+import { AndroidRideLocationProvider } from '../../tracking';
 
 /**
  * Mock Location Provider for unit tests, offline testing, and dev simulation.
@@ -175,32 +176,34 @@ export class ForegroundGeolocationProvider implements ILocationProvider {
 }
 
 /**
- * Adapter retained for TelemetryModule. It delegates directly to the
- * community foreground provider.
+ * Chooses the Android foreground ride service for active rides, retaining the
+ * community provider on the remaining platforms.
  */
 export class CommunityGeolocationProvider implements ILocationProvider {
   private tracking = false;
-  private readonly communityProvider = new ForegroundGeolocationProvider();
+  private readonly provider: ILocationProvider = Platform.OS === 'android'
+    ? new AndroidRideLocationProvider()
+    : new ForegroundGeolocationProvider();
 
   async start(onReading: (reading: Omit<TelemetryReading, 'client_reading_id'>) => void): Promise<void> {
     console.log('[GPS PROVIDER START CALLED]', {
       provider: 'CommunityGeolocationProvider',
       tracking: this.tracking,
-      implementation: 'community-geolocation',
+      implementation: Platform.OS === 'android' ? 'android-ride-service' : 'community-geolocation',
       stack: new Error('CommunityGeolocationProvider.start').stack,
     });
-    await this.communityProvider.start(onReading);
-    this.tracking = this.communityProvider.isTracking();
+    await this.provider.start(onReading);
+    this.tracking = this.provider.isTracking();
   }
 
   async stop(): Promise<void> {
     console.warn('[GPS PROVIDER STOP CALLED]', {
       provider: 'CommunityGeolocationProvider',
       tracking: this.tracking,
-      implementation: 'community-geolocation',
+      implementation: Platform.OS === 'android' ? 'android-ride-service' : 'community-geolocation',
       stack: new Error('CommunityGeolocationProvider.stop').stack,
     });
-    await this.communityProvider.stop();
+    await this.provider.stop();
     this.tracking = false;
   }
 

@@ -842,20 +842,20 @@ function App() {
   }, [authToken]);
 
   useEffect(() => {
-    if (!authToken || !fineLocationGranted) return;
-    console.log('[LOCATION PERMISSION GRANTED -> START GPS]');
+    if (!authToken || !fineLocationGranted || !activeRoomCode || !rideStarted) return;
+    console.log('[ACTIVE RIDE -> START GPS]');
     telemetryModuleRef.current.start({
       socketUrl: API_BASE_URL,
       authToken,
-      groupCode: activeRoomCodeRef.current,
+      groupCode: activeRoomCode,
       healthEndpointUrl: `${API_BASE_URL}/api/health`,
     }).catch(() => {});
 
     return () => {
-      console.warn('[TELEMETRY STOP] context=App fine-location permission lifecycle');
+      console.warn('[TELEMETRY STOP] context=App active ride lifecycle');
       telemetryModuleRef.current.stop().catch(() => {});
     };
-  }, [authToken, fineLocationGranted]);
+  }, [authToken, fineLocationGranted, activeRoomCode, rideStarted]);
 
   // Joining a room is a session operation, not a connection operation. Keeping
   // it separate prevents a room-code state update from disconnecting GPS and

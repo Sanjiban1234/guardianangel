@@ -166,5 +166,6 @@ dependencies {
 
     // Google Maps dependencies
     implementation("com.google.android.gms:play-services-maps:${rootProject.ext.playServicesVersion}")
+    implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("com.google.maps.android:android-maps-utils:${rootProject.ext.androidMapsUtilsVersion}")
 }
