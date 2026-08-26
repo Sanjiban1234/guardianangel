@@ -25,6 +25,9 @@ function parseDatabaseCa(rawCa: string | undefined): string {
 
 /** Build pg TLS configuration without ever weakening production verification. */
 export function getDatabaseSslConfig(): ConnectionOptions | undefined {
-  if (process.env.NODE_ENV !== 'production') return undefined;
+  // A managed deployment may omit NODE_ENV while still supplying its database
+  // trust anchor. Never silently discard that explicit TLS configuration.
+  // Local development remains plaintext unless a CA is deliberately supplied.
+  if (process.env.NODE_ENV !== 'production' && !process.env.DATABASE_CA_CERT?.trim()) return undefined;
   return { rejectUnauthorized: true, ca: parseDatabaseCa(process.env.DATABASE_CA_CERT) };
 }
