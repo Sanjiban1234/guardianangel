@@ -2,7 +2,8 @@ import { AddressInfo } from 'net';
 import { io as ClientIO, Socket as ClientSocket } from 'socket.io-client';
 import { server, io } from '../src/index';
 import * as db from '../src/db';
-import jwt from 'jsonwebtoken';
+import { createAuthenticatedTestSession, installTestSessionValidator, resetTestSessions } from './helpers/auth';
+import { BulkSyncHandler } from '../src/handlers/BulkSyncHandler';
 
 jest.mock('../src/db', () => ({
   query: jest.fn(),
@@ -29,8 +30,9 @@ describe('WebSocket Telemetry & Bulk Sync Integration Tests', () => {
   beforeAll((done) => {
     server.listen(0, () => {
       serverPort = (server.address() as AddressInfo).port;
-      userToken1 = jwt.sign(user1, JWT_SECRET);
-      userToken2 = jwt.sign(user2, JWT_SECRET);
+      installTestSessionValidator();
+      userToken1 = createAuthenticatedTestSession({ ...user1, role: 'rider' }).token;
+      userToken2 = createAuthenticatedTestSession({ ...user2, role: 'rider' }).token;
       done();
     });
   });
@@ -42,6 +44,10 @@ describe('WebSocket Telemetry & Bulk Sync Integration Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resetTestSessions();
+    installTestSessionValidator();
+    userToken1 = createAuthenticatedTestSession({ ...user1, role: 'rider' }).token;
+    userToken2 = createAuthenticatedTestSession({ ...user2, role: 'rider' }).token;
 
     mockedQuery.mockImplementation(async (text: string, params?: any[]): Promise<any> => {
       if (text.includes('room_members') && text.includes('users') && text.includes('name')) {
@@ -191,16 +197,10 @@ describe('WebSocket Telemetry & Bulk Sync Integration Tests', () => {
     });
   });
 
-  it('should reject bulk sync when batch size exceeds MAX_BULK_BATCH', (done) => {
-    clientSocket1 = ClientIO(`http://localhost:${serverPort}`, {
-      auth: { token: userToken1 }
-    });
-
-    clientSocket1.on('connect', () => {
-      clientSocket1.emit('session:join', { group_code: groupCode });
-    });
-
-    clientSocket1.on('session:joined', () => {
+  it('should reject bulk sync when batch size exceeds MAX_BULK_BATCH', async () => {
+      // A valid 501-reading Socket.IO JSON frame exceeds the intentionally
+      // conservative 64 KiB transport cap because every reading includes a
+      // required UUID. Exercise the application cap at its handler boundary.
       const now = Date.now();
       const oversizedReadings = Array.from({ length: 501 }, (_, i) => ({
         client_reading_id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
@@ -210,13 +210,13 @@ describe('WebSocket Telemetry & Bulk Sync Integration Tests', () => {
         accuracy: 1.0,
         speed: 10.0
       }));
-
-      clientSocket1.emit('telemetry:bulkSync', { readings: oversizedReadings });
-    });
-
-    clientSocket1.on('error', (err) => {
-      expect(err.message).toContain('Batch too large');
-      done();
-    });
+      const emit = jest.fn();
+      const handler = new BulkSyncHandler(
+        { emit, user: { id: user1.id, name: user1.name, role: 'rider' } } as any,
+        { currentGroupCode: groupCode },
+        { bulkSyncTelemetry: jest.fn() } as any,
+      );
+      await (handler as any).handleBulkSync({ readings: oversizedReadings });
+      expect(emit).toHaveBeenCalledWith('error', expect.objectContaining({ message: expect.stringContaining('Batch too large') }));
   });
 });

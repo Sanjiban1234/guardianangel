@@ -40,6 +40,7 @@ describe('CrashHandler race condition: room ended mid-countdown', () => {
     };
 
     mockSocket = {
+      emit: jest.fn(),
       user: { id: userId, name: userName },
       on: jest.fn(),
     };
@@ -67,6 +68,7 @@ describe('CrashHandler race condition: room ended mid-countdown', () => {
     const countdownExpiredHandler = mockSocket.on.mock.calls.find(
       (call: any[]) => call[0] === 'crash:countdownExpired'
     )[1];
+    const crashTimestamp = Date.now();
 
     // Mock sequence for handleCountdownExpired:
     // 1. resolveRoomId → returns null (room is now 'ended')
@@ -79,7 +81,7 @@ describe('CrashHandler race condition: room ended mid-countdown', () => {
         id: candidateId,
         room_id: roomId,
         user_id: userId,
-        device_timestamp_ms: 1720958400000,
+        device_timestamp_ms: crashTimestamp,
         latitude: 28.2096,
         longitude: 83.9856,
         speed: 18.5,
@@ -105,15 +107,17 @@ describe('CrashHandler race condition: room ended mid-countdown', () => {
 
     // Fire the event
     await countdownExpiredHandler({
-      timestamp: 1720958415000,
+      timestamp: crashTimestamp,
       latitude: 28.2096,
       longitude: 83.9856,
     });
 
     // Verify outcome was updated to 'confirmed'
-    const updateCall = mockQueryFn.mock.calls[2];
-    expect(updateCall[0]).toContain('UPDATE crash_candidates SET outcome');
-    expect(updateCall[1]).toEqual(['confirmed', candidateId]);
+    const updateCall = mockQueryFn.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && sql.includes('UPDATE crash_candidates SET outcome = $1 WHERE id = $2')
+    );
+    expect(updateCall).toBeDefined();
+    expect(updateCall?.[1]).toEqual(['confirmed', candidateId]);
 
     // Verify SOS broadcast fired to the correct Socket.IO room
     expect(mockIo.to).toHaveBeenCalledWith(`group:${groupCode}`);
@@ -127,11 +131,12 @@ describe('CrashHandler race condition: room ended mid-countdown', () => {
       longitude: 83.9856,
     });
 
-    // Verify createAlert received roomId=null (passed through from handler)
-    // The alert INSERT is call index 3
-    const alertInsertCall = mockQueryFn.mock.calls[3];
-    expect(alertInsertCall[0]).toContain('INSERT INTO emergency_alarms');
-    expect(alertInsertCall[1][1]).toBeNull(); // room_id param is null
+    // Verify createAlert received roomId=null (passed through from handler).
+    const alertInsertCall = mockQueryFn.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO emergency_alarms (user_id, room_id, latitude, longitude, expire, status)')
+    );
+    expect(alertInsertCall).toBeDefined();
+    expect(alertInsertCall?.[1]?.[1]).toBeNull(); // room_id param is null
   });
 
   it('should mark outcome false_alarm via fallback when room ended before cancel', async () => {
@@ -164,9 +169,11 @@ describe('CrashHandler race condition: room ended mid-countdown', () => {
 
     await cancelledHandler();
 
-    const updateCall = mockQueryFn.mock.calls[2];
-    expect(updateCall[0]).toContain('UPDATE crash_candidates SET outcome');
-    expect(updateCall[1]).toEqual(['false_alarm', candidateId]);
+    const updateCall = mockQueryFn.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && sql.includes('UPDATE crash_candidates SET outcome = $1 WHERE id = $2')
+    );
+    expect(updateCall).toBeDefined();
+    expect(updateCall?.[1]).toEqual(['false_alarm', candidateId]);
   });
 
   it('should still use direct room_id lookup when room is active (normal path)', async () => {
@@ -174,6 +181,7 @@ describe('CrashHandler race condition: room ended mid-countdown', () => {
     const countdownExpiredHandler = mockSocket.on.mock.calls.find(
       (call: any[]) => call[0] === 'crash:countdownExpired'
     )[1];
+    const crashTimestamp = Date.now();
 
     // resolveRoomId → returns active room
     mockQueryFn.mockResolvedValueOnce({ rows: [{ id: roomId }] });
@@ -184,7 +192,7 @@ describe('CrashHandler race condition: room ended mid-countdown', () => {
         id: candidateId,
         room_id: roomId,
         user_id: userId,
-        device_timestamp_ms: 1720958400000,
+        device_timestamp_ms: crashTimestamp,
         latitude: 28.2096,
         longitude: 83.9856,
         speed: 20.0,
@@ -193,6 +201,9 @@ describe('CrashHandler race condition: room ended mid-countdown', () => {
         created_at: '2026-07-17T00:00:00Z',
       }],
     });
+
+    // getLatestTelemetry returns no recent telemetry, so the normal path can proceed.
+    mockQueryFn.mockResolvedValueOnce({ rows: [] });
 
     // updateOutcome
     mockQueryFn.mockResolvedValueOnce({ rows: [] });
@@ -208,19 +219,24 @@ describe('CrashHandler race condition: room ended mid-countdown', () => {
     });
 
     await countdownExpiredHandler({
-      timestamp: 1720958415000,
+      timestamp: crashTimestamp,
       latitude: 28.2096,
       longitude: 83.9856,
     });
 
     // findLatestForUserInRoom uses room_id directly
-    const findCall = mockQueryFn.mock.calls[1];
-    expect(findCall[0]).toContain('WHERE room_id = $1 AND user_id = $2');
-    expect(findCall[1]).toEqual([roomId, userId]);
+    const findCall = mockQueryFn.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && sql.includes('FROM crash_candidates') && sql.includes('WHERE room_id = $1 AND user_id = $2')
+    );
+    expect(findCall).toBeDefined();
+    expect(findCall?.[1]).toEqual([roomId, userId]);
 
     // createAlert received the resolved roomId (not null)
-    const alertInsertCall = mockQueryFn.mock.calls[3];
-    expect(alertInsertCall[1][1]).toBe(roomId);
+    const alertInsertCall = mockQueryFn.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO emergency_alarms (user_id, room_id, latitude, longitude, expire, status)')
+    );
+    expect(alertInsertCall).toBeDefined();
+    expect(alertInsertCall?.[1]?.[1]).toBe(roomId);
 
     // Broadcast still fires
     expect(emittedEvents[0].event).toBe('sos:broadcast');

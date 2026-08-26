@@ -2,6 +2,7 @@ import { Server } from 'socket.io';
 import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { RoomService } from '../services/RoomService';
 import { PresenceService } from '../services/PresenceService';
+import { logger } from '../utils/logger';
 
 export interface RoomState {
   currentGroupCode: string | null;
@@ -61,8 +62,7 @@ export class SessionHandler {
       const joiningRider = members.find((member) => member.user_id === userId);
       const rideStatus = await this.roomService.getRoomRideStatus(group_code);
 
-      const roomSockets = this.socket.nsp?.adapter?.rooms?.get(`group:${group_code}`);
-      console.log(`[LIVE LOCATION DIAG] [BACKEND-SESSION] ${name} joined group:${group_code} | socketId=${this.socket.id} roomSockets=${roomSockets?.size ?? 'unknown'} membersCount=${members.length}`);
+      logger.info('session joined', { memberCount: members.length });
 
       this.socket.emit('session:joined', {
         group_code,
@@ -83,10 +83,8 @@ export class SessionHandler {
 
       if (callback) callback({ group_code, members, ride_started_at: rideStatus?.rideStartedAt || null });
 
-      const roomSocketsAfter = this.socket.nsp?.adapter?.rooms?.get(`group:${group_code}`)?.size ?? 'unknown';
-      console.log(`[SOCKET BACKEND] SESSION_JOINED userId=${userId} name=${name} groupCode=${group_code} membersCount=${members.length} roomSocketCount=${roomSocketsAfter}`);
     } catch (err) {
-      console.error('SessionHandler.handleJoin error:', err);
+      logger.error('session join failed', err);
       const errResp = { error: 'Internal server error while joining session' };
       this.socket.emit('error', errResp);
       if (callback) callback(errResp);
@@ -95,13 +93,7 @@ export class SessionHandler {
 
   private async handleLeave(callback?: (response: any) => void): Promise<void> {
     const groupCode = this.roomState.currentGroupCode;
-    console.warn('[SESSION LEAVE DIAG] session:leave received', {
-      socketId: this.socket.id,
-      userId: this.socket.user?.id,
-      name: this.socket.user?.name,
-      currentGroupCode: groupCode,
-      stack: new Error('session:leave handler').stack,
-    });
+    logger.info('session leave requested');
     if (!groupCode) {
       callback?.({ error: 'Not currently in a room' });
       return;
@@ -114,7 +106,7 @@ export class SessionHandler {
     try {
       didLeave = await this.roomService.leaveRoom(groupCode, userId);
     } catch (err) {
-      console.error('SessionHandler.handleLeave error:', err);
+      logger.error('session leave failed', err);
       callback?.({ error: 'Unable to leave ride' });
       return;
     }
@@ -123,7 +115,7 @@ export class SessionHandler {
       return;
     }
 
-    console.log(`SessionHandler: ${name} explicitly left group ${groupCode}`);
+    logger.info('session leave completed');
 
     this.socket
       .to(`group:${groupCode}`)
@@ -132,11 +124,7 @@ export class SessionHandler {
     this.socket.leave(`group:${groupCode}`);
     this.presenceService.markLeft(groupCode, userId, this.socket.id);
     this.roomState.currentGroupCode = null;
-    console.warn('[SESSION LEAVE DIAG] roomState cleared', {
-      socketId: this.socket.id,
-      userId,
-      groupCode,
-    });
+    logger.info('session state cleared');
     callback?.({ success: true });
   }
 }

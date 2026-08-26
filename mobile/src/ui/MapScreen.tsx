@@ -134,8 +134,8 @@ async function fetchRoute(
     if (!overviewPolyline) return null;
 
     return decodePolyline(overviewPolyline);
-  } catch (error) {
-    console.warn('[MapScreen] Route fetch error:', error);
+  } catch {
+    console.warn('[MapScreen] Route fetch failed');
     return null;
   }
 }

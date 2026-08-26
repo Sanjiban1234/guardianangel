@@ -21,6 +21,9 @@ import { MedicalInfoService } from './services/MedicalInfoService';
 import { RefillNotificationService } from './services/RefillNotificationService';
 import { PostgisTelemetryRepository } from './repositories/PostgisTelemetryRepository';
 import { CrashCandidateRepository } from './repositories/CrashCandidateRepository';
+import { AuthSessionService } from './services/AuthSessionService';
+import { AuthMiddleware } from './middleware/AuthMiddleware';
+import { EmergencyDisclosureAuditService } from './services/EmergencyDisclosureAuditService';
 
 // ─── Routes ───────────────────────────────────────────────────────────────
 import { createAuthRouter } from './routes/AuthRouter';
@@ -36,12 +39,16 @@ import { UserProfileRouter } from './routes/UserProfileRouter';
 import { RideSocketController } from './sockets/RideSocketController';
 
 // ─── Config ───────────────────────────────────────────────────────────────
-import { ALLOWED_ORIGINS, MAX_BODY_SIZE, PORT } from './config';
+import { ALLOWED_ORIGINS, MAX_BODY_SIZE, PORT, SOCKET_MAX_HTTP_BUFFER_SIZE, TRUST_PROXY } from './config';
+import { logger } from './utils/logger';
 
 // ─── Compose the dependency graph ─────────────────────────────────────────
 const queryRunner = new QueryRunner();
 
-const userService        = new UserService(queryRunner);
+const authSessionService = new AuthSessionService(queryRunner);
+const disclosureAuditService = new EmergencyDisclosureAuditService(queryRunner);
+const userService        = new UserService(queryRunner, authSessionService);
+AuthMiddleware.configureSessionValidator((jti, userId) => authSessionService.isActive(jti, userId));
 const roomService        = new RoomService(queryRunner);
 const telemetryService   = new TelemetryService(queryRunner);
 const alertService       = new EmergencyAlertService(queryRunner);
@@ -68,13 +75,15 @@ const socketController = new RideSocketController(
   coherenceService,
   breakdownService,
   medicalService,
-  refillService
+  refillService,
+  disclosureAuditService
 );
 
 // ─── Express + Socket.io setup ─────────────────────────────────────────────
 
 const app    = express();
 const server = createServer(app);
+app.set('trust proxy', TRUST_PROXY ? 1 : false);
 
 app.use(
   cors({
@@ -90,6 +99,7 @@ app.use(
 );
 
 const io = new Server(server, {
+  maxHttpBufferSize: SOCKET_MAX_HTTP_BUFFER_SIZE,
   cors: {
     origin: ALLOWED_ORIGINS,
     credentials: true,
@@ -100,7 +110,7 @@ const io = new Server(server, {
 app.use(express.json({ limit: MAX_BODY_SIZE }));
 
 // Mount REST routes
-app.use('/api/auth', createAuthRouter(userService));
+app.use('/api/auth', createAuthRouter(userService, authSessionService));
 app.use('/api',      createRoomRouter(roomService, telemetryRepo));
 app.use('/api',      createGeofenceRouter(queryRunner));
 app.use('/api',      createSafetyRouter(queryRunner));
@@ -138,13 +148,13 @@ const gracefulShutdown = async (signal: string) => {
         await pool.end();
         console.log('Database pool drained.');
       } catch (dbErr) {
-        console.error('Error closing database pool:', dbErr);
+        logger.error('database pool shutdown failed', dbErr);
       }
       clearTimeout(forceExitTimeout);
       process.exit(0);
     });
   } catch (err) {
-    console.error('Error during graceful shutdown:', err);
+    logger.error('graceful shutdown failed', err);
     clearTimeout(forceExitTimeout);
     process.exit(1);
   }
@@ -169,7 +179,7 @@ const startServer = async () => {
       });
     }
   } catch (error) {
-    console.error('Failed to initialize server/database:', error);
+    logger.error('server initialization failed', error);
     process.exit(1);
   }
 };

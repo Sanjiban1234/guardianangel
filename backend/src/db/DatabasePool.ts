@@ -1,5 +1,7 @@
 import { Pool, PoolClient } from 'pg';
 import dotenv from 'dotenv';
+import { getDatabaseSslConfig } from './TlsConfig';
+import { logger } from '../utils/logger';
 
 dotenv.config();
 
@@ -15,17 +17,11 @@ export class DatabasePool {
   constructor() {
     this.pool = new Pool({
       connectionString: process.env.DATABASE_URL,
-      ssl:
-        process.env.NODE_ENV === 'production'
-          ? { rejectUnauthorized: false }
-          : undefined,
+      ssl: getDatabaseSslConfig(),
     });
 
     this.pool.on('error', (err) => {
-      console.warn(
-        'DatabasePool: pg.Pool encountered an error. Marking pool as unavailable.',
-        err.message
-      );
+      logger.warn('database pool marked unavailable');
       this._hasError = true;
     });
   }

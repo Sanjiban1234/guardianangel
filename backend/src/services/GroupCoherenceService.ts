@@ -1,4 +1,5 @@
 import { PresenceService, RiderPresence } from './PresenceService';
+import { logger } from '../utils/logger';
 import type { GroupSeparationAlertPayload, GroupReunitedPayload } from '@guardian-angel/contracts/websocket-events';
 
 export interface RiderLocation {
@@ -292,7 +293,7 @@ export class GroupCoherenceService {
         }
       }
     } catch (err) {
-      console.error('GroupCoherenceService.evaluateRoomCoherence error:', err);
+      logger.error('group coherence evaluation failed', err);
     }
 
     return { alerts, reunions };

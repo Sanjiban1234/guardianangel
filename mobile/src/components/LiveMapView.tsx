@@ -138,7 +138,7 @@ export function LiveMapView({
         {riders
           .filter(r => !r.isYou && (r.latitude !== 0 || r.longitude !== 0))
           .map(rider => {
-            console.log(`[LIVE LOCATION DIAG] [BOUNDARY-H] PEER_MARKER name=${rider.name} lat=${rider.latitude.toFixed(6)} lng=${rider.longitude.toFixed(6)}`);
+            console.log('[PEER MARKER RENDERED]');
             return (
               <PeerRiderMarker
                 key={rider.user_id}

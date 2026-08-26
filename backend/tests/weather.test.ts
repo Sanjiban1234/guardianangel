@@ -2,6 +2,7 @@ import request from 'supertest';
 import { app } from '../src/index';
 import * as db from '../src/db';
 import jwt from 'jsonwebtoken';
+import { createAuthenticatedTestSession, installTestSessionValidator, resetTestSessions } from './helpers/auth';
 import { mapWeatherCode } from '../src/services/WeatherService';
 
 jest.mock('../src/db', () => ({
@@ -27,12 +28,14 @@ describe('GET /api/rooms/:groupCode/weather', () => {
   const mockRoomId = 'room-uuid-weather';
 
   beforeAll(() => {
-    memberToken = jwt.sign(member, JWT_SECRET);
-    nonMemberToken = jwt.sign(nonMember, JWT_SECRET);
+    installTestSessionValidator();
+    memberToken = createAuthenticatedTestSession({ ...member, role: 'rider' }).token;
+    nonMemberToken = createAuthenticatedTestSession({ ...nonMember, role: 'rider' }).token;
   });
 
   beforeEach(() => {
     jest.clearAllMocks();
+    installTestSessionValidator();
     // Prevent any test from hitting the real network
     globalThis.fetch = jest.fn().mockRejectedValue(new Error('unmocked fetch'));
   });

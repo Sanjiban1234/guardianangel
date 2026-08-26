@@ -2,6 +2,7 @@ import { Server } from 'socket.io';
 import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { RoomService } from '../services/RoomService';
 import { RoomState } from './SessionHandler';
+import { logger } from '../utils/logger';
 
 /** Host-authorized ride termination.  Members must use session:leave instead. */
 export class RideEndHandler {
@@ -31,7 +32,7 @@ export class RideEndHandler {
       this.io.to(`group:${groupCode}`).emit('ride:ended', { group_code: groupCode, ended_at: Date.now() });
       callback?.({ success: true });
     } catch (err) {
-      console.error('RideEndHandler.handleEnd error:', err);
+      logger.error('ride end failed', err);
       callback?.({ error: 'Unable to end ride' });
     }
   }

@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { AuthMiddleware, AuthenticatedRequest } from '../middleware/AuthMiddleware';
 import { MedicalInfoService } from '../services/MedicalInfoService';
+import { logger } from '../utils/logger';
 
 export class MedicalInfoRouter {
   readonly router: Router;
@@ -51,7 +52,7 @@ export class MedicalInfoRouter {
       if (message.includes('Invalid blood group') || message.includes('Invalid emergency contact phone')) {
         res.status(400).json({ error: message });
       } else {
-        console.error('MedicalInfoRouter.handleUpsert error:', err);
+        logger.error('medical information update failed', err);
         res.status(500).json({ error: 'Internal server error' });
       }
     }
@@ -71,7 +72,7 @@ export class MedicalInfoRouter {
       const info = await this.medicalService.getMedicalInfo(userId);
       res.status(200).json({ medical_info: info });
     } catch (err) {
-      console.error('MedicalInfoRouter.handleGet error:', err);
+      logger.error('medical information read failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   }
@@ -90,7 +91,7 @@ export class MedicalInfoRouter {
       await this.medicalService.deleteMedicalInfo(userId);
       res.status(200).json({ message: 'Medical info deleted successfully' });
     } catch (err) {
-      console.error('MedicalInfoRouter.handleDelete error:', err);
+      logger.error('medical information delete failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

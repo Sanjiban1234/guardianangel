@@ -14,12 +14,12 @@ export async function fetchRideSummaryFromBackend(
   authToken: string,
   apiBaseUrl: string = API_BASE_URL,
 ): Promise<RideSummaryData> {
-  console.log(`[SUMMARY FETCH] groupCode=${groupCode}`);
+  console.log('[SUMMARY FETCH]');
   const response = await fetch(`${apiBaseUrl}/api/rooms/${groupCode}/summary`, {
     headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
   });
   if (!response.ok) {
-    console.warn(`[SUMMARY FETCH FAILURE] groupCode=${groupCode} status=${response.status}`);
+    console.warn(`[SUMMARY FETCH FAILURE] status=${response.status}`);
     throw new Error(`Failed to fetch ride summary: ${response.statusText}`);
   }
 
@@ -29,7 +29,7 @@ export async function fetchRideSummaryFromBackend(
   if (!rawSummary.room_id || !rawSummary.user_id || !Number.isFinite(totalDistanceMeters) || !Number.isFinite(actualDurationMs)) {
     throw new Error('The server returned an incomplete ride summary.');
   }
-  console.log(`[SUMMARY FETCH SUCCESS] groupCode=${groupCode}`);
+  console.log('[SUMMARY FETCH SUCCESS]');
   return {
     room_id: rawSummary.room_id,
     group_code: groupCode,

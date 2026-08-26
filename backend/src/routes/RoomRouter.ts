@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { AuthMiddleware, AuthenticatedRequest } from '../middleware/AuthMiddleware';
 import { RoomService } from '../services/RoomService';
 import { PostgisTelemetryRepository } from '../repositories/PostgisTelemetryRepository';
+import { logger } from '../utils/logger';
 
 export class RoomRouter {
   readonly router: Router;
@@ -87,7 +88,7 @@ export class RoomRouter {
         res.status(403).json({ error: err.message, code: err.code });
         return;
       }
-      console.error('RoomRouter.createRoom error:', err);
+      logger.error('room creation failed', err);
       res.status(500).json({ error: 'Internal server error while creating ride room' });
     }
   }
@@ -150,7 +151,7 @@ export class RoomRouter {
       } else if (err?.code === 'PROFILE_INCOMPLETE') {
         res.status(403).json({ error: err.message, code: 'PROFILE_INCOMPLETE' });
       } else {
-        console.error('RoomRouter.joinRoom error:', err);
+        logger.error('room join failed', err);
         res.status(500).json({ error: 'Internal server error while joining ride group', code: 'INTERNAL_ERROR' });
       }
     }
@@ -191,7 +192,7 @@ export class RoomRouter {
       const history = await this.roomService.getRoomHistory(groupCode);
       res.status(200).json(history);
     } catch (err) {
-      console.error('RoomRouter.getHistory error:', err);
+      logger.error('room history request failed', err);
       res.status(500).json({ error: 'Internal server error while fetching telemetry history' });
     }
   }
@@ -233,7 +234,7 @@ export class RoomRouter {
         duration_ms: durationMs,
       });
     } catch (err) {
-      console.error('RoomRouter.getSummary error:', err);
+      logger.error('room summary request failed', err);
       res.status(500).json({ error: 'Internal server error while fetching ride summary' });
     }
   }

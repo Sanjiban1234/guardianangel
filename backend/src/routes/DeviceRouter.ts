@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { AuthMiddleware, AuthenticatedRequest } from '../middleware/AuthMiddleware';
 import { FcmPushService } from '../services/FcmPushService';
+import { logger } from '../utils/logger';
 
 export class DeviceRouter {
   readonly router: Router;
@@ -30,7 +31,7 @@ export class DeviceRouter {
 
     const { token, platform } = req.body || {};
 
-    if (!token || typeof token !== 'string' || token.trim() === '') {
+    if (!token || typeof token !== 'string' || token.trim() === '' || token.length > 4096) {
       res.status(400).json({ error: 'token must be a non-empty string' });
       return;
     }
@@ -48,7 +49,7 @@ export class DeviceRouter {
       );
       res.status(200).json({ message: 'Device token registered successfully' });
     } catch (err) {
-      console.error('DeviceRouter.handleRegister failed:', err);
+      logger.error('device registration failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

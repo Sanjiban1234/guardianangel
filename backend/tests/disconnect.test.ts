@@ -3,6 +3,7 @@ import { io as ClientIO, Socket as ClientSocket } from 'socket.io-client';
 import { server, io } from '../src/index';
 import * as db from '../src/db';
 import jwt from 'jsonwebtoken';
+import { createAuthenticatedTestSession, installTestSessionValidator } from './helpers/auth';
 
 jest.mock('../src/db', () => ({
   query: jest.fn(),
@@ -31,8 +32,9 @@ describe('Disconnect Handler Room-Scoped Isolation', () => {
   beforeAll((done) => {
     server.listen(0, () => {
       serverPort = (server.address() as AddressInfo).port;
-      tokenA = jwt.sign(userA, JWT_SECRET);
-      tokenB = jwt.sign(userB, JWT_SECRET);
+      installTestSessionValidator();
+      tokenA = createAuthenticatedTestSession({ ...userA, role: 'rider' }).token;
+      tokenB = createAuthenticatedTestSession({ ...userB, role: 'rider' }).token;
       done();
     });
   });

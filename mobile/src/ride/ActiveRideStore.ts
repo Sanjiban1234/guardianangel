@@ -20,6 +20,11 @@ export async function loadSession(): Promise<string | null> {
   return AsyncStorage.getItem(SESSION_KEY);
 }
 
+/** Clears the bearer token during local-first logout. */
+export async function clearSession(): Promise<void> {
+  await AsyncStorage.removeItem(SESSION_KEY);
+}
+
 export async function saveActiveRide(ride: ActiveRideRecovery): Promise<void> {
   await AsyncStorage.setItem(ACTIVE_RIDE_KEY, JSON.stringify(ride));
 }

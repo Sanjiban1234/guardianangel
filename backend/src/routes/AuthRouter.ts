@@ -1,28 +1,31 @@
 import { Router, Response } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { MemoryStore } from 'express-rate-limit';
 import { AuthenticatedRequest } from '../middleware/AuthMiddleware';
 import { UserService } from '../services/UserService';
+import { AuthMiddleware } from '../middleware/AuthMiddleware';
+import { AuthSessionService } from '../services/AuthSessionService';
+import jwt from 'jsonwebtoken';
+import { logger } from '../utils/logger';
 
-// Rate limiting: enabled for tests when ENABLE_AUTH_RATE_LIMIT_TEST=true
+const authLimiterStore = new MemoryStore();
 const rateLimitMiddleware = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5, // 5 requests per window
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many login attempts, please try again later' },
+  store: authLimiterStore,
 });
 
-export const authLimiter = (req: any, res: any, next: any) => {
-  if (process.env.ENABLE_AUTH_RATE_LIMIT_TEST === 'true') {
-    return rateLimitMiddleware(req, res, next);
-  }
-  return next();
-};
+// Authentication throttling is mandatory in every deployed environment.
+export const authLimiter = rateLimitMiddleware;
+/** Test harness only; production has no request or environment bypass. */
+export const resetAuthLimiterForTests = (): void => { if (process.env.NODE_ENV === 'test') authLimiterStore.resetAll(); };
 
 export class AuthRouter {
   readonly router: Router;
 
-  constructor(private readonly userService: UserService) {
+  constructor(private readonly userService: UserService, private readonly sessions?: AuthSessionService) {
     this.router = Router();
     this.registerRoutes();
   }
@@ -30,6 +33,15 @@ export class AuthRouter {
   private registerRoutes(): void {
     this.router.post('/register', authLimiter, (req, res) => this.handleRegister(req as AuthenticatedRequest, res));
     this.router.post('/login', authLimiter, (req, res) => this.handleLogin(req as AuthenticatedRequest, res));
+    this.router.post('/logout', AuthMiddleware.authenticateJWT, (req, res) => this.handleLogout(req as AuthenticatedRequest, res));
+  }
+
+  private async handleLogout(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const token = req.headers.authorization?.split(' ')[1];
+    const decoded = token ? jwt.decode(token) : null;
+    if (!req.user?.id || !decoded || typeof decoded === 'string' || !decoded.jti || !this.sessions) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    await this.sessions.revoke(decoded.jti, req.user.id);
+    res.status(200).json({ message: 'Logged out' });
   }
 
   private async handleRegister(
@@ -131,7 +143,7 @@ export class AuthRouter {
       if (err?.code === 'EMAIL_TAKEN') {
         res.status(409).json({ error: 'Email is already registered' });
       } else {
-        console.error('AuthRouter.register error:', err);
+        logger.error('registration failed', err);
         res.status(500).json({ error: 'Internal server error during registration' });
       }
     }
@@ -163,13 +175,13 @@ export class AuthRouter {
       if (err?.code === 'AUTH_FAILED') {
         res.status(401).json({ error: 'Invalid email or password' });
       } else {
-        console.error('AuthRouter.login error:', err);
+        logger.error('login failed', err);
         res.status(500).json({ error: 'Internal server error during login' });
       }
     }
   }
 }
 
-export function createAuthRouter(userService: UserService): Router {
-  return new AuthRouter(userService).router;
+export function createAuthRouter(userService: UserService, sessions?: AuthSessionService): Router {
+  return new AuthRouter(userService, sessions).router;
 }

@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { QueryRunner } from '../db/QueryRunner';
 import { FcmPushService } from './FcmPushService';
+import { logger } from '../utils/logger';
 import type { VehicleBreakdownReason } from '@guardian-angel/contracts/websocket-events';
 
 export interface BreakdownRecord {
@@ -133,7 +134,7 @@ export class VehicleBreakdownService {
           });
         }
       } catch (err) {
-        console.error('VehicleBreakdownService: failed fetching room members for FCM:', err);
+        logger.error('breakdown notification recipients lookup failed', err);
       }
     }
 

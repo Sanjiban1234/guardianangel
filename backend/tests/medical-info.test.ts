@@ -2,6 +2,7 @@ import request from 'supertest';
 import { app } from '../src/index';
 import * as db from '../src/db';
 import jwt from 'jsonwebtoken';
+import { createAuthenticatedTestSession, installTestSessionValidator } from './helpers/auth';
 import { QueryRunner } from '../src/db/QueryRunner';
 import { MedicalInfoService } from '../src/services/MedicalInfoService';
 import { CrashHandler } from '../src/handlers/CrashHandler';
@@ -26,7 +27,8 @@ describe('Rider Medical ID Module Tests', () => {
   let userToken: string;
 
   beforeAll(() => {
-    userToken = jwt.sign({ id: userId, name: userName }, JWT_SECRET);
+    installTestSessionValidator();
+    userToken = createAuthenticatedTestSession({ id: userId, name: userName, role: 'rider' }).token;
   });
 
   beforeEach(() => {
@@ -67,7 +69,7 @@ describe('Rider Medical ID Module Tests', () => {
       expect(result.emergency_contact_phone).toBe('+1234567890');
       expect(mockQueryFn).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO medical_info'),
-        [userId, 'O+', 'Peanuts, Penicillin', 'John Doe', '+1234567890', 'Asthmatic']
+        [userId, 'O+', 'Peanuts, Penicillin', 'John Doe', '+1234567890', 'Asthmatic', false, false]
       );
     });
 
@@ -132,6 +134,8 @@ describe('Rider Medical ID Module Tests', () => {
         emergency_contact_name: 'Dr. House',
         emergency_contact_phone: '+1122334455',
         notes: 'Diabetic',
+        share_medical_during_emergency: true,
+        share_emergency_contact_during_emergency: true,
         updated_at: '2026-07-31T12:00:00Z',
       };
       mockQueryFn.mockResolvedValueOnce({ rows: [mockRow] });
@@ -143,7 +147,6 @@ describe('Rider Medical ID Module Tests', () => {
         allergies: 'Latex',
         emergency_contact_name: 'Dr. House',
         emergency_contact_phone: '+1122334455',
-        notes: 'Diabetic',
       });
     });
   });
@@ -247,6 +250,7 @@ describe('Rider Medical ID Module Tests', () => {
       const mockSocket: any = {
         user: { id: userId, name: userName },
         on: jest.fn(),
+        emit: jest.fn(),
       };
       const mockRoomState = { currentGroupCode: groupCode };
       const mockAlertService: any = {
@@ -255,6 +259,7 @@ describe('Rider Medical ID Module Tests', () => {
       const mockCrashRepo: any = {
         resolveRoomId: jest.fn().mockResolvedValue('room-uuid-1'),
         findLatestForUserInRoom: jest.fn().mockResolvedValue({ id: 'cand-1', outcome: null }),
+        getLatestTelemetry: jest.fn().mockResolvedValue(null),
         updateOutcome: jest.fn().mockResolvedValue(undefined),
       };
       const mockMedicalService: any = {
@@ -279,7 +284,7 @@ describe('Rider Medical ID Module Tests', () => {
       )[1];
 
       await countdownExpiredListener({
-        timestamp: 1720958400000,
+        timestamp: Date.now(),
         latitude: 28.2,
         longitude: 83.9,
       });
@@ -298,7 +303,7 @@ describe('Rider Medical ID Module Tests', () => {
       );
     });
 
-    it('VehicleBreakdownHandler should include medical_info snapshot in vehicle:breakdownReported', async () => {
+    it('VehicleBreakdownHandler should not include medical_info in normal breakdown broadcasts', async () => {
       const mockIo: any = {
         to: jest.fn().mockReturnValue({ emit: jest.fn() }),
       };
@@ -345,12 +350,10 @@ describe('Rider Medical ID Module Tests', () => {
         'vehicle:breakdownReported',
         expect.objectContaining({
           breakdown_id: 'bd-uuid-55',
-          medical_info: {
-            blood_group: 'A-',
-            emergency_contact_phone: '+1234567890',
-          },
         })
       );
+      const payload = mockIo.to(`group:${groupCode}`).emit.mock.calls[0][1];
+      expect(payload).not.toHaveProperty('medical_info');
     });
   });
 });

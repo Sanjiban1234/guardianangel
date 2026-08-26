@@ -14,3 +14,8 @@
 -keep interface com.google.android.gms.maps.** { *; }
 -keep class com.google.maps.** { *; }
 -dontwarn com.google.android.gms.**
+
+# Native foreground-tracking bridge is loaded by Android/React Native names.
+-keep class com.guardianangelmobile.tracking.RideTrackingService { *; }
+-keep class com.guardianangelmobile.tracking.RideTrackingModule { *; }
+-keep class com.guardianangelmobile.tracking.RideTrackingPackage { *; }

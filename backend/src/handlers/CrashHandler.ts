@@ -5,6 +5,8 @@ import { CrashCandidateRepository } from '../repositories/CrashCandidateReposito
 import { MedicalInfoService } from '../services/MedicalInfoService';
 import { PresenceService } from '../services/PresenceService';
 import { RoomState } from './SessionHandler';
+import { logger } from '../utils/logger';
+import { EmergencyDisclosureAuditService } from '../services/EmergencyDisclosureAuditService';
 
 export class CrashHandler {
   private static readonly userCrashTimestamps: Map<string, number[]> = new Map();
@@ -21,6 +23,7 @@ export class CrashHandler {
     private readonly crashRepo: CrashCandidateRepository,
     private readonly medicalService?: MedicalInfoService,
     private readonly presenceService?: PresenceService,
+    private readonly disclosureAudit?: EmergencyDisclosureAuditService,
   ) {}
 
   register(): void {
@@ -68,6 +71,7 @@ export class CrashHandler {
     longitude: number;
     user_id?: unknown;
   }): Promise<void> {
+    if (!this.isValidEvent(data)) return;
     const groupCode = this.roomState.currentGroupCode;
     if (!groupCode) return;
 
@@ -87,13 +91,9 @@ export class CrashHandler {
         data.longitude
       );
 
-      console.log(
-        `CrashHandler: CANDIDATE persisted (${candidate.id}) — user "${name}" ` +
-        `group "${groupCode}" @ ${data.latitude},${data.longitude}` +
-        (candidate.speed != null ? ` speed=${candidate.speed}m/s` : '')
-      );
+      logger.info('crash candidate persisted', { event: 'crash:candidate' });
     } catch (err) {
-      console.error('CrashHandler.handleCandidate: persist failed:', err);
+      logger.error('crash candidate persistence failed', err);
     }
   }
 
@@ -103,6 +103,7 @@ export class CrashHandler {
     longitude: number;
     user_id?: unknown;
   }): Promise<void> {
+    if (!this.isValidEvent(data)) return;
     const groupCode = this.roomState.currentGroupCode;
     if (!groupCode) return;
 
@@ -123,13 +124,30 @@ export class CrashHandler {
         ? await this.crashRepo.findLatestForUserInRoom(roomId, userId)
         : await this.crashRepo.findLatestForUserByGroupCode(groupCode, userId);
 
+      if (!latest || latest.outcome !== null || Math.abs(data.timestamp - latest.device_timestamp_ms) > 90_000) {
+        this.socket.emit('error', { message: 'A recent crash candidate is required before confirming SOS' });
+        return;
+      }
+      // Telemetry is optional during reconnects, but when a recent trusted
+      // reading exists its location must be physically plausible.  100m GPS
+      // allowance + 60m/s maximum travel is deliberately tolerant of drift,
+      // sparse five-second samples, and ordinary motorbike movement.
+      if (roomId) {
+        const telemetry = await this.crashRepo.getLatestTelemetry(roomId, userId);
+        if (telemetry && Math.abs(data.timestamp - telemetry.timestamp) <= 5 * 60_000) {
+          const distance = await this.crashRepo.distanceFromLatestTelemetry(roomId, userId, data.latitude, data.longitude);
+          const allowedDistance = 100 + 60 * (Math.abs(data.timestamp - telemetry.timestamp) / 1000);
+          if (distance !== null && distance > allowedDistance) {
+            this.socket.emit('error', { message: 'Crash location is inconsistent with recent telemetry' });
+            return;
+          }
+        }
+      }
       if (latest && latest.outcome === null) {
         await this.crashRepo.updateOutcome(latest.id, 'confirmed');
       }
 
-      console.log(
-        `CrashHandler: CONFIRMED — user "${name}" group "${groupCode}". Creating SOS alert.`
-      );
+      logger.info('crash confirmed', { event: 'sos' });
 
       const alert = await this.alertService.createAlert(
         groupCode,
@@ -143,6 +161,11 @@ export class CrashHandler {
       const medicalInfo = this.medicalService
         ? await this.medicalService.getMedicalInfoSnapshot(userId)
         : undefined;
+      const categories = [
+        medicalInfo?.blood_group || medicalInfo?.allergies ? 'medical_basic' : null,
+        medicalInfo?.emergency_contact_name || medicalInfo?.emergency_contact_phone ? 'emergency_contact' : null,
+      ].filter((value): value is string => value !== null);
+      if (categories.length && this.disclosureAudit) await this.disclosureAudit.record(userId, roomId, alert.alarm_no, categories);
       const riderIdentity = this.presenceService
         ? (await this.presenceService.getRiderPresence(groupCode)).find((rider) => rider.user_id === userId)
         : undefined;
@@ -159,8 +182,20 @@ export class CrashHandler {
         medical_info: medicalInfo,
       });
     } catch (err) {
-      console.error('CrashHandler.handleCountdownExpired: alert insert/broadcast failed:', err);
+      logger.error('SOS creation failed', err);
     }
+  }
+
+  private isValidEvent(data: unknown): data is { timestamp: number; latitude: number; longitude: number } {
+    if (!data || typeof data !== 'object') { this.socket.emit('error', { message: 'Invalid crash payload' }); return false; }
+    const { timestamp, latitude, longitude } = data as Record<string, unknown>;
+    const now = Date.now();
+    const valid = [timestamp, latitude, longitude].every((v) => typeof v === 'number' && Number.isFinite(v))
+      && (latitude as number) >= -90 && (latitude as number) <= 90
+      && (longitude as number) >= -180 && (longitude as number) <= 180
+      && (timestamp as number) >= now - 10 * 60_000 && (timestamp as number) <= now + 2 * 60_000;
+    if (!valid) this.socket.emit('error', { message: 'Invalid or stale crash payload' });
+    return valid;
   }
 
   private async handleCancelled(): Promise<void> {
@@ -181,11 +216,9 @@ export class CrashHandler {
         await this.crashRepo.updateOutcome(latest.id, 'false_alarm');
       }
 
-      console.log(
-        `CrashHandler: CANCELLED — user "${name}" group "${groupCode}". Candidate marked false_alarm.`
-      );
+      logger.info('crash candidate cancelled', { event: 'crash:cancelled' });
     } catch (err) {
-      console.error('CrashHandler.handleCancelled: update failed:', err);
+      logger.error('crash cancellation failed', err);
     }
   }
 }

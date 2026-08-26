@@ -32,6 +32,8 @@ export interface RiderProfileData {
   allergies: string;
   emergencyContact: string;
   medicalNotes: string;
+  shareMedicalDuringEmergency: boolean;
+  shareEmergencyContactDuringEmergency: boolean;
 }
 
 export const INITIAL_PROFILE_DATA: RiderProfileData = {
@@ -42,6 +44,8 @@ export const INITIAL_PROFILE_DATA: RiderProfileData = {
   allergies: '',
   emergencyContact: '',
   medicalNotes: '',
+  shareMedicalDuringEmergency: false,
+  shareEmergencyContactDuringEmergency: false,
 };
 
 const BLOOD_GROUPS = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'Skip / Unknown'];
@@ -70,6 +74,8 @@ export function RiderProfileScreen({
   const [allergies, setAllergies] = useState(initialData.allergies);
   const [emergencyContact, setEmergencyContact] = useState(initialData.emergencyContact);
   const [medicalNotes, setMedicalNotes] = useState(initialData.medicalNotes);
+  const [shareMedicalDuringEmergency, setShareMedicalDuringEmergency] = useState(initialData.shareMedicalDuringEmergency);
+  const [shareEmergencyContactDuringEmergency, setShareEmergencyContactDuringEmergency] = useState(initialData.shareEmergencyContactDuringEmergency);
 
   const handleSave = async () => {
     const data = {
@@ -80,6 +86,8 @@ export function RiderProfileScreen({
       allergies,
       emergencyContact,
       medicalNotes,
+      shareMedicalDuringEmergency,
+      shareEmergencyContactDuringEmergency,
     };
     if (!isOnline) {
       Alert.alert('Offline', 'Profile changes require a live connection and were not saved.');
@@ -104,6 +112,8 @@ export function RiderProfileScreen({
           emergency_contact_name: phoneMatch ? emergencyContact.slice(0, phoneMatch.index).trim() : emergencyContact || undefined,
           emergency_contact_phone: phoneMatch?.[1],
           notes: medicalNotes || undefined,
+          share_medical_during_emergency: shareMedicalDuringEmergency,
+          share_emergency_contact_during_emergency: shareEmergencyContactDuringEmergency,
         }),
       });
       const medicalBody = await medicalResponse.json();
@@ -119,6 +129,8 @@ export function RiderProfileScreen({
         allergies: medical.allergies || '',
         emergencyContact: contact,
         medicalNotes: medical.notes || '',
+        shareMedicalDuringEmergency: medical.share_medical_during_emergency === true,
+        shareEmergencyContactDuringEmergency: medical.share_emergency_contact_during_emergency === true,
       });
     } catch (error) {
       Alert.alert('Save Failed', error instanceof Error ? error.message : 'Unable to save medical ID.');
@@ -193,7 +205,7 @@ export function RiderProfileScreen({
             <Text style={styles.privacyBadge}>GATED — SOS & BREAKDOWN ONLY</Text>
           </View>
           <Text style={styles.cardCopy}>
-            Medical data is strictly optional. It is never displayed ambiently in group rosters and is only snapshot-attached during SOS emergency broadcasts and breakdown alerts.
+            Medical data is optional and never displayed in group rosters. It is only shared after a confirmed SOS when you explicitly enable a category below.
           </Text>
 
           {/* BLOOD GROUP PICKER */}
@@ -229,6 +241,15 @@ export function RiderProfileScreen({
             placeholderTextColor="#5C7062"
             style={styles.input}
           />
+
+          <Pressable onPress={() => setShareMedicalDuringEmergency((value) => !value)} style={styles.consentRow}>
+            <Text style={styles.consentText}>{shareMedicalDuringEmergency ? '☑' : '☐'} Share medical information during an emergency</Text>
+            <Text style={styles.consentCopy}>Shares blood group and allergies with riders in your active group after a confirmed SOS.</Text>
+          </Pressable>
+          <Pressable onPress={() => setShareEmergencyContactDuringEmergency((value) => !value)} style={styles.consentRow}>
+            <Text style={styles.consentText}>{shareEmergencyContactDuringEmergency ? '☑' : '☐'} Share emergency contact during an emergency</Text>
+            <Text style={styles.consentCopy}>Shares your contact name and phone only after a confirmed SOS.</Text>
+          </Pressable>
 
           {/* EMERGENCY CONTACT */}
           <Text style={styles.fieldLabel}>EMERGENCY CONTACT NAME & PHONE</Text>
@@ -336,6 +357,9 @@ const styles = StyleSheet.create({
   pickerChipTextSelected: { color: COLORS.text, fontWeight: '800' },
   clearLink: { marginTop: 6, alignSelf: 'center' },
   clearLinkText: { color: COLORS.muted, fontSize: 12, textDecorationLine: 'underline' },
+  consentRow: { backgroundColor: COLORS.darkInput, borderRadius: 10, padding: 12, gap: 4 },
+  consentText: { color: COLORS.text, fontSize: 13, fontWeight: '700' },
+  consentCopy: { color: COLORS.muted, fontSize: 11, lineHeight: 15 },
   actionGroup: { gap: 10, marginTop: 8, marginBottom: 24 },
   saveButton: {
     backgroundColor: COLORS.green,

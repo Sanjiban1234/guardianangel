@@ -2,6 +2,7 @@ import request from 'supertest';
 import { app } from '../src/index';
 import * as db from '../src/db';
 import jwt from 'jsonwebtoken';
+import { createAuthenticatedTestSession, installTestSessionValidator } from './helpers/auth';
 import { QueryRunner } from '../src/db/QueryRunner';
 import { FcmPushService } from '../src/services/FcmPushService';
 import { VehicleBreakdownService } from '../src/services/VehicleBreakdownService';
@@ -30,7 +31,8 @@ describe('Vehicle Breakdown Module Tests', () => {
   let userToken: string;
 
   beforeAll(() => {
-    userToken = jwt.sign({ id: userId, name: userName }, JWT_SECRET);
+    installTestSessionValidator();
+    userToken = createAuthenticatedTestSession({ id: userId, name: userName, role: 'rider' }).token;
   });
 
   beforeEach(() => {

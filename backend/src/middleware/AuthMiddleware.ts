@@ -24,6 +24,11 @@ export interface AuthenticatedSocket extends Socket {
 }
 
 export class AuthMiddleware {
+  private static sessionValidator?: (jti: string, userId: string) => Promise<boolean>;
+
+  static configureSessionValidator(validator: (jti: string, userId: string) => Promise<boolean>): void {
+    AuthMiddleware.sessionValidator = validator;
+  }
   private static verifyToken(
     token: string,
     callback: (err: unknown, user?: unknown) => void
@@ -31,19 +36,16 @@ export class AuthMiddleware {
     jwt.verify(
       token,
       JWT_SECRET,
-      { issuer: JWT_ISSUER, audience: JWT_AUDIENCE },
-      (err, user) => {
-        if (!err) {
-          callback(null, user);
-          return;
+      { issuer: JWT_ISSUER, audience: JWT_AUDIENCE, algorithms: ['HS256'] },
+      async (err, user) => {
+        if (err || !user || typeof user !== 'object') { callback(err || new Error('Invalid token'), undefined); return; }
+        const payload = user as jwt.JwtPayload;
+        if (!payload.jti || typeof payload.sub !== 'undefined') { /* id is the application subject */ }
+        const appUser = payload as unknown as AuthenticatedUser & { jti?: string };
+        if (!appUser.jti || !appUser.id || !AuthMiddleware.sessionValidator || !(await AuthMiddleware.sessionValidator(appUser.jti, appUser.id))) {
+          callback(new Error('Revoked or unknown session'), undefined); return;
         }
-        jwt.verify(token, JWT_SECRET, (legacyErr, legacyUser) => {
-          if (legacyErr) {
-            callback(err, undefined);
-            return;
-          }
-          callback(null, legacyUser);
-        });
+        callback(null, user);
       }
     );
   }

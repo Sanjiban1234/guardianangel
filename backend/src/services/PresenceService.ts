@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { QueryRunner } from '../db/QueryRunner';
+import { logger } from '../utils/logger';
 
 export interface LastKnownLocation {
   latitude: number;
@@ -141,7 +142,7 @@ export class PresenceService {
         device_timestamp: Number(row.device_timestamp),
       };
     } catch (err) {
-      console.error('PresenceService.getLastKnownLocation: query failed:', err);
+      logger.error('last known location query failed', err);
       return null;
     }
   }

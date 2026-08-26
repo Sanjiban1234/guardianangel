@@ -1,4 +1,5 @@
 import { QueryRunner } from '../db/QueryRunner';
+import { logger } from '../utils/logger';
 
 export interface WeatherData {
   condition: string;
@@ -102,7 +103,7 @@ export class WeatherService {
       });
       return { weather, location: centroid };
     } catch (err) {
-      console.error('WeatherService: provider fetch failed:', err);
+      logger.error('weather provider request failed', err);
       return { weather: null, location: centroid, reason: 'provider_unavailable' };
     }
   }

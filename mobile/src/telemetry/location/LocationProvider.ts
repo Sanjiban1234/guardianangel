@@ -85,12 +85,7 @@ export class ForegroundGeolocationProvider implements ILocationProvider {
   ) {}
 
   async start(onReading: (reading: Omit<TelemetryReading, 'client_reading_id'>) => void): Promise<void> {
-    console.log('[GPS PROVIDER START CALLED]', {
-      provider: 'ForegroundGeolocationProvider',
-      tracking: this.tracking,
-      watchId: this.watchId,
-      stack: new Error('ForegroundGeolocationProvider.start').stack,
-    });
+    console.log('[GPS PROVIDER START CALLED]');
     if (this.tracking || this.watchId !== null) {
       console.log('[GPS COMMUNITY START] watcher already active; start ignored');
       return;
@@ -103,8 +98,8 @@ export class ForegroundGeolocationProvider implements ILocationProvider {
         console.warn('[ForegroundGeo] Fine location permission not yet granted. GPS watcher not started.');
         return;
       }
-    } catch (err) {
-      console.warn('[ForegroundGeo] Permission check error. GPS watcher not started:', err);
+    } catch {
+      console.warn('[ForegroundGeo] Permission check failed. GPS watcher not started.');
       return;
     }
 
@@ -123,11 +118,11 @@ export class ForegroundGeolocationProvider implements ILocationProvider {
       const longitude = Number(position.coords?.longitude);
       const accuracy = Number.isFinite(position.coords?.accuracy) ? position.coords.accuracy : 10.0;
       const speed = Number.isFinite(position.coords?.speed) ? position.coords.speed : 0.0;
-      console.log(`[GPS SAMPLE] source=${source} timestamp=${timestamp} lat=${latitude.toFixed(6)} lng=${longitude.toFixed(6)} accuracy=${accuracy} speed=${speed}`);
+      console.log('[GPS SAMPLE RECEIVED]');
       onReading({ timestamp, latitude, longitude, accuracy, speed });
     };
-    const handleError = (source: string, error: any) => {
-      console.warn(`[GPS WATCH ERROR] source=${source} code=${error?.code ?? 'unknown'} message=${error?.message ?? 'unknown'}`);
+    const handleError = (_source: string, _error: any) => {
+      console.warn('[GPS WATCH ERROR]');
     };
 
     // Produce an initial fix while the continuous watcher is establishing.
@@ -152,19 +147,14 @@ export class ForegroundGeolocationProvider implements ILocationProvider {
         fastestInterval: 2000,
       },
     );
-    console.log(`[GPS COMMUNITY WATCH ID] watchId=${this.watchId}`);
+    console.log('[GPS COMMUNITY WATCH STARTED]');
   }
 
   async stop(): Promise<void> {
-    console.warn('[GPS PROVIDER STOP CALLED]', {
-      provider: 'ForegroundGeolocationProvider',
-      tracking: this.tracking,
-      watchId: this.watchId,
-      stack: new Error('ForegroundGeolocationProvider.stop').stack,
-    });
+    console.warn('[GPS PROVIDER STOP CALLED]');
     this.tracking = false;
     if (this.watchId !== null) {
-    console.warn(`[GPS COMMUNITY STOP] watchId=${this.watchId}`);
+      console.warn('[GPS COMMUNITY STOP]');
       this.geolocation.clearWatch(this.watchId);
       this.watchId = null;
     }
@@ -186,23 +176,13 @@ export class CommunityGeolocationProvider implements ILocationProvider {
     : new ForegroundGeolocationProvider();
 
   async start(onReading: (reading: Omit<TelemetryReading, 'client_reading_id'>) => void): Promise<void> {
-    console.log('[GPS PROVIDER START CALLED]', {
-      provider: 'CommunityGeolocationProvider',
-      tracking: this.tracking,
-      implementation: Platform.OS === 'android' ? 'android-ride-service' : 'community-geolocation',
-      stack: new Error('CommunityGeolocationProvider.start').stack,
-    });
+    console.log('[GPS PROVIDER START CALLED]');
     await this.provider.start(onReading);
     this.tracking = this.provider.isTracking();
   }
 
   async stop(): Promise<void> {
-    console.warn('[GPS PROVIDER STOP CALLED]', {
-      provider: 'CommunityGeolocationProvider',
-      tracking: this.tracking,
-      implementation: Platform.OS === 'android' ? 'android-ride-service' : 'community-geolocation',
-      stack: new Error('CommunityGeolocationProvider.stop').stack,
-    });
+    console.warn('[GPS PROVIDER STOP CALLED]');
     await this.provider.stop();
     this.tracking = false;
   }

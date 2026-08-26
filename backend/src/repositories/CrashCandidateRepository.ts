@@ -14,6 +14,12 @@ export interface CrashCandidate {
   created_at: string;
 }
 
+export interface LatestTelemetry {
+  timestamp: number;
+  latitude: number;
+  longitude: number;
+}
+
 export class CrashCandidateRepository {
   constructor(private readonly db: QueryRunner) {}
 
@@ -129,5 +135,25 @@ export class CrashCandidateRepository {
       [tokenHash, userId]
     );
     return result.rows[0] ?? null;
+  }
+
+  /** Latest accepted server telemetry; never trusts client-provided crash speed. */
+  async getLatestTelemetry(roomId: string, userId: string): Promise<LatestTelemetry | null> {
+    const result = await this.db.run(
+      `SELECT device_timestamp_ms, ST_Y(location::geometry) AS latitude, ST_X(location::geometry) AS longitude
+       FROM rider_current_locations WHERE room_id = $1 AND user_id = $2 LIMIT 1`,
+      [roomId, userId],
+    );
+    if (!result.rows[0]) return null;
+    return { timestamp: Number(result.rows[0].device_timestamp_ms), latitude: Number(result.rows[0].latitude), longitude: Number(result.rows[0].longitude) };
+  }
+
+  async distanceFromLatestTelemetry(roomId: string, userId: string, latitude: number, longitude: number): Promise<number | null> {
+    const result = await this.db.run(
+      `SELECT ST_Distance(location, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography) AS distance_meters
+       FROM rider_current_locations WHERE room_id = $1 AND user_id = $2 LIMIT 1`,
+      [roomId, userId, longitude, latitude],
+    );
+    return result.rows[0] ? Number(result.rows[0].distance_meters) : null;
   }
 }

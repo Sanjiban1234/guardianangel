@@ -17,4 +17,11 @@ export const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost
   .map((origin) => origin.trim())
   .filter(Boolean);
 export const MAX_BODY_SIZE = process.env.MAX_BODY_SIZE || '10kb';
-export const MAX_BULK_BATCH = Number(process.env.MAX_BULK_BATCH || 500);
+const configuredMaxBulkBatch = Number(process.env.MAX_BULK_BATCH || 300);
+// A full telemetry reading is roughly 150 bytes on the wire. Keep an entire
+// batch comfortably below Socket.IO's 64 KiB transport cap.
+export const MAX_BULK_BATCH = Number.isFinite(configuredMaxBulkBatch) && configuredMaxBulkBatch > 0
+  ? Math.min(Math.floor(configuredMaxBulkBatch), 300)
+  : 300;
+export const SOCKET_MAX_HTTP_BUFFER_SIZE = Number(process.env.SOCKET_MAX_HTTP_BUFFER_SIZE || 64 * 1024);
+export const TRUST_PROXY = process.env.TRUST_PROXY === 'true';

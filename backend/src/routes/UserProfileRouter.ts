@@ -1,6 +1,7 @@
 import { Response, Router } from 'express';
 import { AuthMiddleware, AuthenticatedRequest } from '../middleware/AuthMiddleware';
 import { UserService } from '../services/UserService';
+import { logger } from '../utils/logger';
 
 export class UserProfileRouter {
   readonly router = Router();
@@ -18,7 +19,7 @@ export class UserProfileRouter {
       if (!profile) { res.status(404).json({ error: 'User not found' }); return; }
       res.status(200).json({ profile });
     } catch (error) {
-      console.error('UserProfileRouter.get error:', error);
+      logger.error('user profile read failed', error);
       res.status(500).json({ error: 'Unable to load rider profile' });
     }
   }
@@ -37,7 +38,7 @@ export class UserProfileRouter {
     } catch (error: any) {
       if (error?.code === 'INVALID_PROFILE') { res.status(400).json({ error: error.message }); return; }
       if (error?.code === 'USER_NOT_FOUND') { res.status(404).json({ error: error.message }); return; }
-      console.error('UserProfileRouter.update error:', error);
+      logger.error('user profile update failed', error);
       res.status(500).json({ error: 'Unable to update rider profile' });
     }
   }

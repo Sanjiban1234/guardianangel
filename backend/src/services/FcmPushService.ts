@@ -1,4 +1,5 @@
 import { QueryRunner } from '../db/QueryRunner';
+import { logger } from '../utils/logger';
 
 export type PlatformType = 'ios' | 'android';
 
@@ -94,15 +95,10 @@ export class FcmPushService {
           dataPayload
         );
       } else {
-        console.log(
-          `FcmPushService: [MOCK/LOG] Push titled "${title}" sent to ${tokens.length} device(s)`
-        );
+        logger.info('breakdown push simulated', { count: tokens.length });
       }
     } catch (err) {
-      console.error(
-        'FcmPushService.sendBreakdownPush: push send failed (isolated error):',
-        err
-      );
+      logger.error('breakdown push failed', err);
     }
   }
 
@@ -128,9 +124,9 @@ export class FcmPushService {
       };
       if (payload.note) data.note = payload.note;
       if (this.fcmSender) await this.fcmSender.sendMulticast(tokens, { title: 'Petrol Refill Requested', body }, data);
-      else console.log(`FcmPushService: [MOCK/LOG] Push titled "Petrol Refill Requested" sent to ${tokens.length} device(s)`);
+      else logger.info('refill push simulated', { count: tokens.length });
     } catch (err) {
-      console.error('FcmPushService.sendRefillPush: push send failed (isolated error):', err);
+      logger.error('refill push failed', err);
     }
   }
 }

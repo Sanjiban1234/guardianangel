@@ -61,7 +61,7 @@ export async function fetchDetectionConfig(
   } catch (error: unknown) {
     // AbortError (timeout), TypeError (network failure), SyntaxError (bad JSON), etc.
     const message = error instanceof Error ? error.message : String(error);
-    console.warn(`Safety config fetch error: ${message}. Using defaults.`);
+    console.warn('Safety config fetch failed. Using defaults.');
     return { ...DEFAULT_DETECTION_CONFIG };
   }
 }

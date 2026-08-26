@@ -3,6 +3,7 @@ import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { VehicleBreakdownService } from '../services/VehicleBreakdownService';
 import { MedicalInfoService } from '../services/MedicalInfoService';
 import { PresenceService } from '../services/PresenceService';
+import { logger } from '../utils/logger';
 import { RoomState } from './SessionHandler';
 import type {
   VehicleBreakdownPayload,
@@ -49,14 +50,7 @@ export class VehicleBreakdownHandler {
         data?.note
       );
 
-      console.log(
-        `VehicleBreakdownHandler: REPORTED (${record.id}) — user "${name}" ` +
-        `group "${groupCode}" @ ${record.latitude},${record.longitude}`
-      );
-
-      const medicalInfo = this.medicalService
-        ? await this.medicalService.getMedicalInfoSnapshot(userId)
-        : undefined;
+      logger.info('vehicle breakdown reported', { event: 'vehicle:breakdown' });
       const riderIdentity = this.presenceService
         ? (await this.presenceService.getRiderPresence(groupCode)).find((rider) => rider.user_id === userId)
         : undefined;
@@ -72,12 +66,11 @@ export class VehicleBreakdownHandler {
         latitude: record.latitude,
         longitude: record.longitude,
         reported_at: record.reported_at,
-        medical_info: medicalInfo,
       };
 
       this.io.to(`group:${groupCode}`).emit('vehicle:breakdownReported', broadcastPayload);
     } catch (err) {
-      console.error('VehicleBreakdownHandler.handleBreakdown failed:', err);
+      logger.error('vehicle breakdown report failed', err);
       this.socket.emit('error', {
         message: err instanceof Error ? err.message : 'Failed to report breakdown',
       });
@@ -95,10 +88,7 @@ export class VehicleBreakdownHandler {
     try {
       const res = await this.breakdownService.resolveBreakdown(groupCode, userId);
 
-      console.log(
-        `VehicleBreakdownHandler: RESOLVED (${res.breakdown_id}) — user "${name}" ` +
-        `group "${groupCode}"`
-      );
+      logger.info('vehicle breakdown resolved', { event: 'vehicle:breakdownResolved' });
 
       const broadcastPayload: VehicleBreakdownResolvedPayload = {
         breakdown_id: res.breakdown_id,
@@ -109,7 +99,7 @@ export class VehicleBreakdownHandler {
 
       this.io.to(`group:${groupCode}`).emit('vehicle:breakdownResolved', broadcastPayload);
     } catch (err) {
-      console.error('VehicleBreakdownHandler.handleBreakdownResolved failed:', err);
+      logger.error('vehicle breakdown resolution failed', err);
       this.socket.emit('error', {
         message: err instanceof Error ? err.message : 'Failed to resolve breakdown',
       });

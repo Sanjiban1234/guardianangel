@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { AuthMiddleware, AuthenticatedRequest } from '../middleware/AuthMiddleware';
 import { RoomService } from '../services/RoomService';
 import { WeatherService } from '../services/WeatherService';
+import { logger } from '../utils/logger';
 
 export class WeatherRouter {
   readonly router: Router;
@@ -59,7 +60,7 @@ export class WeatherRouter {
         ...(result.reason && { reason: result.reason }),
       });
     } catch (err) {
-      console.error('WeatherRouter.getWeather error:', err);
+      logger.error('weather request failed', err);
       res.status(500).json({ error: 'Internal server error while fetching weather' });
     }
   }

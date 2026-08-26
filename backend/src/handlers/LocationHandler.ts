@@ -2,6 +2,7 @@ import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { TelemetryService, TelemetryReading } from '../services/TelemetryService';
 import { GroupCoherenceService } from '../services/GroupCoherenceService';
 import { RoomState } from './SessionHandler';
+import { logger } from '../utils/logger';
 
 export class LocationHandler {
   constructor(
@@ -23,10 +24,10 @@ export class LocationHandler {
     const userId = this.socket.user?.id;
     const name = this.socket.user?.name;
 
-    console.log(`[LIVE LOCATION DIAG] [BOUNDARY-D] Backend received location:update | socketId=${this.socket.id} userId=${userId} name=${name} groupCode=${groupCode} lat=${reading.latitude?.toFixed(6)} lng=${reading.longitude?.toFixed(6)}`);
+    logger.debug('location update received', { event: 'location:update' });
 
     if (!groupCode) {
-      console.log(`[LIVE LOCATION TRACE] [TRACE 5-BLOCKED] No groupCode — user not in a room`);
+      logger.warn('location update rejected: no active room');
       this.socket.emit('error', {
         message: 'Must join a ride session before sending location updates',
       });
@@ -34,11 +35,10 @@ export class LocationHandler {
     }
 
     if (!this.isValidReading(reading)) {
-      console.log(`[LIVE LOCATION TRACE] [TRACE 6-BLOCKED] Validation failed`);
+      logger.warn('location update rejected: invalid payload');
       return;
     }
 
-    console.log(`[LIVE LOCATION TRACE] [TRACE 6] Location validated | groupCode=${groupCode}`);
 
     try {
       await this.telemetryService.saveTelemetry(groupCode, userId!, reading);
@@ -56,16 +56,9 @@ export class LocationHandler {
         location_freshness: 'FRESH',
       };
 
-      console.log(`[LIVE LOCATION AUDIT] Broadcasting location:broadcast for ${name} (${userId}) in group ${groupCode}`);
-      console.log(`[LIVE LOCATION DIAG] [BOUNDARY-E] Backend broadcast location:broadcast to group:${groupCode} | from ${name}(${userId})`);
-
-      const roomSockets = this.socket.nsp?.adapter?.rooms?.get(`group:${groupCode}`);
-      console.log(`[LIVE LOCATION DIAG]   room_socket_count=${roomSockets?.size ?? 'unknown'} (includes sender)`);
-
       this.socket.to(`group:${groupCode}`).emit('location:broadcast', broadcastPayload);
-      console.log(`[LIVE LOCATION DIAG]   emit completed`);
     } catch (err) {
-      console.error('LocationHandler: broadcast error:', err);
+      logger.error('location broadcast failed', err);
     }
 
     if (this.coherenceService) {
@@ -79,18 +72,18 @@ export class LocationHandler {
           this.socket.nsp.to(`group:${groupCode}`).emit('group:reunited', reunion);
         }
       } catch (coherenceErr) {
-        console.error('LocationHandler: group coherence evaluation failed:', coherenceErr);
+        logger.error('group coherence evaluation failed', coherenceErr);
       }
     }
   }
 
   private isValidReading(reading: TelemetryReading): boolean {
     if (
-      typeof reading?.timestamp !== 'number' ||
-      typeof reading?.latitude !== 'number' ||
-      typeof reading?.longitude !== 'number' ||
-      typeof reading?.accuracy !== 'number' ||
-      typeof reading?.speed !== 'number'
+      typeof reading?.timestamp !== 'number' || !Number.isFinite(reading.timestamp) ||
+      typeof reading?.latitude !== 'number' || !Number.isFinite(reading.latitude) ||
+      typeof reading?.longitude !== 'number' || !Number.isFinite(reading.longitude) ||
+      typeof reading?.accuracy !== 'number' || !Number.isFinite(reading.accuracy) ||
+      typeof reading?.speed !== 'number' || !Number.isFinite(reading.speed)
     ) {
       this.socket.emit('error', { message: 'Invalid telemetry payload' });
       return false;

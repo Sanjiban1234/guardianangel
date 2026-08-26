@@ -2,6 +2,7 @@ import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { TelemetryService, BulkTelemetryReading } from '../services/TelemetryService';
 import { RoomState } from './SessionHandler';
 import { MAX_BULK_BATCH } from '../config';
+import { logger } from '../utils/logger';
 
 export class BulkSyncHandler {
   constructor(
@@ -53,11 +54,11 @@ export class BulkSyncHandler {
 
     for (const reading of data.readings) {
       if (
-        typeof reading?.timestamp !== 'number' ||
-        typeof reading?.latitude !== 'number' ||
-        typeof reading?.longitude !== 'number' ||
-        typeof reading?.accuracy !== 'number' ||
-        typeof reading?.speed !== 'number' ||
+        typeof reading?.timestamp !== 'number' || !Number.isFinite(reading.timestamp) ||
+        typeof reading?.latitude !== 'number' || !Number.isFinite(reading.latitude) ||
+        typeof reading?.longitude !== 'number' || !Number.isFinite(reading.longitude) ||
+        typeof reading?.accuracy !== 'number' || !Number.isFinite(reading.accuracy) ||
+        typeof reading?.speed !== 'number' || !Number.isFinite(reading.speed) ||
         !reading?.client_reading_id
       ) {
         this.socket.emit('error', { message: 'Invalid payload: malformed reading in batch' });
@@ -81,20 +82,14 @@ export class BulkSyncHandler {
     }
 
     const userId = this.socket.user!.id;
-    const name = this.socket.user!.name;
 
     try {
-      console.log(
-        `BulkSyncHandler: starting sync for ${name}. Batch: ${data.readings.length}`
-      );
+      logger.info('bulk telemetry sync started', { count: data.readings.length });
 
       const confirmedClientReadingIds =
         await this.telemetryService.bulkSyncTelemetry(groupCode, userId, data.readings);
 
-      console.log(
-        `BulkSyncHandler: sync done for ${name}. ` +
-        `${confirmedClientReadingIds.length}/${data.readings.length} confirmed.`
-      );
+      logger.info('bulk telemetry sync completed', { count: confirmedClientReadingIds.length });
 
       if (typeof callback === 'function') {
         callback({ confirmedClientReadingIds });
@@ -102,7 +97,7 @@ export class BulkSyncHandler {
         this.socket.emit('telemetry:bulkSyncAck', { confirmedClientReadingIds });
       }
     } catch (err) {
-      console.error('BulkSyncHandler: sync error:', err);
+      logger.error('bulk telemetry sync failed', err);
       this.socket.emit('error', {
         message: 'Internal server error during bulk sync',
       });

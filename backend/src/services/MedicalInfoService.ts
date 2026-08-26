@@ -17,6 +17,8 @@ export interface MedicalInfoData {
   emergency_contact_name?: string | null;
   emergency_contact_phone?: string | null;
   notes?: string | null;
+  share_medical_during_emergency?: boolean;
+  share_emergency_contact_during_emergency?: boolean;
   updated_at?: number;
 }
 
@@ -41,6 +43,17 @@ export class MedicalInfoService {
       throw new Error('User ID is required');
     }
 
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid medical information payload');
+    const allowed = new Set(['blood_group', 'allergies', 'emergency_contact_name', 'emergency_contact_phone', 'notes', 'share_medical_during_emergency', 'share_emergency_contact_during_emergency']);
+    if (Object.keys(data as object).some((key) => !allowed.has(key))) throw new Error('Unknown medical information field');
+    for (const key of ['allergies', 'emergency_contact_name', 'emergency_contact_phone', 'notes'] as const) {
+      const value = data[key];
+      if (value != null && typeof value !== 'string') throw new Error(`Invalid ${key}`);
+    }
+    for (const key of ['share_medical_during_emergency', 'share_emergency_contact_during_emergency'] as const) {
+      if (data[key] !== undefined && typeof data[key] !== 'boolean') throw new Error(`Invalid ${key}`);
+    }
+    if ((data.allergies?.length || 0) > 500 || (data.emergency_contact_name?.length || 0) > 100 || (data.emergency_contact_phone?.length || 0) > 20 || (data.notes?.length || 0) > 1000) throw new Error('Medical information exceeds maximum length');
     const rawBloodGroup = data.blood_group as string | null | undefined;
     if (rawBloodGroup !== undefined && rawBloodGroup !== null && rawBloodGroup !== '') {
       if (!VALID_BLOOD_GROUPS.includes(rawBloodGroup)) {
@@ -69,17 +82,17 @@ export class MedicalInfoService {
     const notes = data.notes !== undefined && data.notes !== null ? data.notes.trim() : null;
 
     const result = await this.db.run(
-      `INSERT INTO medical_info (user_id, blood_group, allergies, emergency_contact_name, emergency_contact_phone, notes, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      `INSERT INTO medical_info (user_id, blood_group, allergies, emergency_contact_name, emergency_contact_phone, notes, share_medical_during_emergency, share_emergency_contact_during_emergency, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
        ON CONFLICT (user_id) DO UPDATE
        SET blood_group = EXCLUDED.blood_group,
            allergies = EXCLUDED.allergies,
            emergency_contact_name = EXCLUDED.emergency_contact_name,
            emergency_contact_phone = EXCLUDED.emergency_contact_phone,
-           notes = EXCLUDED.notes,
+           notes = EXCLUDED.notes, share_medical_during_emergency = EXCLUDED.share_medical_during_emergency, share_emergency_contact_during_emergency = EXCLUDED.share_emergency_contact_during_emergency,
            updated_at = NOW()
-       RETURNING blood_group, allergies, emergency_contact_name, emergency_contact_phone, notes, updated_at`,
-      [userId, bloodGroup, allergies, contactName, contactPhone, notes]
+       RETURNING blood_group, allergies, emergency_contact_name, emergency_contact_phone, notes, share_medical_during_emergency, share_emergency_contact_during_emergency, updated_at`,
+      [userId, bloodGroup, allergies, contactName, contactPhone, notes, data.share_medical_during_emergency === true, data.share_emergency_contact_during_emergency === true]
     );
 
     const row = result.rows[0];
@@ -89,6 +102,8 @@ export class MedicalInfoService {
       emergency_contact_name: row.emergency_contact_name || undefined,
       emergency_contact_phone: row.emergency_contact_phone || undefined,
       notes: row.notes || undefined,
+      share_medical_during_emergency: row.share_medical_during_emergency === true,
+      share_emergency_contact_during_emergency: row.share_emergency_contact_during_emergency === true,
       updated_at: new Date(row.updated_at).getTime(),
     };
   }
@@ -98,7 +113,7 @@ export class MedicalInfoService {
    */
   async getMedicalInfo(userId: string): Promise<MedicalInfoData | null> {
     const result = await this.db.run(
-      `SELECT blood_group, allergies, emergency_contact_name, emergency_contact_phone, notes, updated_at
+      `SELECT blood_group, allergies, emergency_contact_name, emergency_contact_phone, notes, share_medical_during_emergency, share_emergency_contact_during_emergency, updated_at
        FROM medical_info
        WHERE user_id = $1`,
       [userId]
@@ -115,6 +130,8 @@ export class MedicalInfoService {
       emergency_contact_name: row.emergency_contact_name || undefined,
       emergency_contact_phone: row.emergency_contact_phone || undefined,
       notes: row.notes || undefined,
+      share_medical_during_emergency: row.share_medical_during_emergency === true,
+      share_emergency_contact_during_emergency: row.share_emergency_contact_during_emergency === true,
       updated_at: new Date(row.updated_at).getTime(),
     };
   }
@@ -140,24 +157,20 @@ export class MedicalInfoService {
     const snapshot: MedicalInfoSnapshot = {};
     let hasData = false;
 
-    if (info.blood_group) {
+    if (info.share_medical_during_emergency && info.blood_group) {
       snapshot.blood_group = info.blood_group;
       hasData = true;
     }
-    if (info.allergies) {
+    if (info.share_medical_during_emergency && info.allergies) {
       snapshot.allergies = info.allergies;
       hasData = true;
     }
-    if (info.emergency_contact_name) {
+    if (info.share_emergency_contact_during_emergency && info.emergency_contact_name) {
       snapshot.emergency_contact_name = info.emergency_contact_name;
       hasData = true;
     }
-    if (info.emergency_contact_phone) {
+    if (info.share_emergency_contact_during_emergency && info.emergency_contact_phone) {
       snapshot.emergency_contact_phone = info.emergency_contact_phone;
-      hasData = true;
-    }
-    if (info.notes) {
-      snapshot.notes = info.notes;
       hasData = true;
     }
 

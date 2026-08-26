@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { AuthMiddleware, AuthenticatedRequest } from '../middleware/AuthMiddleware';
 import { QueryRunner } from '../db/QueryRunner';
+import { logger } from '../utils/logger';
 
 export interface GeofenceInput {
   name: string;
@@ -86,7 +87,7 @@ export class GeofenceRouter {
 
       res.status(201).json(result.rows[0]);
     } catch (err) {
-      console.error('GeofenceRouter.create error:', err);
+      logger.error('geofence create failed', err);
       res.status(500).json({ error: 'Internal server error while creating geofence' });
     }
   }
@@ -106,7 +107,7 @@ export class GeofenceRouter {
 
       res.status(200).json(result.rows);
     } catch (err) {
-      console.error('GeofenceRouter.list error:', err);
+      logger.error('geofence list failed', err);
       res.status(500).json({ error: 'Internal server error while listing geofences' });
     }
   }
@@ -174,7 +175,7 @@ export class GeofenceRouter {
 
       res.status(200).json(result.rows[0]);
     } catch (err) {
-      console.error('GeofenceRouter.update error:', err);
+      logger.error('geofence update failed', err);
       res.status(500).json({ error: 'Internal server error while updating geofence' });
     }
   }
@@ -205,7 +206,7 @@ export class GeofenceRouter {
 
       res.status(200).json({ message: 'Geofence deactivated', id: result.rows[0].id });
     } catch (err) {
-      console.error('GeofenceRouter.delete error:', err);
+      logger.error('geofence delete failed', err);
       res.status(500).json({ error: 'Internal server error while deactivating geofence' });
     }
   }

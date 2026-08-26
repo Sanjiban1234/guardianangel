@@ -57,7 +57,7 @@ react {
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
-def enableProguardInReleaseBuilds = false
+def enableProguardInReleaseBuilds = true
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -143,7 +143,12 @@ android {
             ]
         }
         release {
-            signingConfig signingConfigs.release.storeFile ? signingConfigs.release : signingConfigs.debug
+            // Assign release credentials only when configured. Validation is
+            // deferred to release task execution below so debug builds do not
+            // fail during project configuration.
+            if (signingConfigs.release.storeFile) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
             manifestPlaceholders = [
@@ -151,6 +156,15 @@ android {
                 usesCleartextTraffic: false
             ]
         }
+    }
+}
+
+// Release artifacts must never be built unsigned or with debug credentials,
+// but debug tasks must remain usable on developer machines without CI secrets.
+gradle.taskGraph.whenReady { graph ->
+    def runsReleaseTask = graph.allTasks.any { task -> task.name.toLowerCase().contains('release') }
+    if (runsReleaseTask && !android.signingConfigs.release.storeFile) {
+        throw new GradleException('Release signing credentials are required; debug signing is prohibited for release builds.')
     }
 }
 

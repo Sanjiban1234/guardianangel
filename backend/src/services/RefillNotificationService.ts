@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { QueryRunner } from '../db/QueryRunner';
 import { FcmPushService } from './FcmPushService';
+import { logger } from '../utils/logger';
 
 export interface RefillNotificationRecord {
   id: string;
@@ -47,7 +48,7 @@ export class RefillNotificationService {
           note: record.note, created_at: record.created_at,
         });
       } catch (err) {
-        console.error('RefillNotificationService: failed sending FCM notification:', err);
+        logger.error('refill notification push failed', err);
       }
     }
     return record;

@@ -2,6 +2,7 @@ import request from 'supertest';
 import { app } from '../src/index';
 import * as db from '../src/db';
 import jwt from 'jsonwebtoken';
+import { createAuthenticatedTestSession, installTestSessionValidator } from './helpers/auth';
 
 jest.mock('../src/db', () => ({
   query: jest.fn(),
@@ -27,8 +28,9 @@ describe('Geofence CRUD Endpoints', () => {
   ];
 
   beforeAll(() => {
-    adminToken = jwt.sign({ ...mockUser, role: 'admin' }, JWT_SECRET);
-    riderToken = jwt.sign({ id: 'user-uuid-101', name: 'fence_rider', role: 'rider' }, JWT_SECRET);
+    installTestSessionValidator();
+    adminToken = createAuthenticatedTestSession({ ...mockUser, role: 'admin' }).token;
+    riderToken = createAuthenticatedTestSession({ id: 'user-uuid-101', name: 'fence_rider', role: 'rider' }).token;
   });
 
   beforeEach(() => {

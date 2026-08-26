@@ -107,8 +107,8 @@ export default function PermissionGate({
       } else {
         setForegroundStatus('denied');
       }
-    } catch (error) {
-      console.error('Permission check error:', error);
+    } catch {
+      console.error('Permission check failed');
       setForegroundStatus('denied');
     }
   };
@@ -133,8 +133,8 @@ export default function PermissionGate({
       } else {
         setForegroundStatus('denied');
       }
-    } catch (error) {
-      console.error('Foreground permission request error:', error);
+    } catch {
+      console.error('Foreground permission request failed');
       setForegroundStatus('denied');
     }
   };
@@ -167,8 +167,8 @@ export default function PermissionGate({
       } else {
         setBackgroundStatus('denied');
       }
-    } catch (error) {
-      console.error('Background permission request error:', error);
+    } catch {
+      console.error('Background permission request failed');
       setBackgroundStatus('denied');
     }
   };

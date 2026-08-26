@@ -134,8 +134,8 @@ export class ConnectivityManager implements IConnectivityManager {
     for (const listener of this.listeners) {
       try {
         listener(status);
-      } catch (err) {
-        console.error('Error in connectivity listener:', err);
+      } catch {
+        console.error('Error in connectivity listener');
       }
     }
   }

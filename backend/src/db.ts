@@ -1,6 +1,8 @@
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
 import { DatabasePool } from './db/DatabasePool';
+import { getDatabaseSslConfig } from './db/TlsConfig';
+import { logger } from './utils/logger';
 
 dotenv.config();
 
@@ -12,10 +14,7 @@ export const query = async (text: string, params: any[] = []): Promise<{ rows: a
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl:
-    process.env.NODE_ENV === 'production'
-      ? { rejectUnauthorized: false }
-      : undefined,
+  ssl: getDatabaseSslConfig(),
 });
 
 export const initDb = async (): Promise<void> => {
@@ -32,8 +31,8 @@ export const initDb = async (): Promise<void> => {
       try {
         await extClient.query('CREATE EXTENSION IF NOT EXISTS postgis');
       } catch (extErr: any) {
-        console.error('PostGIS extension error:', extErr.message);
-        throw new Error(`PostGIS extension failed. Ensure PostgreSQL has PostGIS installed: ${extErr.message}`);
+        logger.error('PostGIS extension initialization failed', extErr);
+        throw new Error('PostGIS extension failed. Ensure PostgreSQL has PostGIS installed.');
       }
 
       try { await extClient.query('CREATE EXTENSION IF NOT EXISTS pgcrypto'); } catch {}
@@ -328,6 +327,23 @@ export const initDb = async (): Promise<void> => {
     `);
     await client.query('CREATE INDEX IF NOT EXISTS device_tokens_token_idx ON device_tokens (token)');
 
+    await client.query(`CREATE TABLE IF NOT EXISTS auth_sessions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(), jti UUID NOT NULL UNIQUE,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), expires_at TIMESTAMPTZ NOT NULL,
+      revoked_at TIMESTAMPTZ
+    )`);
+    await client.query('CREATE INDEX IF NOT EXISTS auth_sessions_active_idx ON auth_sessions (jti, user_id) WHERE revoked_at IS NULL');
+
+    await client.query(`CREATE TABLE IF NOT EXISTS emergency_disclosure_audit (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      subject_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      room_id UUID REFERENCES ride_rooms(id) ON DELETE SET NULL,
+      incident_type TEXT NOT NULL, incident_id UUID,
+      categories_disclosed JSONB NOT NULL, recipient_scope TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS medical_info (
         user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -336,9 +352,13 @@ export const initDb = async (): Promise<void> => {
         emergency_contact_name VARCHAR(100),
         emergency_contact_phone VARCHAR(20),
         notes TEXT,
+        share_medical_during_emergency BOOLEAN NOT NULL DEFAULT false,
+        share_emergency_contact_during_emergency BOOLEAN NOT NULL DEFAULT false,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
+    await client.query('ALTER TABLE medical_info ADD COLUMN IF NOT EXISTS share_medical_during_emergency BOOLEAN NOT NULL DEFAULT false');
+    await client.query('ALTER TABLE medical_info ADD COLUMN IF NOT EXISTS share_emergency_contact_during_emergency BOOLEAN NOT NULL DEFAULT false');
 
     await client.query('COMMIT');
     console.log('db: PostgreSQL + PostGIS schema initialised.');

@@ -49,19 +49,15 @@ export function getCurrentPositionAfterJoin(
         const location = normalizeCurrentPosition(position);
         if (!location) {
           const error = new Error('Current position did not contain valid coordinates');
-          console.warn(`[POST-JOIN CURRENT POSITION ERROR] message=${error.message}`);
+          console.warn('[POST-JOIN CURRENT POSITION ERROR]');
           reject(error);
           return;
         }
-        console.log(
-          `[POST-JOIN CURRENT POSITION SUCCESS] lat=${location.latitude.toFixed(6)} lng=${location.longitude.toFixed(6)}`,
-        );
+        console.log('[POST-JOIN CURRENT POSITION SUCCESS]');
         resolve(location);
       },
       (error: any) => {
-        console.warn(
-          `[POST-JOIN CURRENT POSITION ERROR] code=${error?.code ?? 'unknown'} message=${error?.message ?? 'unknown'}`,
-        );
+        console.warn('[POST-JOIN CURRENT POSITION ERROR]');
         reject(error instanceof Error ? error : new Error(error?.message || 'Current position unavailable'));
       },
       { enableHighAccuracy: true, timeout: 15_000, maximumAge: 0 },
@@ -89,9 +85,7 @@ export function emitLatestLocationAfterJoin(
     speed: Number.isFinite(location.speed) ? location.speed as number : 0,
   };
 
-  console.log(
-    `[POST-JOIN LOCATION EMIT] groupCode=${groupCode} lat=${payload.latitude.toFixed(6)} lng=${payload.longitude.toFixed(6)}`,
-  );
+  console.log('[POST-JOIN LOCATION EMIT]');
   socketClient.emitLocationUpdate(payload);
   return true;
 }
@@ -114,8 +108,6 @@ export function resendLatestLocationForJoinedMember(
     return false;
   }
 
-  console.log(
-    `[MEMBER-JOINED LOCATION RESEND] joinedMember=${joinedMember.name || joinedMember.user_id} lat=${location.latitude.toFixed(6)} lng=${location.longitude.toFixed(6)}`,
-  );
+  console.log('[MEMBER-JOINED LOCATION RESEND]');
   return emitLatestLocationAfterJoin(socketClient, groupCode, location);
 }

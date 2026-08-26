@@ -34,11 +34,21 @@ import com.guardianangelmobile.R
 class RideTrackingService : Service() {
   private lateinit var locationClient: FusedLocationProviderClient
   private var receivingUpdates = false
+  private var reactHostUnavailableLogged = false
 
   private val callback = object : LocationCallback() {
     override fun onLocationResult(result: LocationResult) {
       val location = result.lastLocation ?: return
-      val reactContext = (application as ReactApplication).reactHost.currentReactContext ?: return
+      val reactHost = (application as ReactApplication).reactHost
+      if (reactHost == null) {
+        if (!reactHostUnavailableLogged) {
+          Log.w(TAG, "[BG TRACKING] React host unavailable; event delivery deferred")
+          reactHostUnavailableLogged = true
+        }
+        return
+      }
+      val reactContext = reactHost.currentReactContext ?: return
+      reactHostUnavailableLogged = false
       if (!reactContext.hasActiveReactInstance()) return
       val payload = Arguments.createMap().apply {
         putDouble("timestamp", location.time.toDouble())

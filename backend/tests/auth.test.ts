@@ -3,6 +3,7 @@ import { app } from '../src/index';
 import * as db from '../src/db';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { resetAuthLimiterForTests } from '../src/routes/AuthRouter';
 
 jest.mock('../src/db', () => ({
   query: jest.fn(),
@@ -17,6 +18,7 @@ const mockedQuery = db.query as jest.MockedFunction<typeof db.query>;
 describe('Authentication REST Endpoints & Security Controls', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resetAuthLimiterForTests();
   });
 
   describe('POST /api/auth/register', () => {

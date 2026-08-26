@@ -3,6 +3,8 @@ import jwt from 'jsonwebtoken';
 import { QueryRunner } from '../db/QueryRunner';
 import { JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET } from '../config';
 import { AppError } from '../utils/AppError';
+import crypto from 'crypto';
+import { AuthSessionService } from './AuthSessionService';
 
 export interface RegisterResult {
   id: string;
@@ -25,7 +27,8 @@ export interface VehicleProfile {
 }
 
 export class UserService {
-  constructor(private readonly db: QueryRunner) {}
+  private readonly sessions: AuthSessionService;
+  constructor(private readonly db: QueryRunner, sessions?: AuthSessionService) { this.sessions = sessions || new AuthSessionService(db); }
 
   async register(
     name: string,
@@ -75,11 +78,13 @@ export class UserService {
       throw new AppError('Invalid email or password', 'AUTH_FAILED');
     }
 
+    const jti = crypto.randomUUID();
     const token = jwt.sign(
       { id: user.id, name: user.name, email: user.email, role: user.role === 'admin' ? 'admin' : 'rider' },
       JWT_SECRET,
-      { expiresIn: '24h', issuer: JWT_ISSUER, audience: JWT_AUDIENCE }
+      { expiresIn: '24h', issuer: JWT_ISSUER, audience: JWT_AUDIENCE, algorithm: 'HS256', jwtid: jti }
     );
+    await this.sessions.create(jti, user.id);
 
     return {
       token,

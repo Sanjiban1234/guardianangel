@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { AuthMiddleware, AuthenticatedRequest } from '../middleware/AuthMiddleware';
 import { QueryRunner } from '../db/QueryRunner';
 import { MAX_BULK_BATCH } from '../config';
+import { logger } from '../utils/logger';
 
 export class SafetyRouter {
   readonly router: Router;
@@ -75,7 +76,7 @@ export class SafetyRouter {
         avgConfirmationTime: 15.0,
       });
     } catch (err) {
-      console.error('SafetyRouter.getStats error:', err);
+      logger.error('safety statistics request failed', err);
       res.status(500).json({ error: 'Internal server error while fetching safety stats' });
     }
   }

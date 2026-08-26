@@ -2,6 +2,7 @@ import request from 'supertest';
 import { app } from '../src/index';
 import * as db from '../src/db';
 import jwt from 'jsonwebtoken';
+import { createAuthenticatedTestSession, installTestSessionValidator } from './helpers/auth';
 
 jest.mock('../src/db', () => ({
   query: jest.fn(),
@@ -25,8 +26,9 @@ describe('GET /api/rooms/:groupCode/summary', () => {
   const mockRoomId = 'room-uuid-summary';
 
   beforeAll(() => {
-    memberToken = jwt.sign(member, JWT_SECRET);
-    nonMemberToken = jwt.sign(nonMember, JWT_SECRET);
+    installTestSessionValidator();
+    memberToken = createAuthenticatedTestSession({ ...member, role: 'rider' }).token;
+    nonMemberToken = createAuthenticatedTestSession({ ...nonMember, role: 'rider' }).token;
   });
 
   beforeEach(() => {

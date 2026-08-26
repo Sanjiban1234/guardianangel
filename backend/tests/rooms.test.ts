@@ -2,6 +2,7 @@ import request from 'supertest';
 import { app } from '../src/index';
 import * as db from '../src/db';
 import jwt from 'jsonwebtoken';
+import { createAuthenticatedTestSession, installTestSessionValidator } from './helpers/auth';
 
 jest.mock('../src/db', () => ({
   query: jest.fn(),
@@ -23,8 +24,9 @@ describe('Ride Room REST Endpoints & Access Control', () => {
   const mockGroupCode = 'RIDE99ABCDEF1234';
 
   beforeAll(() => {
-    userToken = jwt.sign(mockUser, JWT_SECRET);
-    nonMemberToken = jwt.sign(mockNonMemberUser, JWT_SECRET);
+    installTestSessionValidator();
+    userToken = createAuthenticatedTestSession({ ...mockUser, role: 'rider' }).token;
+    nonMemberToken = createAuthenticatedTestSession({ ...mockNonMemberUser, role: 'rider' }).token;
   });
 
   beforeEach(() => {

@@ -1,5 +1,6 @@
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
+import { createAuthenticatedTestSession, installTestSessionValidator } from './helpers/auth';
 import { app } from '../src/index';
 import * as db from '../src/db';
 import { CrashHandler } from '../src/handlers/CrashHandler';
@@ -20,8 +21,9 @@ describe('Safety Endpoints & Crash Rate Limiting', () => {
   let adminToken: string;
 
   beforeAll(() => {
-    riderToken = jwt.sign({ id: 'user-uuid-999', name: 'safety_tester', role: 'rider' }, JWT_SECRET);
-    adminToken = jwt.sign({ id: 'admin-uuid-888', name: 'safety_admin', role: 'admin' }, JWT_SECRET);
+    installTestSessionValidator();
+    riderToken = createAuthenticatedTestSession({ id: 'user-uuid-999', name: 'safety_tester', role: 'rider' }).token;
+    adminToken = createAuthenticatedTestSession({ id: 'admin-uuid-888', name: 'safety_admin', role: 'admin' }).token;
   });
 
   beforeEach(() => {

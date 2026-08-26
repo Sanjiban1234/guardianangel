@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { QueryRunner } from '../db/QueryRunner';
+import { logger } from '../utils/logger';
 
 export interface TelemetryReading {
   timestamp: number;
@@ -45,7 +46,7 @@ export class TelemetryService {
       );
       return true;
     } catch (err) {
-      console.error('TelemetryService.saveTelemetry: DB write failed:', err);
+      logger.error('telemetry write failed', err);
       return false;
     }
   }
@@ -91,7 +92,7 @@ export class TelemetryService {
       );
       return result.rows.map((row: any) => row.client_reading_id);
     } catch (err) {
-      console.error('TelemetryService.bulkSyncTelemetry: DB write failed:', err);
+      logger.error('bulk telemetry write failed', err);
       return [];
     }
   }

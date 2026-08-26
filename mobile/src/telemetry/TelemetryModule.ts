@@ -52,12 +52,7 @@ export class TelemetryModule {
    * Starts continuous telemetry ingestion for a ride session.
    */
   async start(options: TelemetryModuleOptions): Promise<void> {
-    console.log('[TELEMETRY START]', {
-      context: 'TelemetryModule.start',
-      alreadyStarted: this.started,
-      groupCode: options.groupCode || 'none',
-      stack: new Error('TelemetryModule.start').stack,
-    });
+    console.log('[TELEMETRY START]');
     if (this.started) {
       console.warn('TelemetryModule is already running');
       return;
@@ -111,7 +106,7 @@ export class TelemetryModule {
     });
 
     this.started = true;
-    console.log(`[LIVE LOCATION TRACE] TelemetryModule started | groupCode=${options.groupCode} socketConnected=${this.socketClient.isConnected()}`);
+    console.log('[TELEMETRY STARTED]');
 
     // App Restart Recovery: Check for unsynced readings from previous abruptly-ended sessions
     const unsyncedCount = await this.db.getUnsyncedCount();
@@ -131,11 +126,7 @@ export class TelemetryModule {
    * concurrent `start()` call does not short-circuit.
    */
   async stop(): Promise<void> {
-    console.warn('[TELEMETRY STOP]', {
-      context: 'TelemetryModule.stop',
-      wasStarted: this.started,
-      stack: new Error('TelemetryModule.stop').stack,
-    });
+    console.warn('[TELEMETRY STOP]');
     if (!this.started) return;
     console.log(`[LIVE LOCATION TRACE] TelemetryModule stopping...`);
 
@@ -200,7 +191,7 @@ export class TelemetryModule {
   private async handleIncomingReading(
     rawSample: Omit<TelemetryReading, 'client_reading_id' | 'synced'>
   ): Promise<void> {
-    console.log(`[TELEMETRY RX] timestamp=${rawSample.timestamp} lat=${rawSample.latitude?.toFixed(6)} lng=${rawSample.longitude?.toFixed(6)} accuracy=${rawSample.accuracy} speed=${rawSample.speed}`);
+    console.log('[TELEMETRY RECEIVED]');
     const clientReadingId = this.generateUUIDv4();
 
     const reading: TelemetryReading = {
@@ -227,7 +218,7 @@ export class TelemetryModule {
     console.log(`[TELEMETRY SOCKET CHECK] connected=${socketConnected}`);
     if (socketConnected) {
       try {
-        console.log(`[LIVE LOCATION AUDIT] Emitting location:update lat=${reading.latitude} lng=${reading.longitude}`);
+        console.log('[TELEMETRY SENT]');
         this.socketClient.emitLocationUpdate({
           timestamp: reading.timestamp,
           latitude: reading.latitude,
@@ -235,9 +226,9 @@ export class TelemetryModule {
           accuracy: reading.accuracy,
           speed: reading.speed,
         });
-        console.log(`[LIVE LOCATION TRACE] [TRACE 3] Location emitted via socket | lat=${reading.latitude.toFixed(6)} lng=${reading.longitude.toFixed(6)} ts=${reading.timestamp}`);
-      } catch (err) {
-        console.warn('[LIVE LOCATION TRACE] [TRACE 3x] Emit failed, caching:', err);
+        console.log('[TELEMETRY SENT]');
+      } catch {
+        console.warn('[LIVE LOCATION TRACE] [TRACE 3x] Emit failed, caching');
         await this.db.insertReading(reading);
       }
     } else {
@@ -291,7 +282,7 @@ export class TelemetryModule {
     try {
       while (this.currentStatus === 'online' && this.started) {
         // Query oldest unsynced readings in batches of up to 500
-        const unsyncedBatch = await this.db.getUnsyncedReadings(500);
+        const unsyncedBatch = await this.db.getUnsyncedReadings(300);
         if (unsyncedBatch.length === 0) {
           break; // All readings synced cleanly
         }
@@ -317,8 +308,8 @@ export class TelemetryModule {
             // Unconfirmed batch: break sync loop safely without losing or duplicating data
             break;
           }
-        } catch (syncError) {
-          console.warn('Bulk sync batch emission failed or interrupted:', syncError);
+        } catch {
+          console.warn('Bulk sync batch emission failed or interrupted');
           // Connection dropped mid-sync or server error: stop cleanly, retry on next reconnect
           break;
         }
@@ -332,8 +323,8 @@ export class TelemetryModule {
     for (const listener of this.readingListeners) {
       try {
         listener(reading);
-      } catch (err) {
-        console.error('Error in telemetry reading listener:', err);
+      } catch {
+        console.error('Error in telemetry reading listener');
       }
     }
   }
@@ -342,8 +333,8 @@ export class TelemetryModule {
     for (const listener of this.connectivityListeners) {
       try {
         listener(status);
-      } catch (err) {
-        console.error('Error in connectivity status listener:', err);
+      } catch {
+        console.error('Error in connectivity status listener');
       }
     }
   }

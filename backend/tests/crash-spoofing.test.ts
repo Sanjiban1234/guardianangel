@@ -11,7 +11,7 @@ describe('CrashHandler identity attribution', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: 'candidate-1' }] });
     const repo = new CrashCandidateRepository(new QueryRunner(query));
-    const socket: any = { user: { id: 'authenticated-user', name: 'Rider', role: 'rider' }, on: jest.fn() };
+    const socket: any = { user: { id: 'authenticated-user', name: 'Rider', role: 'rider' }, on: jest.fn(), emit: jest.fn() };
     const handler = new CrashHandler(
       { to: jest.fn() } as unknown as Server,
       socket,
@@ -24,7 +24,7 @@ describe('CrashHandler identity attribution', () => {
     const candidateHandler = socket.on.mock.calls.find((call: any[]) => call[0] === 'crash:candidate')[1];
     await candidateHandler({
       user_id: 'victim-user',
-      timestamp: 1720958405000,
+      timestamp: Date.now(),
       latitude: 28.2096,
       longitude: 83.9856,
     });

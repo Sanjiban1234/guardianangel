@@ -54,6 +54,7 @@ import PermissionGate from './src/permissions/PermissionGate';
 import {
   ActiveRideRecovery,
   clearActiveRide,
+  clearSession,
   loadActiveRide,
   loadSession,
   saveActiveRide,
@@ -281,7 +282,7 @@ function App() {
 
   const clearActiveRideState = async (nextScreen: Screen = 'portal') => {
     await clearActiveRide().catch(() => {});
-    console.log(`[ACTIVE RIDE CLEARED] nextScreen=${nextScreen}`);
+    console.log('[ACTIVE RIDE CLEARED]');
     setActiveRoomCode('');
     setDestinationTitle('');
     setDestination(null);
@@ -294,18 +295,37 @@ function App() {
     endRideInFlightRef.current = false;
     leaveRideInFlightRef.current = false;
     setScreen(nextScreen);
-    console.log(`[SCREEN -> ${nextScreen.toUpperCase()}]`);
+    console.log('[SCREEN UPDATED]');
+  };
+
+  const handleLogout = async () => {
+    const token = authToken;
+    // Local cleanup is authoritative: never strand an offline user in an authenticated session.
+    void telemetryModuleRef.current.stop().catch(() => {});
+    socketRef.current.disconnect();
+    await clearActiveRide().catch(() => {});
+    await clearSession().catch(() => {});
+    setAuthToken(''); setUserId(''); setRiderName(''); setRiderEmail('');
+    setHasCompletedRegistration(false); setCompletedRideSummaryContext(null);
+    setActiveRoomCode(''); setRideStarted(false); setRoomMembers([]); setScreen('login');
+    if (token) {
+      try {
+        await fetch(`${API_BASE_URL}/api/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      } catch {
+        console.warn('server logout unavailable; local session cleared');
+      }
+    }
   };
 
   const showCompletedRideSummary = (groupCode: string) => {
     if (!groupCode) return;
-    console.log(`[SUMMARY CONTEXT SET] groupCode=${groupCode}`);
+    console.log('[SUMMARY CONTEXT SET]');
     setCompletedRideSummaryContext({ groupCode });
     void clearActiveRideState('summary');
   };
 
   const persistActiveRide = (ride: ActiveRideRecovery) => {
-    saveActiveRide(ride).catch((error) => console.warn('[ACTIVE RIDE RESTORE] persist failed', error));
+    saveActiveRide(ride).catch(() => console.warn('[ACTIVE RIDE RESTORE] persist failed'));
   };
 
   // Update current location from telemetry
@@ -373,7 +393,7 @@ function App() {
       emitLatestLocationAfterJoin(socketRef.current, groupCode, cachedLocation);
       return;
     }
-    console.log(`[POST-JOIN LOCATION CACHE MISS] groupCode=${groupCode}`);
+    console.log('[POST-JOIN LOCATION CACHE MISS]');
     const location = await getPostJoinCurrentPosition();
     if (location) emitLatestLocationAfterJoin(socketRef.current, groupCode, location);
   };
@@ -385,7 +405,7 @@ function App() {
       resendLatestLocationForJoinedMember(socketRef.current, groupCode, riderNameRef.current, payload, cachedLocation);
       return;
     }
-    console.log(`[POST-JOIN LOCATION CACHE MISS] groupCode=${groupCode}`);
+    console.log('[POST-JOIN LOCATION CACHE MISS]');
     const location = await getPostJoinCurrentPosition();
     if (location) {
       resendLatestLocationForJoinedMember(socketRef.current, groupCode, riderNameRef.current, payload, location);
@@ -395,7 +415,7 @@ function App() {
   const resendLocationAfterReconnect = async (groupCode: string) => {
     const cachedLocation = currentLocationRef.current;
     if (hasValidLatestLocation(cachedLocation)) {
-      console.log(`[RECONNECT LOCATION RESEND] lat=${cachedLocation.latitude.toFixed(6)} lng=${cachedLocation.longitude.toFixed(6)}`);
+      console.log('[RECONNECT LOCATION RESEND]');
       emitLatestLocationAfterJoin(socketRef.current, groupCode, cachedLocation);
       return;
     }
@@ -405,7 +425,7 @@ function App() {
       console.warn('[RECONNECT CURRENT POSITION ERROR] no location available');
       return;
     }
-    console.log(`[RECONNECT CURRENT POSITION SUCCESS] lat=${location.latitude.toFixed(6)} lng=${location.longitude.toFixed(6)}`);
+    console.log('[RECONNECT CURRENT POSITION SUCCESS]');
     emitLatestLocationAfterJoin(socketRef.current, groupCode, location);
   };
 
@@ -433,7 +453,7 @@ function App() {
         if (!cancelled) setRestoringRide(false);
         return;
       }
-      console.log(`[ACTIVE RIDE RESTORE] found groupCode=${ride.groupCode}`);
+      console.log('[ACTIVE RIDE RESTORE] found persisted ride');
       if (!cancelled) {
         setRideAlertState(clearRideAlerts());
         // Restore authentication independently of whether this particular ride
@@ -467,7 +487,7 @@ function App() {
             plateNumber: body.profile.plate_number || '',
             vehicleColor: body.profile.vehicle_color || '',
           })))
-          .catch(error => console.warn('[PROFILE HYDRATE] vehicle profile unavailable', error));
+          .catch(() => console.warn('[PROFILE HYDRATE] vehicle profile unavailable'));
         void fetch(`${API_BASE_URL}/api/users/medical-info`, { headers: { Authorization: `Bearer ${token}` } })
           .then(response => response.ok ? response.json() : null)
           .then(body => {
@@ -476,7 +496,7 @@ function App() {
             setProfile(prev => ({ ...prev, bloodGroup: medical.blood_group || 'Skip / Unknown', allergies: medical.allergies || '',
               emergencyContact: [medical.emergency_contact_name, medical.emergency_contact_phone].filter(Boolean).join(' '), medicalNotes: medical.notes || '' }));
           })
-          .catch(error => console.warn('[PROFILE HYDRATE] medical info unavailable', error));
+          .catch(() => console.warn('[PROFILE HYDRATE] unavailable'));
         setActiveRoomCode(ride.groupCode);
         setDestinationTitle(restored.destination?.label || ride.destinationTitle);
         setDestination(restored.destination ? {
@@ -492,7 +512,7 @@ function App() {
         console.log('[ACTIVE RIDE RESTORE] validated');
       } catch (error) {
         if (!cancelled) {
-          console.warn('[ACTIVE RIDE RESTORE] validation unavailable; retaining persisted ride for retry', error);
+          console.warn('[ACTIVE RIDE RESTORE] validation unavailable; retaining persisted ride for retry');
           setScreen('portal');
         }
       } finally {
@@ -512,7 +532,7 @@ function App() {
     const unsubscribeConnect = socketRef.current.onConnect(() => {
       const transport = (socketRef.current as any).socket?.io?.engine?.transport?.name || 'unknown';
       const roomCode = activeRoomCodeRef.current;
-      console.log(`[SOCKET DIAG] [APP_ONCONNECT] role=${deviceRole} activeRoom=${roomCode || 'none'} transport=${transport} riderName=${riderName}`);
+      console.log('[SOCKET DIAG] [APP_ONCONNECT]');
       console.log(`[LIVE LOCATION AUDIT] Socket connected, registering event listeners`);
       setConnection('live');
       const reconnecting = reconnectingRef.current;
@@ -536,7 +556,7 @@ function App() {
             const prevMap = new Map(prev.map((m) => [m.user_id, m]));
             return payload.members.map((m: any) => {
               const existing = prevMap.get(m.user_id);
-              console.log(`[LIVE LOCATION DIAG]   member: name=${m.name} user_id=${m.user_id} lat=${m.latitude ?? existing?.latitude} lng=${m.longitude ?? existing?.longitude} role=${m.role}`);
+              console.log('[SESSION MEMBER UPDATED]');
               return {
                 user_id: m.user_id,
                 name: m.name,
@@ -615,13 +635,12 @@ function App() {
       listen('ride:ended', (payload: { group_code?: string }) => {
         const groupCode = payload?.group_code || activeRoomCodeRef.current;
         if (!groupCode) return;
-        console.log(`[RIDE ENDED EVENT] groupCode=${groupCode}`);
+        console.log('[RIDE ENDED EVENT]');
         Alert.alert('Ride ended', 'The host ended this ride.');
         showCompletedRideSummary(groupCode);
       });
       listen('location:broadcast', (payload: any) => {
-        console.log(`[LIVE LOCATION AUDIT] location:broadcast from ${payload?.name} (${payload?.user_id}) lat=${payload?.latitude} lng=${payload?.longitude}`);
-        console.log(`[LIVE LOCATION DIAG] [BOUNDARY-F] location:broadcast | role=${deviceRole} from=${payload?.name}(${payload?.user_id}) lat=${payload?.latitude?.toFixed(6)} lng=${payload?.longitude?.toFixed(6)}`);
+        console.log('[LOCATION BROADCAST RECEIVED]');
         if (payload?.user_id && payload?.name) {
           const existingMember = roomMembersRef.current.find(member => member.user_id === payload.user_id);
           if (existingMember?.connectionState === 'DISCONNECTED') {
@@ -635,7 +654,7 @@ function App() {
           setRoomMembers((prev) => {
             const existing = prev.find((m) => m.user_id === payload.user_id);
             if (existing) {
-              console.log(`[LIVE LOCATION DIAG]   UPDATE: prev had ${prev.length} members, updating user_id=${payload.user_id}`);
+              console.log('[LIVE LOCATION DIAG] member updated');
               return prev.map((m) =>
                 m.user_id === payload.user_id
                   ? { ...m, latitude: payload.latitude, longitude: payload.longitude, accuracy: payload.accuracy,
@@ -645,7 +664,7 @@ function App() {
               );
             }
             if (payload.name !== riderName) {
-              console.log(`[LIVE LOCATION DIAG]   ADD_NEW: prev had ${prev.length} members, adding name=${payload.name}`);
+              console.log('[LIVE LOCATION DIAG] member added');
               return [...prev, {
                 user_id: payload.user_id,
                 name: payload.name,
@@ -660,11 +679,11 @@ function App() {
                 locationFreshness: payload.location_freshness || 'FRESH',
               }];
             }
-            console.log(`[LIVE LOCATION DIAG]   SKIP: broadcast is from self (name=${payload.name} = riderName=${riderName})`);
+            console.log('[LIVE LOCATION DIAG] self broadcast skipped');
             return prev;
           });
         } else {
-          console.log(`[LIVE LOCATION DIAG]   INVALID: missing user_id=${payload?.user_id} or name=${payload?.name}`);
+          console.log('[LIVE LOCATION DIAG] invalid broadcast payload');
         }
       });
 
@@ -804,11 +823,10 @@ function App() {
       // The server emits session:joined before acknowledging session:join, so
       // listeners must be in place before issuing the join/rejoin request.
       if (roomCode) {
-        if (reconnecting) console.log(`[REJOIN AFTER RECONNECT] groupCode=${roomCode}`);
-        console.log(`[LIVE LOCATION AUDIT] Joining session: ${roomCode}`);
-        console.log(`[SOCKET DIAG] [APP_JOINING_SESSION] groupCode=${roomCode}`);
+        if (reconnecting) console.log('[REJOIN AFTER RECONNECT]');
+        console.log('[JOINING SESSION]');
         socketRef.current.joinSession(roomCode).then(() => {
-          console.log(`[SOCKET DIAG] [APP_SESSION_JOINED_OK] groupCode=${roomCode}`);
+          console.log('[SESSION JOINED]');
           if (reconnecting) {
             console.log('[REJOIN AFTER RECONNECT] success');
             resendLocationAfterReconnect(roomCode);
@@ -816,22 +834,22 @@ function App() {
             emitLocationAfterJoinWithFallback(roomCode);
           }
         }).catch((err: any) => {
-          console.log(`[SOCKET DIAG] [APP_SESSION_JOIN_FAILED] groupCode=${roomCode} error=${err?.message}`);
+          console.warn('[SESSION JOIN FAILED]');
           setConnection('offline');
         });
       }
     });
 
     const unsubscribeDisconnect = socketRef.current.onDisconnect(() => {
-      console.log(`[SOCKET DIAG] [APP_ONDISCONNECT] role=${deviceRole} activeRoom=${activeRoomCode || 'none'}`);
+      console.log('[SOCKET DIAG] [APP_ONDISCONNECT]');
       setConnection('offline');
       reconnectingRef.current = true;
     });
-    console.log(`[SOCKET DIAG] [APP_EFFECT_START] role=${deviceRole} authToken=${authToken ? 'present' : 'MISSING'}`);
+    console.log('[SOCKET EFFECT START]');
     socketRef.current.connect(API_BASE_URL, authToken).catch(() => setConnection('offline'));
 
     return () => {
-      console.log(`[SOCKET DIAG] [APP_EFFECT_CLEANUP] generation=${effectGeneration} role=${deviceRole} activeRoom=${activeRoomCodeRef.current || 'none'}`);
+      console.log('[SOCKET DIAG] [APP_EFFECT_CLEANUP]');
       unsubscribeConnect();
       unsubscribeDisconnect();
       // Clean up all event listeners
@@ -865,7 +883,7 @@ function App() {
     socketRef.current.joinSession(activeRoomCode)
       .then(() => emitLocationAfterJoinWithFallback(activeRoomCode))
       .catch((err: any) => {
-        console.log(`[SOCKET DIAG] [APP_SESSION_JOIN_FAILED] groupCode=${activeRoomCode} error=${err?.message}`);
+        console.warn('[SESSION JOIN FAILED]');
         setConnection('offline');
       });
   }, [authToken, activeRoomCode]);
@@ -915,7 +933,7 @@ function App() {
         plateNumber: body.profile.plate_number || '',
         vehicleColor: body.profile.vehicle_color || '',
       })))
-      .catch(error => console.warn('[PROFILE HYDRATE] vehicle profile unavailable', error));
+      .catch(() => console.warn('[PROFILE HYDRATE] vehicle profile unavailable'));
     void fetch(`${API_BASE_URL}/api/users/medical-info`, { headers: { Authorization: `Bearer ${token}` } })
       .then(async response => {
         if (!response.ok) throw new Error(`Medical profile request failed (${response.status})`);
@@ -932,7 +950,7 @@ function App() {
           medicalNotes: medical.notes || '',
         }));
       })
-      .catch(error => console.warn('[PROFILE HYDRATE] medical info unavailable', error));
+      .catch(() => console.warn('[PROFILE HYDRATE] unavailable'));
   };
 
   const handleRegistrationComplete = async (data: RegistrationData) => {
@@ -977,7 +995,7 @@ function App() {
     setIsHost(true);
     setDeviceRole('HOST');
     setRideStarted(false);
-    console.log(`[LIVE LOCATION DIAG] handleCreatedRoomStart | role=HOST groupCode=${roomData.groupCode}`);
+    console.log('[RIDE ROOM CREATED]');
     setScreen('map');
     persistActiveRide({
       groupCode: roomData.groupCode, userId, riderName, isHost: true,
@@ -1002,7 +1020,7 @@ function App() {
     setIsHost(false);
     setDeviceRole('RIDER');
     setRideStarted(false);
-    console.log(`[LIVE LOCATION DIAG] handleJoinedRoomConfirm | role=RIDER groupCode=${preview.groupCode}`);
+    console.log('[RIDE ROOM JOINED]');
     setScreen('map');
     persistActiveRide({
       groupCode: preview.groupCode, userId, riderName, isHost: false,
@@ -1013,12 +1031,12 @@ function App() {
 
   const handleEndRide = () => {
     if (!isHost || !socketRef.current.isConnected() || endRideInFlightRef.current) return;
-    console.log(`[END RIDE CLICK] groupCode=${activeRoomCode}`);
+    console.log('[END RIDE CLICK]');
     endRideInFlightRef.current = true;
     try {
       socketRef.current.emitWithAck('ride:end', (response: any) => {
         endRideInFlightRef.current = false;
-        console.log(`[RIDE END ACK] ${response?.success ? 'success' : response?.error || 'unknown'}`);
+        console.log(`[RIDE END ACK] ${response?.success ? 'success' : 'failed'}`);
         if (response?.error) Alert.alert('Could not end ride', response.error);
       });
     } catch (error) {
@@ -1037,7 +1055,7 @@ function App() {
       Alert.alert('Not connected', 'Reconnect before leaving the ride.');
       return;
     }
-    console.warn(`[SESSION LEAVE DIAG] App leave pressed | room=${activeRoomCode} connected=true`);
+    console.warn('[SESSION LEAVE DIAG] App leave pressed');
     leaveRideInFlightRef.current = true;
     try {
       socketRef.current.emitWithAck('session:leave', (response: any) => {
@@ -1193,6 +1211,7 @@ function App() {
             }
           }}
           onOpenProfile={() => setScreen('profile')}
+          onLogout={handleLogout}
         />
       )}
 
@@ -1266,7 +1285,7 @@ function App() {
         const peerMarkers = computedRiders.filter(r => !r.isYou && (r.latitude !== 0 || r.longitude !== 0));
         console.log(`[LIVE LOCATION DIAG] [BOUNDARY-G] riders prop | role=${deviceRole} totalMembers=${roomMembers.length} totalRiders=${computedRiders.length} peerMarkersVisible=${peerMarkers.length}`);
         computedRiders.forEach(r => {
-          console.log(`[LIVE LOCATION DIAG]   rider: name=${r.name} isYou=${r.isYou} lat=${r.latitude.toFixed(6)} lng=${r.longitude.toFixed(6)}`);
+          console.log('[MAP RIDER RENDERED]');
         });
         return (
         <MapScreen
@@ -1428,6 +1447,7 @@ function Portal({
   onCreateRide,
   onJoinRide,
   onOpenProfile,
+  onLogout,
 }: {
   riderName: string;
   connection: Connection;
@@ -1435,6 +1455,7 @@ function Portal({
   onCreateRide: () => void | Promise<void>;
   onJoinRide: () => void | Promise<void>;
   onOpenProfile: () => void;
+  onLogout: () => void;
 }) {
   return (
     <Shell>
@@ -1446,6 +1467,9 @@ function Portal({
           </View>
           <Pressable onPress={onOpenProfile} style={styles.profileBadgeBtn}>
             <Text style={styles.profileBadgeBtnText}>⚙️ Settings</Text>
+          </Pressable>
+          <Pressable onPress={onLogout} style={styles.profileBadgeBtn}>
+            <Text style={styles.profileBadgeBtnText}>Logout</Text>
           </Pressable>
         </View>
 

@@ -18,6 +18,9 @@ export function getApiBaseUrl(): string {
         `Fix your .env file: e.g. API_BASE_URL=https://joyful-growth-production.up.railway.app`
       );
     }
+    if (url.startsWith('http://') && !__DEV__) {
+      throw new Error('[ENV] Release builds require an HTTPS API_BASE_URL.');
+    }
 
     return url;
   }

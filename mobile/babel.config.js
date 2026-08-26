@@ -31,8 +31,10 @@ module.exports = function (api) {
     api.cache(false);
   }
   const fileEnv = parseEnvFile();
-  const apiBaseUrl = process.env.API_BASE_URL || fileEnv.API_BASE_URL;
-  const googleMapsApiKey = process.env.GOOGLE_MAPS_API_KEY || fileEnv.GOOGLE_MAPS_API_KEY;
+  // Jest needs runtime process.env mutation to exercise configuration logic.
+  const isTest = process.env.NODE_ENV === 'test' || Boolean(process.env.JEST_WORKER_ID);
+  const apiBaseUrl = isTest ? undefined : (process.env.API_BASE_URL || fileEnv.API_BASE_URL);
+  const googleMapsApiKey = isTest ? undefined : (process.env.GOOGLE_MAPS_API_KEY || fileEnv.GOOGLE_MAPS_API_KEY);
 
   const plugins = [];
 
@@ -42,7 +44,10 @@ module.exports = function (api) {
       return {
         visitor: {
           MemberExpression(nodePath) {
-            if (nodePath.matchesPattern('process.env.API_BASE_URL') && apiBaseUrl) {
+            // Never replace assignment/update targets; tests intentionally set
+            // process.env values at runtime.
+            const isWriteTarget = nodePath.parentPath.isAssignmentExpression() && nodePath.parentKey === 'left';
+            if (!isWriteTarget && nodePath.matchesPattern('process.env.API_BASE_URL') && apiBaseUrl) {
               nodePath.replaceWith(t.stringLiteral(apiBaseUrl));
             } else if (nodePath.matchesPattern('process.env.GOOGLE_MAPS_API_KEY') && googleMapsApiKey) {
               nodePath.replaceWith(t.stringLiteral(googleMapsApiKey));

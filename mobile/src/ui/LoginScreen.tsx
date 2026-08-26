@@ -71,8 +71,8 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
           setBiometricEmail(storedEmail);
         }
       }
-    } catch (error) {
-      console.warn('[LoginScreen] Biometric check error:', error);
+    } catch {
+      console.warn('[LoginScreen] Biometric check failed');
     }
   };
 
