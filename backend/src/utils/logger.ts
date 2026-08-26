@@ -1,4 +1,5 @@
 import winston from 'winston';
+import type { StartupDiagnostic } from './StartupDiagnostics';
 
 const SENSITIVE = /password|token|authorization|jwt|latitude|longitude|location|group_?code|room_?id|socket_?id|device_?id|user_?id|email|name|allerg|medical|emergency_contact|phone|notes?|blood|database_?url|connectionstring|credential/i;
 export function redactLogValue(value: unknown): unknown {
@@ -34,4 +35,5 @@ export const logger = {
   info: (message: string, meta?: Record<string, unknown>) => auditLogger.info(message, redactLogValue(meta)),
   warn: (message: string, meta?: Record<string, unknown>) => auditLogger.warn(message, redactLogValue(meta)),
   error: (message: string, error?: unknown) => auditLogger.error(message, { error: safeError(error) }),
+  startupError: (message: string, diagnostic: StartupDiagnostic) => auditLogger.error(message, diagnostic),
 };

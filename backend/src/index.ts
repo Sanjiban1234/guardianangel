@@ -24,6 +24,7 @@ import { CrashCandidateRepository } from './repositories/CrashCandidateRepositor
 import { AuthSessionService } from './services/AuthSessionService';
 import { AuthMiddleware } from './middleware/AuthMiddleware';
 import { EmergencyDisclosureAuditService } from './services/EmergencyDisclosureAuditService';
+import { classifyStartupFailure } from './utils/StartupDiagnostics';
 
 // ─── Routes ───────────────────────────────────────────────────────────────
 import { createAuthRouter } from './routes/AuthRouter';
@@ -179,7 +180,7 @@ const startServer = async () => {
       });
     }
   } catch (error) {
-    logger.error('server initialization failed', error);
+    logger.startupError('server initialization failed', classifyStartupFailure(error, 'database-connect'));
     process.exit(1);
   }
 };

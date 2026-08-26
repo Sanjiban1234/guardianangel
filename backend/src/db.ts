@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import { DatabasePool } from './db/DatabasePool';
 import { getDatabaseSslConfig } from './db/TlsConfig';
 import { logger } from './utils/logger';
+import { StartupInitializationError, type StartupStage } from './utils/StartupDiagnostics';
 
 dotenv.config();
 
@@ -19,20 +20,25 @@ export const pool = new Pool({
 
 export const initDb = async (): Promise<void> => {
   if (!process.env.DATABASE_URL) {
-    throw new Error('DATABASE_URL is required. Set it in .env file.');
+    throw new StartupInitializationError('config', undefined, 'configuration-invalid');
   }
 
   // Extensions must be created outside a transaction block.
   // Use a short-lived pool client so errors here don't affect the schema transaction.
   {
-    const extClient = await _dbPool.connect();
+    let extClient: any;
+    try {
+      extClient = await _dbPool.connect();
+    } catch (error) {
+      throw new StartupInitializationError('database-connect', error);
+    }
     try {
       // PostGIS is required for geography types
       try {
         await extClient.query('CREATE EXTENSION IF NOT EXISTS postgis');
       } catch (extErr: any) {
         logger.error('PostGIS extension initialization failed', extErr);
-        throw new Error('PostGIS extension failed. Ensure PostgreSQL has PostGIS installed.');
+        throw new StartupInitializationError('schema-init', extErr);
       }
 
       try { await extClient.query('CREATE EXTENSION IF NOT EXISTS pgcrypto'); } catch {}
@@ -43,8 +49,10 @@ export const initDb = async (): Promise<void> => {
   }
 
   let client: any;
+  let stage: StartupStage = 'database-connect';
   try {
     client = await _dbPool.connect();
+    stage = 'schema-init';
     await client.query('BEGIN');
 
     // Users/Riders table (ER: ID, Name, Email, Phone, GeoHash)
@@ -364,7 +372,7 @@ export const initDb = async (): Promise<void> => {
     console.log('db: PostgreSQL + PostGIS schema initialised.');
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => {});
-    throw new Error(`db: Schema init failed — "${(error as Error).message}"`);
+    throw new StartupInitializationError(stage, error);
   } finally {
     client?.release();
   }
