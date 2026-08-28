@@ -4,6 +4,7 @@ import { AuthenticatedRequest } from '../middleware/AuthMiddleware';
 import { UserService } from '../services/UserService';
 import { AuthMiddleware } from '../middleware/AuthMiddleware';
 import { AuthSessionService } from '../services/AuthSessionService';
+import { BiometricCredentialService } from '../services/BiometricCredentialService';
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
 
@@ -19,13 +20,28 @@ const rateLimitMiddleware = rateLimit({
 
 // Authentication throttling is mandatory in every deployed environment.
 export const authLimiter = rateLimitMiddleware;
+const biometricLimiterStore = new MemoryStore();
+const biometricLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many biometric authentication attempts, please try again later' },
+  store: biometricLimiterStore,
+});
 /** Test harness only; production has no request or environment bypass. */
 export const resetAuthLimiterForTests = (): void => { if (process.env.NODE_ENV === 'test') authLimiterStore.resetAll(); };
+/** Test harness only; resets the dedicated biometric limiter between test cases. */
+export const resetBiometricLimiterForTests = (): void => { if (process.env.NODE_ENV === 'test') biometricLimiterStore.resetAll(); };
 
 export class AuthRouter {
   readonly router: Router;
 
-  constructor(private readonly userService: UserService, private readonly sessions?: AuthSessionService) {
+  constructor(
+    private readonly userService: UserService,
+    private readonly sessions?: AuthSessionService,
+    private readonly biometricCredentials?: BiometricCredentialService,
+  ) {
     this.router = Router();
     this.registerRoutes();
   }
@@ -34,6 +50,9 @@ export class AuthRouter {
     this.router.post('/register', authLimiter, (req, res) => this.handleRegister(req as AuthenticatedRequest, res));
     this.router.post('/login', authLimiter, (req, res) => this.handleLogin(req as AuthenticatedRequest, res));
     this.router.post('/logout', AuthMiddleware.authenticateJWT, (req, res) => this.handleLogout(req as AuthenticatedRequest, res));
+    this.router.post('/biometric/register', AuthMiddleware.authenticateJWT, (req, res) => this.handleBiometricRegister(req as AuthenticatedRequest, res));
+    this.router.post('/biometric/challenge', biometricLimiter, (req, res) => this.handleBiometricChallenge(req, res));
+    this.router.post('/biometric/verify', biometricLimiter, (req, res) => this.handleBiometricVerify(req, res));
   }
 
   private async handleLogout(req: AuthenticatedRequest, res: Response): Promise<void> {
@@ -41,7 +60,54 @@ export class AuthRouter {
     const decoded = token ? jwt.decode(token) : null;
     if (!req.user?.id || !decoded || typeof decoded === 'string' || !decoded.jti || !this.sessions) { res.status(401).json({ error: 'Unauthorized' }); return; }
     await this.sessions.revoke(decoded.jti, req.user.id);
+    await this.biometricCredentials?.revokeForUser(req.user.id);
     res.status(200).json({ message: 'Logged out' });
+  }
+
+  private async handleBiometricRegister(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const publicKey = req.body?.public_key;
+    if (!req.user?.id || typeof publicKey !== 'string' || !this.biometricCredentials) {
+      res.status(400).json({ error: 'Invalid biometric registration' });
+      return;
+    }
+    try {
+      const credentialId = await this.biometricCredentials.register(req.user.id, publicKey);
+      res.status(201).json({ credential_id: credentialId });
+    } catch {
+      res.status(400).json({ error: 'Invalid biometric registration' });
+    }
+  }
+
+  private async handleBiometricChallenge(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const credentialId = req.body?.credential_id;
+    if (typeof credentialId !== 'string' || !this.biometricCredentials) {
+      res.status(401).json({ error: 'Biometric login unavailable' });
+      return;
+    }
+    const challenge = await this.biometricCredentials.createChallenge(credentialId);
+    if (!challenge) {
+      res.status(401).json({ error: 'Biometric login unavailable' });
+      return;
+    }
+    res.status(200).json({ credential_id: challenge.credentialId, challenge: challenge.challenge });
+  }
+
+  private async handleBiometricVerify(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const { credential_id: credentialId, challenge, signature } = req.body || {};
+    if (typeof credentialId !== 'string' || typeof challenge !== 'string' || typeof signature !== 'string' || !this.biometricCredentials) {
+      res.status(401).json({ error: 'Biometric login failed' });
+      return;
+    }
+    const userId = await this.biometricCredentials.verifyAndConsume(credentialId, challenge, signature);
+    if (!userId) {
+      res.status(401).json({ error: 'Biometric login failed' });
+      return;
+    }
+    try {
+      res.status(200).json(await this.userService.loginWithBiometricCredential(userId));
+    } catch {
+      res.status(401).json({ error: 'Biometric login failed' });
+    }
   }
 
   private async handleRegister(
@@ -182,6 +248,10 @@ export class AuthRouter {
   }
 }
 
-export function createAuthRouter(userService: UserService, sessions?: AuthSessionService): Router {
-  return new AuthRouter(userService, sessions).router;
+export function createAuthRouter(
+  userService: UserService,
+  sessions?: AuthSessionService,
+  biometricCredentials?: BiometricCredentialService,
+): Router {
+  return new AuthRouter(userService, sessions, biometricCredentials).router;
 }

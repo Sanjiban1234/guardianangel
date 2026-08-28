@@ -342,6 +342,24 @@ export const initDb = async (): Promise<void> => {
       revoked_at TIMESTAMPTZ
     )`);
     await client.query('CREATE INDEX IF NOT EXISTS auth_sessions_active_idx ON auth_sessions (jti, user_id) WHERE revoked_at IS NULL');
+    await client.query(`CREATE TABLE IF NOT EXISTS biometric_credentials (
+      id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      public_key TEXT NOT NULL, challenge_hash TEXT, challenge_expires_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), last_used_at TIMESTAMPTZ,
+      expires_at TIMESTAMPTZ NOT NULL, revoked_at TIMESTAMPTZ
+    )`);
+    // Existing deployments may contain duplicates from the pre-constraint
+    // enrollment implementation. Keep the newest credential deterministically.
+    await client.query(`WITH ranked AS (
+      SELECT id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC, id DESC) AS position
+      FROM biometric_credentials WHERE revoked_at IS NULL
+    )
+    UPDATE biometric_credentials credential SET revoked_at = NOW()
+    FROM ranked WHERE credential.id = ranked.id AND ranked.position > 1`);
+    // An unrevoked credential is the sole active credential, even when it has
+    // expired; enrollment rotates it atomically and renews its expiry.
+    await client.query('CREATE UNIQUE INDEX IF NOT EXISTS biometric_credentials_one_active_per_user_idx ON biometric_credentials (user_id) WHERE revoked_at IS NULL');
+    await client.query('CREATE INDEX IF NOT EXISTS biometric_credentials_challenge_expiry_idx ON biometric_credentials (challenge_expires_at) WHERE revoked_at IS NULL AND challenge_hash IS NOT NULL');
 
     await client.query(`CREATE TABLE IF NOT EXISTS emergency_disclosure_audit (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

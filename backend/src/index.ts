@@ -22,6 +22,7 @@ import { RefillNotificationService } from './services/RefillNotificationService'
 import { PostgisTelemetryRepository } from './repositories/PostgisTelemetryRepository';
 import { CrashCandidateRepository } from './repositories/CrashCandidateRepository';
 import { AuthSessionService } from './services/AuthSessionService';
+import { BiometricCredentialService } from './services/BiometricCredentialService';
 import { AuthMiddleware } from './middleware/AuthMiddleware';
 import { EmergencyDisclosureAuditService } from './services/EmergencyDisclosureAuditService';
 import { classifyStartupFailure } from './utils/StartupDiagnostics';
@@ -47,6 +48,7 @@ import { logger } from './utils/logger';
 const queryRunner = new QueryRunner();
 
 const authSessionService = new AuthSessionService(queryRunner);
+const biometricCredentialService = new BiometricCredentialService(queryRunner);
 const disclosureAuditService = new EmergencyDisclosureAuditService(queryRunner);
 const userService        = new UserService(queryRunner, authSessionService);
 AuthMiddleware.configureSessionValidator((jti, userId) => authSessionService.isActive(jti, userId));
@@ -111,7 +113,7 @@ const io = new Server(server, {
 app.use(express.json({ limit: MAX_BODY_SIZE }));
 
 // Mount REST routes
-app.use('/api/auth', createAuthRouter(userService, authSessionService));
+app.use('/api/auth', createAuthRouter(userService, authSessionService, biometricCredentialService));
 app.use('/api',      createRoomRouter(roomService, telemetryRepo));
 app.use('/api',      createGeofenceRouter(queryRunner));
 app.use('/api',      createSafetyRouter(queryRunner));

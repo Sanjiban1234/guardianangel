@@ -41,7 +41,6 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricType, setBiometricType] = useState<string>('');
   const [biometricSetupReady, setBiometricSetupReady] = useState(false);
-  const [biometricEmail, setBiometricEmail] = useState<string | null>(null);
 
   useEffect(() => {
     checkBiometricAvailability();
@@ -62,27 +61,25 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
           setBiometricType('Biometrics');
         }
 
-        // Check if biometric login has been set up previously (persisted)
-        const isSetup = await SecureStore.isBiometricSetup();
-        setBiometricSetupReady(isSetup);
-
-        if (isSetup) {
-          const storedEmail = await SecureStore.getBiometricEmail();
-          setBiometricEmail(storedEmail);
-        }
+        const credential = await SecureStore.loadBiometricCredential();
+        const { keysExist } = await rnBiometrics.biometricKeysExist();
+        setBiometricSetupReady(Boolean(credential && keysExist));
+        if (credential && !keysExist) await SecureStore.clearBiometricLogin();
       }
     } catch {
-      console.warn('[LoginScreen] Biometric check failed');
+      setBiometricAvailable(false);
+      setBiometricSetupReady(false);
     }
   };
 
   const handleBiometricLogin = async () => {
     try {
-      // Verify biometric setup still exists
-      const isSetup = await SecureStore.isBiometricSetup();
-      if (!isSetup) {
+      const credential = await SecureStore.loadBiometricCredential();
+      const rnBiometrics = new ReactNativeBiometrics();
+      const { keysExist } = await rnBiometrics.biometricKeysExist();
+      if (!credential || !keysExist) {
+        await SecureStore.clearBiometricLogin();
         setBiometricSetupReady(false);
-        setBiometricEmail(null);
         Alert.alert(
           'Biometric Login Unavailable',
           'Biometric login is not set up. Please log in with your email and password first, then enable biometric login.',
@@ -91,25 +88,14 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
         return;
       }
 
-      // Show biometric prompt — this is the security gate
-      const rnBiometrics = new ReactNativeBiometrics({ allowDeviceCredentials: true });
-      const storedEmail = await SecureStore.getBiometricEmail();
-      const { success } = await rnBiometrics.simplePrompt({
-        promptMessage: `Authenticate to login as ${storedEmail || 'your account'}`,
-        cancelButtonText: 'Cancel',
+      setIsSubmitting(true);
+      const challengeResponse = await fetch(`${apiBaseUrl}/api/auth/biometric/challenge`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential_id: credential.credentialId }),
       });
-
-      if (!success) {
-        // User cancelled or failed biometric auth
-        return;
-      }
-
-      // Biometric auth succeeded — retrieve stored credentials
-      const credentials = await SecureStore.getBiometricCredentials();
-      if (!credentials) {
-        // Credentials were cleared (key invalidation, etc.)
+      if (!challengeResponse.ok) {
+        await SecureStore.clearBiometricLogin();
         setBiometricSetupReady(false);
-        setBiometricEmail(null);
         Alert.alert(
           'Biometric Data Expired',
           'Your biometric credentials have been cleared. Please log in with your password to re-enable biometric login.',
@@ -117,21 +103,37 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
         );
         return;
       }
-
-      // Perform login with stored credentials
-      await performLogin(credentials.email, credentials.password, true);
-    } catch (error) {
+      const challengeBody = await challengeResponse.json();
+      if (typeof challengeBody?.challenge !== 'string') throw new Error('Biometric login failed');
+      const signatureResult = await rnBiometrics.createSignature({
+        promptMessage: 'Login with biometrics', payload: challengeBody.challenge,
+      });
+      if (!signatureResult.success || !signatureResult.signature) return;
+      const verifyResponse = await fetch(`${apiBaseUrl}/api/auth/biometric/verify`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential_id: credential.credentialId, challenge: challengeBody.challenge, signature: signatureResult.signature }),
+      });
+      const body = await verifyResponse.json();
+      if (!verifyResponse.ok) {
+        await SecureStore.clearBiometricLogin();
+        setBiometricSetupReady(false);
+        Alert.alert('Biometric Login Unavailable', 'Please sign in with your password and enable biometric login again.');
+        return;
+      }
+      onLoginSuccess(body.token, body.user);
+    } catch {
       Alert.alert(
         'Authentication Failed',
         'Unable to authenticate with biometrics. Please try again or use your password.',
       );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const performLogin = async (
     loginEmail: string,
     loginPassword: string,
-    isBiometricReLogin: boolean = false,
   ) => {
     setIsSubmitting(true);
     setErrors({});
@@ -146,26 +148,7 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
 
       const body = await response.json();
 
-      if (!response.ok) {
-        if (isBiometricReLogin) {
-          // Stored password may have changed — clear biometric setup
-          await SecureStore.clearBiometricCredentials();
-          setBiometricSetupReady(false);
-          setBiometricEmail(null);
-          Alert.alert(
-            'Login Failed',
-            'Your password may have changed. Please log in with your new password to re-enable biometric login.',
-          );
-          return;
-        }
-        throw new Error(body.error || 'Login failed');
-      }
-
-      if (isBiometricReLogin) {
-        // Biometric re-login succeeded — go straight to app
-        onLoginSuccess(body.token, body.user);
-        return;
-      }
+      if (!response.ok) throw new Error(body.error || 'Login failed');
 
       // Normal login succeeded — offer biometric setup if available and not already set up
       if (biometricAvailable && !biometricSetupReady) {
@@ -181,14 +164,9 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
             {
               text: 'Enable',
               onPress: async () => {
-                // Store the PASSWORD (not the JWT token) for biometric re-login
-                const stored = await SecureStore.setBiometricCredentials(
-                  loginEmail.toLowerCase().trim(),
-                  loginPassword,
-                );
-                if (stored) {
+                const enabled = await enableBiometricLogin(body.token);
+                if (enabled) {
                   setBiometricSetupReady(true);
-                  setBiometricEmail(loginEmail.toLowerCase().trim());
                   Alert.alert(
                     'Biometric Login Enabled',
                     `${biometricType} login has been set up. You can use it next time you sign in.`,
@@ -214,6 +192,29 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const enableBiometricLogin = async (token: string): Promise<boolean> => {
+    try {
+      const rnBiometrics = new ReactNativeBiometrics();
+      const existing = await rnBiometrics.biometricKeysExist();
+      if (existing.keysExist) await rnBiometrics.deleteKeys();
+      const { publicKey } = await rnBiometrics.createKeys();
+      const response = await fetch(`${apiBaseUrl}/api/auth/biometric/register`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ public_key: publicKey }),
+      });
+      const body = await response.json();
+      if (!response.ok || typeof body?.credential_id !== 'string') {
+        await rnBiometrics.deleteKeys();
+        return false;
+      }
+      await SecureStore.saveBiometricCredential({ credentialId: body.credential_id });
+      return true;
+    } catch {
+      return false;
     }
   };
 
@@ -311,11 +312,8 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
               <Text style={styles.biometricIcon}>🔒</Text>
               <View style={styles.biometricLabelGroup}>
                 <Text style={styles.biometricBtnLabel}>
-                  Sign in with {biometricType}
+                  Login with {biometricType}
                 </Text>
-                {biometricEmail ? (
-                  <Text style={styles.biometricBtnEmail}>{biometricEmail}</Text>
-                ) : null}
               </View>
             </Pressable>
           </View>

@@ -60,6 +60,7 @@ import {
   saveActiveRide,
   saveSession,
 } from './src/ride/ActiveRideStore';
+import { clearBiometricLogin } from './src/ui/utils/SecureStore';
 import {
   clearAllSeparations,
   clearRiderSeparation,
@@ -305,6 +306,7 @@ function App() {
     socketRef.current.disconnect();
     await clearActiveRide().catch(() => {});
     await clearSession().catch(() => {});
+    await clearBiometricLogin().catch(() => {});
     setAuthToken(''); setUserId(''); setRiderName(''); setRiderEmail('');
     setHasCompletedRegistration(false); setCompletedRideSummaryContext(null);
     setActiveRoomCode(''); setRideStarted(false); setRoomMembers([]); setScreen('login');

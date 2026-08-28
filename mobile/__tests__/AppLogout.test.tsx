@@ -42,6 +42,10 @@ jest.mock('../src/ride/ActiveRideStore', () => ({
   saveSession: jest.fn(async () => {}),
 }));
 
+jest.mock('../src/ui/utils/SecureStore', () => ({
+  clearBiometricLogin: jest.fn(async () => {}),
+}));
+
 jest.mock('react-native-safe-area-context', () =>
   require('react-native-safe-area-context/jest/mock').default,
 );
@@ -95,6 +99,7 @@ describe('authenticated logout lifecycle', () => {
     const rideStore = jest.requireMock('../src/ride/ActiveRideStore');
     expect(rideStore.clearActiveRide).toHaveBeenCalledTimes(1);
     expect(rideStore.clearSession).toHaveBeenCalledTimes(1);
+    expect(jest.requireMock('../src/ui/utils/SecureStore').clearBiometricLogin).toHaveBeenCalledTimes(1);
     expect(mockSocketEmitWithAck).not.toHaveBeenCalledWith('ride:end', expect.anything());
     expect(renderer.root.findAll(node => node.props.children === 'Logout')).toHaveLength(0);
     expect(renderer.root.find(node => typeof node.props.onLoginSuccess === 'function')).toBeDefined();
@@ -113,6 +118,7 @@ describe('authenticated logout lifecycle', () => {
     const rideStore = jest.requireMock('../src/ride/ActiveRideStore');
     expect(rideStore.clearActiveRide).toHaveBeenCalledTimes(1);
     expect(rideStore.clearSession).toHaveBeenCalledTimes(1);
+    expect(jest.requireMock('../src/ui/utils/SecureStore').clearBiometricLogin).toHaveBeenCalledTimes(1);
     expect(mockSocketEmitWithAck).not.toHaveBeenCalledWith('ride:end', expect.anything());
     expect(renderer.root.findAll(node => node.props.children === 'Logout')).toHaveLength(0);
     expect(renderer.root.find(node => typeof node.props.onLoginSuccess === 'function')).toBeDefined();

@@ -3,7 +3,9 @@ import { app } from '../src/index';
 import * as db from '../src/db';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { resetAuthLimiterForTests } from '../src/routes/AuthRouter';
+import crypto from 'crypto';
+import { resetAuthLimiterForTests, resetBiometricLimiterForTests } from '../src/routes/AuthRouter';
+import { createAuthenticatedTestSession, installTestSessionValidator, resetTestSessions } from './helpers/auth';
 
 jest.mock('../src/db', () => ({
   query: jest.fn(),
@@ -19,6 +21,9 @@ describe('Authentication REST Endpoints & Security Controls', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     resetAuthLimiterForTests();
+    resetBiometricLimiterForTests();
+    resetTestSessions();
+    installTestSessionValidator();
   });
 
   describe('POST /api/auth/register', () => {
@@ -306,6 +311,85 @@ describe('Authentication REST Endpoints & Security Controls', () => {
       }).toThrow('FATAL: JWT_SECRET environment variable is required');
 
       process.env.JWT_SECRET = originalSecret;
+    });
+  });
+
+  describe('POST /api/auth/biometric endpoints', () => {
+    const userId = '11111111-1111-4111-8111-111111111111';
+    const credentialId = '22222222-2222-4222-8222-222222222222';
+    const keyPair = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const publicKey = keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+    const challenge = 'c'.repeat(43);
+    const challengeHash = crypto.createHash('sha256').update(challenge).digest('hex');
+
+    const authenticatedToken = (): string => createAuthenticatedTestSession({ id: userId, name: 'rider', role: 'rider' }).token;
+
+    it('registers an authenticated public key and rejects unauthenticated or malformed registration', async () => {
+      mockedQuery.mockResolvedValueOnce({ rows: [{ id: credentialId }] } as any);
+      const successful = await request(app)
+        .post('/api/auth/biometric/register')
+        .set('Authorization', `Bearer ${authenticatedToken()}`)
+        .send({ public_key: publicKey });
+      expect(successful.status).toBe(201);
+      expect(successful.body).toEqual({ credential_id: credentialId });
+      expect(mockedQuery).toHaveBeenCalledWith(expect.stringContaining('ON CONFLICT (user_id) WHERE revoked_at IS NULL'), expect.arrayContaining([userId, publicKey]));
+
+      const unauthenticated = await request(app).post('/api/auth/biometric/register').send({ public_key: publicKey });
+      expect(unauthenticated.status).toBe(401);
+
+      const malformed = await request(app)
+        .post('/api/auth/biometric/register')
+        .set('Authorization', `Bearer ${authenticatedToken()}`)
+        .send({ public_key: 'not-a-key' });
+      expect(malformed.status).toBe(400);
+    });
+
+    it('issues a challenge only for an active credential and rejects malformed or unavailable credentials', async () => {
+      mockedQuery.mockResolvedValueOnce({ rows: [{ id: credentialId }] } as any);
+      const successful = await request(app).post('/api/auth/biometric/challenge').send({ credential_id: credentialId });
+      expect(successful.status).toBe(200);
+      expect(successful.body.credential_id).toBe(credentialId);
+      expect(successful.body.challenge).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+      const malformed = await request(app).post('/api/auth/biometric/challenge').send({ credential_id: 'not-a-uuid' });
+      expect(malformed.status).toBe(401);
+
+      mockedQuery.mockResolvedValueOnce({ rows: [] } as any);
+      const unavailable = await request(app).post('/api/auth/biometric/challenge').send({ credential_id: credentialId });
+      expect(unavailable.status).toBe(401);
+    });
+
+    it('accepts one valid signature, creates a normal session, and rejects wrong or replayed signatures', async () => {
+      const signature = crypto.sign('RSA-SHA256', Buffer.from(challenge), keyPair.privateKey).toString('base64');
+      mockedQuery
+        .mockResolvedValueOnce({ rows: [{ id: credentialId, user_id: userId, public_key: publicKey, challenge_hash: challengeHash }] } as any)
+        .mockResolvedValueOnce({ rows: [{ user_id: userId }] } as any)
+        .mockResolvedValueOnce({ rows: [{ id: userId, name: 'rider', email: 'rider@example.com' }] } as any)
+        .mockResolvedValueOnce({ rows: [] } as any);
+      const successful = await request(app).post('/api/auth/biometric/verify').send({ credential_id: credentialId, challenge, signature });
+      expect(successful.status).toBe(200);
+      expect(successful.body.token).toEqual(expect.any(String));
+
+      const wrongSignature = crypto.sign('RSA-SHA256', Buffer.from('d'.repeat(43)), keyPair.privateKey).toString('base64');
+      mockedQuery.mockResolvedValueOnce({ rows: [{ id: credentialId, user_id: userId, public_key: publicKey, challenge_hash: challengeHash }] } as any);
+      const wrong = await request(app).post('/api/auth/biometric/verify').send({ credential_id: credentialId, challenge, signature: wrongSignature });
+      expect(wrong.status).toBe(401);
+
+      mockedQuery
+        .mockResolvedValueOnce({ rows: [{ id: credentialId, user_id: userId, public_key: publicKey, challenge_hash: challengeHash }] } as any)
+        .mockResolvedValueOnce({ rows: [] } as any);
+      const replay = await request(app).post('/api/auth/biometric/verify').send({ credential_id: credentialId, challenge, signature });
+      expect(replay.status).toBe(401);
+    });
+
+    it('revokes the current session and biometric credential on logout', async () => {
+      const response = await request(app)
+        .post('/api/auth/logout')
+        .set('Authorization', `Bearer ${authenticatedToken()}`)
+        .send();
+      expect(response.status).toBe(200);
+      expect(mockedQuery).toHaveBeenCalledWith(expect.stringContaining('auth_sessions SET revoked_at'), expect.arrayContaining([expect.any(String), userId]));
+      expect(mockedQuery).toHaveBeenCalledWith(expect.stringContaining('biometric_credentials SET revoked_at'), [userId]);
     });
   });
 });

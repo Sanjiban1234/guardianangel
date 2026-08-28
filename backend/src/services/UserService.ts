@@ -26,6 +26,17 @@ export interface VehicleProfile {
   vehicle_color?: string;
 }
 
+type LoginUser = {
+  id: string;
+  name: string;
+  email: string;
+  role?: string;
+  profile_complete?: boolean;
+  vehicle_model?: string;
+  plate_number?: string;
+  vehicle_color?: string;
+};
+
 export class UserService {
   private readonly sessions: AuthSessionService;
   constructor(private readonly db: QueryRunner, sessions?: AuthSessionService) { this.sessions = sessions || new AuthSessionService(db); }
@@ -78,6 +89,16 @@ export class UserService {
       throw new AppError('Invalid email or password', 'AUTH_FAILED');
     }
 
+    return this.issueLoginResult(user);
+  }
+
+  async loginWithBiometricCredential(userId: string): Promise<LoginResult> {
+    const result = await this.db.run('SELECT * FROM users WHERE id = $1', [userId]);
+    if (result.rows.length === 0) throw new AppError('Biometric credential is no longer valid', 'AUTH_FAILED');
+    return this.issueLoginResult(result.rows[0]);
+  }
+
+  private async issueLoginResult(user: LoginUser): Promise<LoginResult> {
     const jti = crypto.randomUUID();
     const token = jwt.sign(
       { id: user.id, name: user.name, email: user.email, role: user.role === 'admin' ? 'admin' : 'rider' },
