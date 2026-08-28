@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text, Pressable, Alert, Share } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import LiveMapView from '../components/LiveMapView';
 import RideAlertOverlay from '../components/RideAlertOverlay';
 import { RideAlertState } from '../ride/RideAlertStore';
@@ -160,6 +161,7 @@ export default function MapScreen({
   const [routeCoordinates, setRouteCoordinates] = useState<
     Array<{ latitude: number; longitude: number }> | undefined
   >(undefined);
+  const [copyConfirmationVisible, setCopyConfirmationVisible] = useState(false);
 
   useEffect(() => {
     if (!currentLocation || !destination) {
@@ -199,6 +201,12 @@ export default function MapScreen({
     }
   };
 
+  const handleCopyCode = () => {
+    Clipboard.setString(roomCode);
+    setCopyConfirmationVisible(true);
+    setTimeout(() => setCopyConfirmationVisible(false), 2_000);
+  };
+
   // ──────────────────────────────────────────
   // ACTIVE RIDE — full-screen map with floating overlays
   // ──────────────────────────────────────────
@@ -220,6 +228,14 @@ export default function MapScreen({
               {destinationTitle || 'No destination set'}
             </Text>
           </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Copy room code"
+            onPress={handleCopyCode}
+            style={styles.copyBtn}
+          >
+            <Text style={styles.copyBtnText}>{copyConfirmationVisible ? 'Copied' : 'Copy'}</Text>
+          </Pressable>
           <Pressable onPress={isHost ? onEndRide : onLeaveRoom} style={styles.endButton}>
             <Text style={styles.endButtonText}>{isHost ? '✕ End Ride' : '← Leave Group'}</Text>
           </Pressable>
@@ -276,10 +292,22 @@ export default function MapScreen({
               {destinationTitle || 'Group Ride'}
             </Text>
           </View>
-          <Pressable onPress={handleShareCode} style={styles.shareBtn}>
-            <Text style={styles.shareBtnText}>Share</Text>
-          </Pressable>
+          <View style={styles.codeActions}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Copy room code"
+              onPress={handleCopyCode}
+              style={styles.copyBtn}
+            >
+              <Text style={styles.copyBtnText}>{copyConfirmationVisible ? 'Copied' : 'Copy'}</Text>
+            </Pressable>
+            <Pressable onPress={handleShareCode} style={styles.shareBtn}>
+              <Text style={styles.shareBtnText}>Share</Text>
+            </Pressable>
+          </View>
         </View>
+
+        {copyConfirmationVisible && <Text style={styles.copyConfirmation}>Room code copied</Text>}
 
         {/* Member list */}
         <View style={styles.memberSection}>
@@ -395,6 +423,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
+  copyBtn: {
+    backgroundColor: COLORS.green,
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  copyBtnText: {
+    color: COLORS.ink,
+    fontSize: 13,
+    fontWeight: '900',
+  },
   riderCountBadge: {
     position: 'absolute',
     top: 110,
@@ -468,6 +508,17 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingHorizontal: 8,
+  },
+  codeActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  copyConfirmation: {
+    color: COLORS.green,
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   panelEyebrow: {
     color: COLORS.green,

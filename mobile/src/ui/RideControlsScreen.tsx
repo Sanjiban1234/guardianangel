@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -7,6 +7,7 @@ import {
   Pressable,
   SafeAreaView,
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import type { RiderSeparations } from '../separation/SeparationState';
 
 interface RoomMember {
@@ -89,6 +90,13 @@ export default function RideControlsScreen({
   onOpenProfile,
 }: RideControlsScreenProps) {
   const separations = Object.values(separationsByRider);
+  const [copyConfirmationVisible, setCopyConfirmationVisible] = useState(false);
+
+  const handleCopyCode = () => {
+    Clipboard.setString(roomCode);
+    setCopyConfirmationVisible(true);
+    setTimeout(() => setCopyConfirmationVisible(false), 2_000);
+  };
 
   const formatDistance = (meters: unknown) => {
     if (typeof meters !== 'number' || !Number.isFinite(meters) || meters < 0) return null;
@@ -123,10 +131,22 @@ export default function RideControlsScreen({
           <Text style={styles.eyebrow}>GROUP {roomCode}</Text>
           <Text style={styles.title}>Ride Controls & Status</Text>
         </View>
-        <Pressable onPress={onClose} style={styles.closeButton}>
-          <Text style={styles.closeButtonText}>✕ Close</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Copy room code"
+            onPress={handleCopyCode}
+            style={styles.copyButton}
+          >
+            <Text style={styles.copyButtonText}>{copyConfirmationVisible ? 'Copied' : 'Copy code'}</Text>
+          </Pressable>
+          <Pressable onPress={onClose} style={styles.closeButton}>
+            <Text style={styles.closeButtonText}>✕ Close</Text>
+          </Pressable>
+        </View>
       </View>
+
+      {copyConfirmationVisible && <Text style={styles.copyConfirmation}>Room code copied</Text>}
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* CONNECTION STATUS */}
@@ -270,10 +290,33 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 8,
   },
+  headerActions: {
+    alignItems: 'flex-end',
+    gap: 6,
+  },
+  copyButton: {
+    backgroundColor: COLORS.green,
+    borderRadius: 8,
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  copyButtonText: {
+    color: COLORS.ink,
+    fontSize: 12,
+    fontWeight: '900',
+  },
   closeButtonText: {
     color: COLORS.text,
     fontSize: 12,
     fontWeight: '700',
+  },
+  copyConfirmation: {
+    color: COLORS.green,
+    fontSize: 12,
+    fontWeight: '700',
+    paddingHorizontal: 20,
+    paddingTop: 8,
   },
   scrollContent: {
     padding: 20,
