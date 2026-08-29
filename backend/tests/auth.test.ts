@@ -318,7 +318,8 @@ describe('Authentication REST Endpoints & Security Controls', () => {
     const userId = '11111111-1111-4111-8111-111111111111';
     const credentialId = '22222222-2222-4222-8222-222222222222';
     const keyPair = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
-    const publicKey = keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+    const androidSpkiBase64 = keyPair.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+    const publicKey = `-----BEGIN PUBLIC KEY-----\n${androidSpkiBase64.match(/.{1,64}/g)?.join('\n')}\n-----END PUBLIC KEY-----\n`;
     const challenge = 'c'.repeat(43);
     const challengeHash = crypto.createHash('sha256').update(challenge).digest('hex');
 

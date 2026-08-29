@@ -4,7 +4,7 @@ import { AuthenticatedRequest } from '../middleware/AuthMiddleware';
 import { UserService } from '../services/UserService';
 import { AuthMiddleware } from '../middleware/AuthMiddleware';
 import { AuthSessionService } from '../services/AuthSessionService';
-import { BiometricCredentialService } from '../services/BiometricCredentialService';
+import { BiometricCredentialService, BiometricRegistrationError } from '../services/BiometricCredentialService';
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
 
@@ -67,13 +67,17 @@ export class AuthRouter {
   private async handleBiometricRegister(req: AuthenticatedRequest, res: Response): Promise<void> {
     const publicKey = req.body?.public_key;
     if (!req.user?.id || typeof publicKey !== 'string' || !this.biometricCredentials) {
+      logger.warn('biometric_register_invalid_payload');
       res.status(400).json({ error: 'Invalid biometric registration' });
       return;
     }
     try {
       const credentialId = await this.biometricCredentials.register(req.user.id, publicKey);
       res.status(201).json({ credential_id: credentialId });
-    } catch {
+    } catch (error) {
+      logger.warn(error instanceof BiometricRegistrationError
+        ? error.category
+        : 'biometric_register_validation_failed');
       res.status(400).json({ error: 'Invalid biometric registration' });
     }
   }

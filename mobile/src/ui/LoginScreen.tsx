@@ -32,6 +32,93 @@ interface LoginScreenProps {
   onNavigateToRegister: () => void;
 }
 
+type BiometricAvailabilityCategory =
+  | 'biometric_hardware_unavailable'
+  | 'biometric_not_enrolled'
+  | 'biometric_sensor_unavailable'
+  | 'biometric_check_failed'
+  | 'biometric_key_check_failed'
+  | 'biometric_key_delete_failed'
+  | 'biometric_key_generation_failed'
+  | 'biometric_register_failed'
+  | 'biometric_credential_save_failed'
+  | 'biometric_unknown_unavailable';
+
+type BiometricAvailabilityFailure = {
+  category: BiometricAvailabilityCategory;
+  message: string;
+  diagnostic?: EnrollmentFailureDiagnostic;
+};
+
+type EnrollmentFailureStage =
+  | 'sensor_availability'
+  | 'key_check'
+  | 'key_delete'
+  | 'key_generation'
+  | 'backend_registration'
+  | 'credential_validation'
+  | 'credential_save'
+  | 'unknown';
+
+type EnrollmentFailureDiagnostic = {
+  stage: EnrollmentFailureStage;
+  status: number | null;
+  errorName?: string;
+  errorMessage?: string;
+};
+
+type BiometricState = {
+  available: boolean;
+  biometryType: string | null;
+  setupReady: boolean;
+  failureCategory: BiometricAvailabilityCategory | null;
+};
+
+const safeEnrollmentError = (error: unknown): Pick<EnrollmentFailureDiagnostic, 'errorName' | 'errorMessage'> => {
+  const candidate = typeof error === 'object' && error !== null
+    ? error as { name?: unknown; message?: unknown }
+    : null;
+  const sanitize = (value: unknown, fallback: string): string => typeof value === 'string'
+    ? value.replace(/\b(?:password|email|token|jwt|credential(?:Id)?|challenge|signature|public|private)[\w-]*\b/gi, '[redacted]').slice(0, 300)
+    : fallback;
+  return { errorName: sanitize(candidate?.name, 'unknown'), errorMessage: sanitize(candidate?.message, 'unknown') };
+};
+
+// react-native-biometrics 3.0.1 returns the Android Keystore public key as
+// base64-encoded SPKI DER. The API stores the canonical PEM form so Node can
+// parse it with crypto.createPublicKey and later verify RSA-SHA256 signatures.
+export const biometricPublicKeyToPem = (publicKeyBase64: string): string => {
+  const normalized = publicKeyBase64.replace(/\s/g, '');
+  const lines = normalized.match(/.{1,64}/g);
+  if (!normalized || !lines) throw new Error('Invalid biometric public key');
+  return `-----BEGIN PUBLIC KEY-----\n${lines.join('\n')}\n-----END PUBLIC KEY-----\n`;
+};
+
+const classifyBiometricAvailability = (error?: string): BiometricAvailabilityFailure => {
+  switch (error) {
+    case 'BIOMETRIC_ERROR_NO_HARDWARE':
+      return {
+        category: 'biometric_hardware_unavailable',
+        message: 'This device does not have biometric hardware available for biometric login.',
+      };
+    case 'BIOMETRIC_ERROR_NONE_ENROLLED':
+      return {
+        category: 'biometric_not_enrolled',
+        message: 'Set up a fingerprint or face in your device settings before enabling biometric login.',
+      };
+    case 'BIOMETRIC_ERROR_HW_UNAVAILABLE':
+      return {
+        category: 'biometric_sensor_unavailable',
+        message: 'The biometric sensor is temporarily unavailable. Try again after it is available.',
+      };
+    default:
+      return {
+        category: 'biometric_unknown_unavailable',
+        message: 'Biometric login is unavailable on this device right now.',
+      };
+  }
+};
+
 export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -39,37 +126,59 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [biometricAvailable, setBiometricAvailable] = useState(false);
-  const [biometricType, setBiometricType] = useState<string>('');
+  const [biometricType, setBiometricType] = useState<string | null>(null);
   const [biometricSetupReady, setBiometricSetupReady] = useState(false);
 
   useEffect(() => {
-    checkBiometricAvailability();
+    void refreshBiometricState();
   }, []);
 
-  const checkBiometricAvailability = async () => {
+  const checkBiometricState = async (): Promise<BiometricState> => {
     try {
       const rnBiometrics = new ReactNativeBiometrics();
-      const { available, biometryType } = await rnBiometrics.isSensorAvailable();
+      const result = await rnBiometrics.isSensorAvailable();
+      console.log('[BIOMETRIC CHECK]', {
+        available: result.available,
+        biometryType: result.biometryType ?? null,
+        error: result.error ?? null,
+      });
 
-      if (available) {
-        setBiometricAvailable(true);
-        if (biometryType === BiometryTypes.TouchID) {
-          setBiometricType('Touch ID');
-        } else if (biometryType === BiometryTypes.FaceID) {
-          setBiometricType('Face ID');
-        } else if (biometryType === BiometryTypes.Biometrics) {
-          setBiometricType('Biometrics');
-        }
-
-        const credential = await SecureStore.loadBiometricCredential();
-        const { keysExist } = await rnBiometrics.biometricKeysExist();
-        setBiometricSetupReady(Boolean(credential && keysExist));
-        if (credential && !keysExist) await SecureStore.clearBiometricLogin();
+      if (!result.available) {
+        const failure = classifyBiometricAvailability(result.error);
+        console.warn('[BIOMETRIC CHECK UNAVAILABLE]', { category: failure.category });
+        return {
+          available: false, biometryType: null, setupReady: false, failureCategory: failure.category,
+        };
       }
+
+      const biometryType = result.biometryType === BiometryTypes.TouchID
+        ? 'Touch ID'
+        : result.biometryType === BiometryTypes.FaceID
+          ? 'Face ID'
+          : result.biometryType === BiometryTypes.Biometrics
+            ? 'Biometrics'
+            : null;
+      const credential = await SecureStore.loadBiometricCredential();
+      const { keysExist } = await rnBiometrics.biometricKeysExist();
+      const setupReady = Boolean(credential && keysExist);
+      if (credential && !keysExist) await SecureStore.clearBiometricLogin();
+      return {
+        available: true, biometryType, setupReady, failureCategory: null,
+      };
     } catch {
-      setBiometricAvailable(false);
-      setBiometricSetupReady(false);
+      console.warn('[BIOMETRIC CHECK FAILED]', { category: 'biometric_check_failed' });
+      return {
+        available: false, biometryType: null, setupReady: false, failureCategory: 'biometric_check_failed',
+      };
     }
+  };
+
+  const refreshBiometricState = async (): Promise<BiometricState> => {
+    const biometricState = await checkBiometricState();
+    setBiometricAvailable(biometricState.available);
+    setBiometricType(biometricState.biometryType);
+    setBiometricSetupReady(biometricState.setupReady);
+    return biometricState;
   };
 
   const handleBiometricLogin = async () => {
@@ -150,11 +259,14 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
 
       if (!response.ok) throw new Error(body.error || 'Login failed');
 
-      // Normal login succeeded — offer biometric setup if available and not already set up
-      if (biometricAvailable && !biometricSetupReady) {
+      // Do not use mount-time state here: password login can complete before that check finishes.
+      const biometricState = await refreshBiometricState();
+
+      // Normal login succeeded — offer biometric setup if available and not already set up.
+      if (biometricState.available && !biometricState.setupReady) {
         Alert.alert(
           'Enable Biometric Login?',
-          `Would you like to enable ${biometricType} for faster login next time?`,
+          `Would you like to enable ${biometricState.biometryType} for faster login next time?`,
           [
             {
               text: 'Not Now',
@@ -164,18 +276,25 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
             {
               text: 'Enable',
               onPress: async () => {
-                const enabled = await enableBiometricLogin(body.token);
-                if (enabled) {
+                const failure = await enableBiometricLogin(body.token);
+                if (!failure) {
                   setBiometricSetupReady(true);
                   Alert.alert(
                     'Biometric Login Enabled',
-                    `${biometricType} login has been set up. You can use it next time you sign in.`,
+                    `${biometricState.biometryType} login has been set up. You can use it next time you sign in.`,
                     [{ text: 'OK', onPress: () => onLoginSuccess(body.token, body.user) }],
                   );
                 } else {
+                  const diagnostic = failure.diagnostic;
                   Alert.alert(
-                    'Setup Failed',
-                    'Unable to set up biometric login. You can try again next time.',
+                    diagnostic ? 'Biometric Enrollment Failed' : 'Biometric Login Unavailable',
+                    diagnostic
+                      ? `stage: ${diagnostic.stage}\n`
+                        + `status: ${diagnostic.status ?? 'null'}`
+                        + (diagnostic.errorName ? `\nerrorName: ${diagnostic.errorName}` : '')
+                        + (diagnostic.errorMessage ? `\nerrorMessage: ${diagnostic.errorMessage}` : '')
+                        + `\n\n${failure.message}`
+                      : failure.message,
                     [{ text: 'OK', onPress: () => onLoginSuccess(body.token, body.user) }],
                   );
                 }
@@ -195,26 +314,94 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
     }
   };
 
-  const enableBiometricLogin = async (token: string): Promise<boolean> => {
+  const enableBiometricLogin = async (token: string): Promise<BiometricAvailabilityFailure | null> => {
+    let failureStage: EnrollmentFailureStage = 'sensor_availability';
+    const fail = (
+      category: BiometricAvailabilityCategory,
+      message: string,
+      status: number | null = null,
+      error?: unknown,
+    ): BiometricAvailabilityFailure => {
+      const diagnostic = { stage: failureStage, status, ...(error ? safeEnrollmentError(error) : {}) };
+      console.warn('[BIOMETRIC ENROLLMENT FAILED]', { category, ...(status !== null ? { status } : {}) });
+      return { category, message, diagnostic };
+    };
     try {
       const rnBiometrics = new ReactNativeBiometrics();
-      const existing = await rnBiometrics.biometricKeysExist();
-      if (existing.keysExist) await rnBiometrics.deleteKeys();
-      const { publicKey } = await rnBiometrics.createKeys();
-      const response = await fetch(`${apiBaseUrl}/api/auth/biometric/register`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ public_key: publicKey }),
+      // Re-check immediately before generating the Keystore key. Enrollment can change
+      // after the screen's initial capability check.
+      const availability = await rnBiometrics.isSensorAvailable();
+      console.log('[BIOMETRIC CHECK]', {
+        available: availability.available,
+        biometryType: availability.biometryType ?? null,
+        error: availability.error ?? null,
       });
-      const body = await response.json();
-      if (!response.ok || typeof body?.credential_id !== 'string') {
-        await rnBiometrics.deleteKeys();
-        return false;
+      if (!availability.available) {
+        const failure = classifyBiometricAvailability(availability.error);
+        console.warn('[BIOMETRIC CHECK UNAVAILABLE]', { category: failure.category });
+        setBiometricAvailable(false);
+        setBiometricSetupReady(false);
+        return { ...failure, diagnostic: { stage: failureStage, status: null } };
       }
-      await SecureStore.saveBiometricCredential({ credentialId: body.credential_id });
-      return true;
-    } catch {
-      return false;
+
+      failureStage = 'key_check';
+      let existing: { keysExist: boolean };
+      try {
+        existing = await rnBiometrics.biometricKeysExist();
+      } catch (error) {
+        return fail('biometric_key_check_failed', 'Unable to check the biometric key. Please try again later.', null, error);
+      }
+      if (existing.keysExist) {
+        failureStage = 'key_delete';
+        try {
+          await rnBiometrics.deleteKeys();
+        } catch (error) {
+          return fail('biometric_key_delete_failed', 'Unable to replace the biometric key. Please try again later.', null, error);
+        }
+      }
+
+      failureStage = 'key_generation';
+      let publicKey: string;
+      try {
+        ({ publicKey } = await rnBiometrics.createKeys());
+        publicKey = biometricPublicKeyToPem(publicKey);
+      } catch (error) {
+        return fail('biometric_key_generation_failed', 'Unable to create a biometric key. Please try again later.', null, error);
+      }
+
+      failureStage = 'backend_registration';
+      let response: Response;
+      let body: { credential_id?: unknown };
+      try {
+        response = await fetch(`${apiBaseUrl}/api/auth/biometric/register`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ public_key: publicKey }),
+        });
+        body = await response.json();
+      } catch (error) {
+        await rnBiometrics.deleteKeys();
+        return fail('biometric_register_failed', 'Unable to register biometric login. Please try again later.', null, error);
+      }
+      if (!response.ok) {
+        await rnBiometrics.deleteKeys();
+        return fail('biometric_register_failed', 'Unable to register biometric login. Please try again later.', response.status);
+      }
+      failureStage = 'credential_validation';
+      if (typeof body.credential_id !== 'string') {
+        await rnBiometrics.deleteKeys();
+        return fail('biometric_register_failed', 'Unable to register biometric login. Please try again later.');
+      }
+      failureStage = 'credential_save';
+      try {
+        await SecureStore.saveBiometricCredential({ credentialId: body.credential_id });
+      } catch (error) {
+        await rnBiometrics.deleteKeys();
+        return fail('biometric_credential_save_failed', 'Unable to save biometric login. Please try again later.', null, error);
+      }
+      return null;
+    } catch (error) {
+      return fail('biometric_check_failed', 'Unable to check biometric availability. Please try again later.', null, error);
     }
   };
 

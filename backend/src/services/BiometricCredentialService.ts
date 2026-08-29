@@ -6,6 +6,16 @@ export type BiometricChallenge = {
   challenge: string;
 };
 
+export type BiometricRegistrationFailureCategory =
+  | 'biometric_register_invalid_public_key'
+  | 'biometric_register_unsupported_key';
+
+export class BiometricRegistrationError extends Error {
+  constructor(readonly category: BiometricRegistrationFailureCategory) {
+    super('Invalid biometric public key');
+  }
+}
+
 type CredentialRow = {
   id: string;
   user_id: string;
@@ -18,13 +28,18 @@ export class BiometricCredentialService {
 
   async register(userId: string, publicKey: string): Promise<string> {
     if (typeof publicKey !== 'string' || publicKey.length > 8_192) {
-      throw new Error('Invalid biometric public key');
+      throw new BiometricRegistrationError('biometric_register_invalid_public_key');
     }
+    let parsedPublicKey: crypto.KeyObject;
     try {
-      crypto.createPublicKey(publicKey);
+      parsedPublicKey = crypto.createPublicKey(publicKey);
     } catch {
-      throw new Error('Invalid biometric public key');
+      throw new BiometricRegistrationError('biometric_register_invalid_public_key');
     }
+    if (parsedPublicKey.asymmetricKeyType !== 'rsa' || (parsedPublicKey.asymmetricKeyDetails?.modulusLength ?? 0) < 2048) {
+      throw new BiometricRegistrationError('biometric_register_unsupported_key');
+    }
+    const canonicalPublicKey = parsedPublicKey.export({ type: 'spki', format: 'pem' }).toString();
 
     const credentialId = crypto.randomUUID();
     const result = await this.db.run(
@@ -35,7 +50,7 @@ export class BiometricCredentialService {
            challenge_expires_at = NULL, expires_at = EXCLUDED.expires_at,
            created_at = NOW(), last_used_at = NULL
        RETURNING id`,
-      [credentialId, userId, publicKey],
+      [credentialId, userId, canonicalPublicKey],
     );
     const persistedId = result.rows[0]?.id;
     if (typeof persistedId !== 'string') throw new Error('Unable to register biometric credential');

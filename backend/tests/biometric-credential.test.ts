@@ -11,7 +11,8 @@ const userId = '22222222-2222-4222-8222-222222222222';
 const challenge = 'a'.repeat(43);
 const challengeHash = crypto.createHash('sha256').update(challenge).digest('hex');
 const keyPair = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
-const publicKey = keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+const androidSpkiBase64 = keyPair.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+const publicKey = `-----BEGIN PUBLIC KEY-----\n${androidSpkiBase64.match(/.{1,64}/g)?.join('\n')}\n-----END PUBLIC KEY-----\n`;
 
 describe('BiometricCredentialService', () => {
   let service: BiometricCredentialService;
@@ -30,6 +31,13 @@ describe('BiometricCredentialService', () => {
 
   it.each(['not a public key', 'x'.repeat(8_193)])('rejects malformed or oversized public keys', async (publicKeyValue) => {
     await expect(service.register(userId, publicKeyValue)).rejects.toThrow('Invalid biometric public key');
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unsupported non-RSA public key', async () => {
+    const unsupportedKey = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).publicKey
+      .export({ type: 'spki', format: 'pem' }).toString();
+    await expect(service.register(userId, unsupportedKey)).rejects.toThrow('Invalid biometric public key');
     expect(query).not.toHaveBeenCalled();
   });
 
