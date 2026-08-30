@@ -117,7 +117,7 @@ export class ForegroundGeolocationProvider implements ILocationProvider {
       const latitude = Number(position.coords?.latitude);
       const longitude = Number(position.coords?.longitude);
       const accuracy = Number.isFinite(position.coords?.accuracy) ? position.coords.accuracy : 10.0;
-      const speed = Number.isFinite(position.coords?.speed) ? position.coords.speed : 0.0;
+      const speed = Number.isFinite(position.coords?.speed) ? position.coords.speed : null;
       console.log('[GPS SAMPLE RECEIVED]');
       onReading({ timestamp, latitude, longitude, accuracy, speed });
     };

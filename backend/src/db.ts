@@ -252,7 +252,7 @@ export const initDb = async (): Promise<void> => {
         INSERT INTO rider_current_locations
           (room_id, user_id, device_timestamp_ms, location, accuracy, speed)
         VALUES
-          (NEW.room_id, NEW.user_id, NEW.device_timestamp_ms, NEW.location, NEW.accuracy, NEW.speed)
+          (NEW.room_id, NEW.user_id, NEW.device_timestamp_ms, NEW.location, NEW.accuracy, COALESCE(NEW.speed, 0))
         ON CONFLICT (room_id, user_id) DO UPDATE
           SET device_timestamp_ms = EXCLUDED.device_timestamp_ms,
               location = EXCLUDED.location,
@@ -383,6 +383,10 @@ export const initDb = async (): Promise<void> => {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
+    // Native GPS speed is optional on both Android and iOS. Preserve null rather
+    // than turning it into a fabricated zero so completed summaries can derive
+    // a transparent geographic fallback.
+    await client.query('ALTER TABLE telemetry_readings ALTER COLUMN speed DROP NOT NULL');
     await client.query('ALTER TABLE medical_info ADD COLUMN IF NOT EXISTS share_medical_during_emergency BOOLEAN NOT NULL DEFAULT false');
     await client.query('ALTER TABLE medical_info ADD COLUMN IF NOT EXISTS share_emergency_contact_during_emergency BOOLEAN NOT NULL DEFAULT false');
 

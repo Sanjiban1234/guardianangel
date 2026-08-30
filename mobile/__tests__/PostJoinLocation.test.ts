@@ -6,10 +6,10 @@ import {
 
 describe('post-join location emission', () => {
   test('resends the cached GPS sample only after room membership succeeds', async () => {
-    const emitted: Array<{ joined: boolean; payload: Record<string, number> }> = [];
+    const emitted: Array<{ joined: boolean; payload: Record<string, number | null> }> = [];
     let joined = false;
     const socketClient = {
-      emitLocationUpdate: (payload: Record<string, number>) => emitted.push({ joined, payload }),
+      emitLocationUpdate: (payload: Record<string, number | null>) => emitted.push({ joined, payload }),
     };
     const latestLocation = {
       timestamp: 1_700_000_000_000,
@@ -43,10 +43,10 @@ describe('post-join location emission', () => {
   });
 
   test('an existing host resends its cached location when a rider joins later', () => {
-    const emitted: Array<Record<string, number>> = [];
+    const emitted: Array<Record<string, number | null>> = [];
     const socketClient = {
       isConnected: () => true,
-      emitLocationUpdate: (payload: Record<string, number>) => emitted.push(payload),
+      emitLocationUpdate: (payload: Record<string, number | null>) => emitted.push(payload),
     };
     const hostLocation = {
       timestamp: 1_700_000_001_000,
@@ -97,7 +97,7 @@ describe('post-join location emission', () => {
         coords: { latitude: 27.689915, longitude: 85.310267, accuracy: 5, speed: null },
       })),
     };
-    const emitted: Array<Record<string, number>> = [];
+    const emitted: Array<Record<string, number | null>> = [];
     const location = await getCurrentPositionAfterJoin(geolocation);
 
     expect(emitLatestLocationAfterJoin({ emitLocationUpdate: (payload) => emitted.push(payload) }, 'RIDE123', location)).toBe(true);
@@ -112,10 +112,10 @@ describe('post-join location emission', () => {
         coords: { latitude: 28.2096, longitude: 83.9856, accuracy: 7, speed: undefined },
       })),
     };
-    const emitted: Array<Record<string, number>> = [];
+    const emitted: Array<Record<string, number | null>> = [];
     const socketClient = {
       isConnected: () => true,
-      emitLocationUpdate: (payload: Record<string, number>) => emitted.push(payload),
+      emitLocationUpdate: (payload: Record<string, number | null>) => emitted.push(payload),
     };
 
     const location = await getCurrentPositionAfterJoin(geolocation);

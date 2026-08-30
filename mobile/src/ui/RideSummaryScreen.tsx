@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import MapView, { Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useRideSummary } from './useRideSummary';
+import { groupRouteSegments, SPEED_BANDS, SummaryRoutePoint } from './rideSummaryRoute';
 
 interface RideSummaryScreenProps {
   groupCode: string;
@@ -24,6 +26,26 @@ export const formatDuration = (milliseconds: number): string => {
   const minutes = totalMinutes % 60;
   if (hours > 0) return `${hours}h ${minutes}m`;
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+};
+
+const formatSpeed = (speed: number | null): string => speed == null ? '—' : `${speed.toFixed(1)} km/h`;
+
+const ActualRouteMap: React.FC<{ route: SummaryRoutePoint[] }> = ({ route }) => {
+  const mapRef = useRef<MapView>(null);
+  const segments = groupRouteSegments(route);
+  useEffect(() => { mapRef.current?.fitToCoordinates(route, { edgePadding: { top: 36, bottom: 36, left: 36, right: 36 }, animated: false }); }, [route]);
+  return <><MapView ref={mapRef} provider={PROVIDER_GOOGLE} style={styles.routeMap} initialRegion={{ latitude: route[0].latitude, longitude: route[0].longitude, latitudeDelta: 0.02, longitudeDelta: 0.02 }}>
+    {segments.map((segment, index) => <Polyline key={`${segment.band}-${index}`} coordinates={segment.coordinates} strokeColor={SPEED_BANDS[segment.band].color} strokeWidth={5} />)}
+  </MapView><View style={styles.legend}>{Object.entries(SPEED_BANDS).map(([band, value]) => <View key={band} style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: value.color }]} /><Text style={styles.legendText}>{value.label}</Text></View>)}</View></>;
+};
+
+/** Small dependency-free profile chart; the API has already bounded route points,
+ * and the chart samples at most 80 columns without changing route rendering. */
+const SpeedProfileChart: React.FC<{ route: SummaryRoutePoint[] }> = ({ route }) => {
+  const source = route.length <= 80 ? route : Array.from({ length: 80 }, (_, index) => route[Math.round(index * (route.length - 1) / 79)]);
+  const speeds = source.map(point => point.speed_kmh ?? 0);
+  const ceiling = Math.max(10, ...speeds);
+  return <View accessibilityLabel="Speed profile chart" style={styles.chart}><View style={styles.chartBars}>{speeds.map((speed, index) => <View key={index} style={[styles.chartBar, { height: `${Math.max(3, speed / ceiling * 100)}%` }]} />)}</View><View style={styles.chartAxis}><Text style={styles.axisText}>Start</Text><Text style={styles.axisText}>Speed (km/h)</Text><Text style={styles.axisText}>Finish</Text></View></View>;
 };
 
 export const RideSummaryScreen: React.FC<RideSummaryScreenProps> = ({ groupCode, authToken, apiBaseUrl, onReturnToPortal }) => {
@@ -65,6 +87,12 @@ export const RideSummaryScreen: React.FC<RideSummaryScreenProps> = ({ groupCode,
         </View>
 
         <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Actual Route</Text>
+          <Text style={styles.detail}>Your recorded GPS trace, colored by speed range.</Text>
+          {data.route.length > 1 ? <ActualRouteMap route={data.route} /> : <View style={styles.emptyProfile}><Text style={styles.emptyProfileTitle}>Route unavailable</Text><Text style={styles.emptyProfileText}>At least two usable historical GPS points are needed to show your actual route.</Text></View>}
+        </View>
+
+        <View style={styles.card}>
           <Text style={styles.label}>RIDE DURATION</Text>
           <View style={styles.durationRow}>
             <View style={styles.durationColumn}>
@@ -81,12 +109,8 @@ export const RideSummaryScreen: React.FC<RideSummaryScreenProps> = ({ groupCode,
 
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Route Speed Profile</Text>
-          <Text style={styles.detail}>Downsampled telemetry trace</Text>
-          <View style={styles.emptyProfile}>
-            <Text style={styles.warningSymbol}>⚠</Text>
-            <Text style={styles.emptyProfileTitle}>Speed Chart Unavailable</Text>
-            <Text style={styles.emptyProfileText}>Not enough recorded telemetry to generate a meaningful speed profile.</Text>
-          </View>
+          <Text style={styles.detail}>Calculated from the same recorded GPS trace.</Text>
+          {data.route.length > 1 ? <><SpeedProfileChart route={data.route} /><View style={styles.metricsRow}><View><Text style={styles.columnLabel}>Avg moving</Text><Text style={styles.metricValue}>{formatSpeed(data.average_moving_speed_kmh)}</Text></View><View><Text style={styles.columnLabel}>Maximum</Text><Text style={styles.metricValue}>{formatSpeed(data.max_filtered_speed_kmh)}</Text></View><View><Text style={styles.columnLabel}>Stopped</Text><Text style={styles.metricValue}>{formatDuration(data.stopped_time_ms)}</Text></View></View></> : <View style={styles.emptyProfile}><Text style={styles.emptyProfileTitle}>Speed profile unavailable</Text><Text style={styles.emptyProfileText}>Not enough usable historical telemetry was recorded.</Text></View>}
         </View>
 
         <TouchableOpacity accessibilityRole="button" style={styles.primaryButton} onPress={onReturnToPortal}><Text style={styles.primaryButtonText}>DONE</Text></TouchableOpacity>
@@ -118,6 +142,18 @@ const styles = StyleSheet.create({
   unavailableValue: { color: '#F5B942', fontSize: 20, fontWeight: '800', marginTop: 9 },
   notice: { color: '#D6AF5A', fontSize: 12, marginTop: 18, lineHeight: 18 },
   sectionTitle: { color: '#F4FFF6', fontSize: 19, fontWeight: '800' },
+  routeMap: { height: 240, borderRadius: 12, marginTop: 16, overflow: 'hidden' },
+  legend: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendDot: { width: 9, height: 9, borderRadius: 5 },
+  legendText: { color: '#C7D6CA', fontSize: 11, fontWeight: '700' },
+  metricsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 18, gap: 8 },
+  metricValue: { color: '#F4FFF6', fontSize: 15, fontWeight: '800', marginTop: 5 },
+  chart: { height: 130, marginTop: 16, borderColor: '#31503A', borderWidth: 1, borderRadius: 12, backgroundColor: '#0C1A10', padding: 12 },
+  chartBars: { flex: 1, flexDirection: 'row', alignItems: 'flex-end', gap: 1 },
+  chartBar: { flex: 1, minWidth: 1, backgroundColor: '#5EF58C', borderRadius: 1 },
+  chartAxis: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 5 },
+  axisText: { color: '#9FB2A4', fontSize: 10 },
   emptyProfile: { minHeight: 142, marginTop: 18, borderRadius: 12, backgroundColor: '#0C1A10', borderColor: '#31503A', borderWidth: 1, alignItems: 'center', justifyContent: 'center', padding: 18 },
   warningSymbol: { color: '#F5B942', fontSize: 22, marginBottom: 6 },
   emptyProfileTitle: { color: '#F4FFF6', fontSize: 16, fontWeight: '800' },

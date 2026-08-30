@@ -33,7 +33,7 @@ describe('ForegroundGeolocationProvider', () => {
       latitude: 28.2096,
       longitude: 83.9856,
       accuracy: 4.5,
-      speed: 0,
+      speed: null,
     }]);
   });
 
@@ -78,7 +78,7 @@ describe('ForegroundGeolocationProvider', () => {
       latitude: 27.689915,
       longitude: 85.310267,
       accuracy: 4,
-      speed: 0,
+      speed: null,
     }]);
   });
 });

@@ -13,7 +13,7 @@ export interface TelemetryReading {
   latitude: number;
   longitude: number;
   accuracy: number;          // GPS accuracy in meters
-  speed: number;             // Speed in meters/second
+  speed: number | null;      // Native speed in m/s; unavailable on some GPS fixes
   synced?: boolean;          // True once server acknowledgment (confirmedClientReadingIds) is received
 }
 

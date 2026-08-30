@@ -14,6 +14,16 @@ export interface DownsampledSpeedPoint {
   is_speed_spike?: boolean;
 }
 
+/** A privacy-scoped point on the authenticated rider's recorded route. */
+export interface SummaryRoutePoint {
+  latitude: number;
+  longitude: number;
+  recorded_at_ms: number;
+  /** Native speed when supplied by the device, otherwise geographic fallback. */
+  speed_kmh: number | null;
+  accuracy: number | null;
+}
+
 export interface PaceBenchmark {
   /** Expected duration in milliseconds based on standard group ride pace (~45 km/h) */
   expected_duration_ms: number;
@@ -55,4 +65,9 @@ export interface RideSummaryData {
   low_data_reason?: LowDataReason;
   /** Emergency alert flag if an SOS alert occurred during the ride session */
   had_emergency_alert?: boolean;
+  /** Actual recorded route, chronologically ordered and bounded for map rendering. */
+  route: SummaryRoutePoint[];
+  average_moving_speed_kmh: number | null;
+  max_filtered_speed_kmh: number | null;
+  stopped_time_ms: number;
 }

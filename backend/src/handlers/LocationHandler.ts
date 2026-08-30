@@ -83,7 +83,7 @@ export class LocationHandler {
       typeof reading?.latitude !== 'number' || !Number.isFinite(reading.latitude) ||
       typeof reading?.longitude !== 'number' || !Number.isFinite(reading.longitude) ||
       typeof reading?.accuracy !== 'number' || !Number.isFinite(reading.accuracy) ||
-      typeof reading?.speed !== 'number' || !Number.isFinite(reading.speed)
+      (reading?.speed !== null && (typeof reading?.speed !== 'number' || !Number.isFinite(reading.speed)))
     ) {
       this.socket.emit('error', { message: 'Invalid telemetry payload' });
       return false;
@@ -92,7 +92,7 @@ export class LocationHandler {
     if (
       reading.latitude < -90 || reading.latitude > 90 ||
       reading.longitude < -180 || reading.longitude > 180 ||
-      reading.speed < 0 || reading.speed > 200 ||
+      (reading.speed != null && (reading.speed < 0 || reading.speed > 200)) ||
       reading.accuracy < 0
     ) {
       this.socket.emit('error', { message: 'Invalid coordinate or speed values' });

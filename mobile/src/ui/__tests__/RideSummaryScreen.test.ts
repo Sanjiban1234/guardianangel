@@ -42,7 +42,7 @@ describe('RideSummaryScreen formatting', () => {
 
   it('uses designed unavailable states without unsupported claims and preserves Done', () => {
     mockUseRideSummary.mockReturnValue({
-      data: { room_id: 'room-1', group_code: 'GROUP1', user_id: 'rider-1', total_distance_meters: 22488.945, actual_duration_ms: 120000 },
+      data: { room_id: 'room-1', group_code: 'GROUP1', user_id: 'rider-1', total_distance_meters: 22488.945, actual_duration_ms: 120000, average_moving_speed_kmh: 42, max_filtered_speed_kmh: 58, stopped_time_ms: 0, route: [{ latitude: 27.7, longitude: 85.3, recorded_at_ms: 1, speed_kmh: null, accuracy: 5 }, { latitude: 27.71, longitude: 85.31, recorded_at_ms: 10000, speed_kmh: 40, accuracy: 5 }], pace_benchmark: null },
       loading: false,
       error: null,
       retry: jest.fn(),
@@ -53,7 +53,7 @@ describe('RideSummaryScreen formatting', () => {
 
     expect(text).toContain('Pace Benchmark');
     expect(text).toContain('Unavailable');
-    expect(text).toContain('Speed Chart Unavailable');
+    expect(text).toContain('Actual Route');
     expect(text).not.toMatch(/RIDE COMPLETED SAFELY|All riders arrived safely|45 km\/h/);
 
     findNode(tree, 'DONE')?.props.onPress?.();

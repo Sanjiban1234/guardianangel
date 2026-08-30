@@ -75,7 +75,7 @@ export interface LocationUpdatePayload {
   latitude: number;
   longitude: number;
   accuracy: number;  // GPS accuracy in meters
-  speed: number;     // Speed in meters/second
+  speed: number | null; // Native speed in m/s; may be unavailable
 }
 
 /**
@@ -101,7 +101,7 @@ export interface TelemetryBulkSyncPayload {
     latitude: number;
     longitude: number;
     accuracy: number;
-    speed: number;
+    speed: number | null;
   }>;
 }
 

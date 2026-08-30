@@ -126,6 +126,17 @@ export class PostgisTelemetryRepository {
     return Number(result.rows[0]?.duration_ms ?? 0);
   }
 
+  async summaryTelemetry(roomId: string, userId: string): Promise<Array<{ latitude: number; longitude: number; timestamp_ms: number; speed_mps: number | null; accuracy: number | null }>> {
+    const result = await this.pool.query(
+      `SELECT ST_Y(location::geometry) AS latitude, ST_X(location::geometry) AS longitude,
+              device_timestamp_ms AS timestamp_ms, speed AS speed_mps, accuracy
+       FROM telemetry_readings WHERE room_id = $1 AND user_id = $2
+       ORDER BY device_timestamp_ms ASC`,
+      [roomId, userId],
+    );
+    return result.rows.map((row: any) => ({ latitude: Number(row.latitude), longitude: Number(row.longitude), timestamp_ms: Number(row.timestamp_ms), speed_mps: row.speed_mps == null ? null : Number(row.speed_mps), accuracy: row.accuracy == null ? null : Number(row.accuracy) }));
+  }
+
   async activeGeofencesAt(latitude: number, longitude: number): Promise<Array<{ id: string; name: string; type: string }>> {
     const result = await this.pool.query<{ id: string; name: string; type: string }>(
       `SELECT id, name, type

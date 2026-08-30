@@ -3,6 +3,7 @@ import { AuthMiddleware, AuthenticatedRequest } from '../middleware/AuthMiddlewa
 import { RoomService } from '../services/RoomService';
 import { PostgisTelemetryRepository } from '../repositories/PostgisTelemetryRepository';
 import { logger } from '../utils/logger';
+import { calculateSummaryMetrics, downsample, normalizeTelemetry } from '../services/RideSummaryTelemetry';
 
 export class RoomRouter {
   readonly router: Router;
@@ -222,16 +223,15 @@ export class RoomRouter {
         return;
       }
 
-      const [totalDistance, durationMs] = await Promise.all([
-        this.telemetryRepo.totalDistanceMeters(room.id, userId, 0, Date.now()),
-        this.telemetryRepo.rideDurationMs(room.id, userId),
-      ]);
+      const normalizedRoute = normalizeTelemetry(await this.telemetryRepo.summaryTelemetry(room.id, userId));
+      const metrics = calculateSummaryMetrics(normalizedRoute);
 
       res.status(200).json({
         room_id: room.id,
         user_id: userId,
-        total_distance_meters: totalDistance,
-        duration_ms: durationMs,
+        ...metrics,
+        route: downsample(normalizedRoute),
+        pace_benchmark: null,
       });
     } catch (err) {
       logger.error('room summary request failed', err);

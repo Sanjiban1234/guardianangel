@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { API_BASE_URL } from '../config/env';
+import { SummaryRoutePoint } from './rideSummaryRoute';
 
 export interface RideSummaryData {
   room_id: string;
@@ -7,6 +8,11 @@ export interface RideSummaryData {
   user_id: string;
   total_distance_meters: number;
   actual_duration_ms: number;
+  average_moving_speed_kmh: number | null;
+  max_filtered_speed_kmh: number | null;
+  stopped_time_ms: number;
+  route: SummaryRoutePoint[];
+  pace_benchmark: null;
 }
 
 export async function fetchRideSummaryFromBackend(
@@ -36,6 +42,11 @@ export async function fetchRideSummaryFromBackend(
     user_id: rawSummary.user_id,
     total_distance_meters: totalDistanceMeters,
     actual_duration_ms: actualDurationMs,
+    average_moving_speed_kmh: Number.isFinite(Number(rawSummary.average_moving_speed_kmh)) ? Number(rawSummary.average_moving_speed_kmh) : null,
+    max_filtered_speed_kmh: Number.isFinite(Number(rawSummary.max_filtered_speed_kmh)) ? Number(rawSummary.max_filtered_speed_kmh) : null,
+    stopped_time_ms: Number.isFinite(Number(rawSummary.stopped_time_ms)) ? Number(rawSummary.stopped_time_ms) : 0,
+    route: Array.isArray(rawSummary.route) ? rawSummary.route.filter((point: any) => Number.isFinite(point?.latitude) && Number.isFinite(point?.longitude) && Number.isFinite(point?.recorded_at_ms)) : [],
+    pace_benchmark: null,
   };
 }
 

@@ -7,7 +7,7 @@ export interface TelemetryReading {
   latitude: number;
   longitude: number;
   accuracy: number;
-  speed: number;
+  speed: number | null;
 }
 
 export interface BulkTelemetryReading extends TelemetryReading {
@@ -41,8 +41,7 @@ export class TelemetryService {
            location = EXCLUDED.location,
            accuracy = EXCLUDED.accuracy,
            speed = EXCLUDED.speed`,
-        [tokenHash, userId, reading.timestamp, reading.longitude, reading.latitude,
-          reading.accuracy, reading.speed]
+      [tokenHash, userId, reading.timestamp, reading.longitude, reading.latitude, reading.accuracy, reading.speed]
       );
       return true;
     } catch (err) {
