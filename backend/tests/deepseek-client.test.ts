@@ -1,0 +1,11 @@
+import { DeepSeekClient } from '../src/services/DeepSeekClient';
+const candidates = [{ placeId: 'known', name: 'Known' }];
+const response = (content: string, status = 200) => ({ ok: status === 200, status, json: async () => ({ choices: [{ message: { content } }], usage: { prompt_tokens: 10, completion_tokens: 5 } }) });
+describe('DeepSeek ranking safety and fallback', () => {
+  it('validates structured output and rejects hallucinated place IDs', async () => { const client = new DeepSeekClient('secret', jest.fn().mockResolvedValue(response(JSON.stringify({ recommendations: [{ placeId: 'unknown', reason: 'No', aiRank: 1 }, { placeId: 'known', reason: 'Close to the route.', aiRank: 2 }] }))) as any); await expect(client.rank('food', 1000, candidates)).resolves.toEqual([{ placeId: 'known', reason: 'Close to the route.', aiRank: 2 }]); });
+  it.each([429, 500])('falls back on HTTP %s', async status => expect(new DeepSeekClient('secret', jest.fn().mockResolvedValue(response('{}', status)) as any).rank('food', 1000, candidates)).resolves.toBeNull());
+  it('falls back on malformed JSON', async () => expect(new DeepSeekClient('secret', jest.fn().mockResolvedValue(response('not json')) as any).rank('food', 1000, candidates)).resolves.toBeNull());
+  it('falls back on timeout/network failure', async () => expect(new DeepSeekClient('secret', jest.fn().mockRejectedValue(new Error('timeout')) as any).rank('food', 1000, candidates)).resolves.toBeNull());
+  it('rejects unsafe riding instructions', async () => { const client = new DeepSeekClient('secret', jest.fn().mockResolvedValue(response(JSON.stringify({ recommendations: [{ placeId: 'known', reason: 'Turn around immediately.', aiRank: 1 }] }))) as any); await expect(client.rank('food', 1000, candidates)).resolves.toEqual([]); });
+  it('sends only candidate/trip data and never returns the key', async () => { const fetcher = jest.fn().mockResolvedValue(response('{"recommendations":[]}')); await new DeepSeekClient('top-secret', fetcher as any).rank('fuel', 5000, candidates); const request = JSON.parse(fetcher.mock.calls[0][1].body); const prompt = request.messages[1].content; expect(prompt).toContain('known'); expect(prompt).not.toContain('top-secret'); expect(prompt).not.toMatch(/room|email|phone|JWT|plate/i); });
+});

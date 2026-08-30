@@ -36,6 +36,7 @@ import { createSafetyRouter } from './routes/SafetyRouter';
 import { DeviceRouter } from './routes/DeviceRouter';
 import { MedicalInfoRouter } from './routes/MedicalInfoRouter';
 import { UserProfileRouter } from './routes/UserProfileRouter';
+import { RouteRecommendationRouter } from './routes/RouteRecommendationRouter';
 
 // ─── Socket Controller ────────────────────────────────────────────────────
 import { RideSocketController } from './sockets/RideSocketController';
@@ -68,6 +69,7 @@ const crashRepo          = new CrashCandidateRepository(queryRunner);
 const deviceRouter       = new DeviceRouter(fcmPushService);
 const medicalRouter      = new MedicalInfoRouter(medicalService);
 const userProfileRouter  = new UserProfileRouter(userService);
+const routeRecommendationRouter = new RouteRecommendationRouter();
 
 const socketController = new RideSocketController(
   roomService,
@@ -121,6 +123,7 @@ app.use('/api',      createWeatherRouter(roomService, weatherService));
 app.use('/api',      deviceRouter.router);
 app.use('/api',      medicalRouter.router);
 app.use('/api',      userProfileRouter.router);
+app.use('/api',      routeRecommendationRouter.router);
 
 // Register WebSocket controller
 socketController.register(io);

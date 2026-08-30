@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View, Text, Pressable, Platform } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import PeerRiderMarker, { PeerRider } from './PeerRiderMarker';
+import RecommendationMarker from '../recommendations/RecommendationMarker';
+import { RouteRecommendation } from '../recommendations/types';
 
 interface RiderLocation extends PeerRider {
   isYou?: boolean;
@@ -16,6 +18,7 @@ interface LiveMapViewProps {
   onMapPress?: (coordinate: { latitude: number; longitude: number }) => void;
   /** Temporary field-test aid: confirms state changes before marker rendering. */
   showDiagnostics?: boolean;
+  recommendations?: RouteRecommendation[];
 }
 
 // Default region: Kathmandu, Nepal (app's primary area of operation)
@@ -37,6 +40,7 @@ export function LiveMapView({
   onRecenterPress,
   onMapPress,
   showDiagnostics = __DEV__,
+  recommendations = [],
 }: LiveMapViewProps) {
   const mapRef = useRef<MapView>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -168,6 +172,7 @@ export function LiveMapView({
             lineDashPattern={[0]}
           />
         )}
+        {recommendations.map(item => <RecommendationMarker key={item.placeId} item={item} />)}
       </MapView>
 
       {/* Map loading indicator */}

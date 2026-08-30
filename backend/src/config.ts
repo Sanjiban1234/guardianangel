@@ -25,3 +25,24 @@ export const MAX_BULK_BATCH = Number.isFinite(configuredMaxBulkBatch) && configu
   : 300;
 export const SOCKET_MAX_HTTP_BUFFER_SIZE = Number(process.env.SOCKET_MAX_HTTP_BUFFER_SIZE || 64 * 1024);
 export const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
+
+export const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
+export const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
+export const ROUTE_RECOMMENDATION = Object.freeze({
+  corridorMeters: 2_000,
+  maximumCorridorMeters: 3_500,
+  searchPointIntervalMeters: 8_000,
+  fuelIntervalMeters: 5_000,
+  maximumRouteMeters: 1_000_000,
+  maximumPolylineCharacters: 20_000,
+  maximumSearchPoints: 20,
+  maximumCandidatesPerCategory: 10,
+  maximumResultsPerCategory: 6,
+  cacheTtlMs: 15 * 60 * 1_000,
+  maximumCacheEntries: 500,
+  providerTimeoutMs: 5_000,
+  deepSeekTimeoutMs: 6_000,
+  distanceNormalizationMeters: 2_000,
+  reviewLogNormalizationMaximum: 5,
+  weights: Object.freeze({ distance: 0.45, rating: 0.35, reviews: 0.20 }),
+});

@@ -1291,6 +1291,8 @@ function App() {
         });
         return (
         <MapScreen
+          apiBaseUrl={API_BASE_URL}
+          authToken={authToken}
           roomCode={activeRoomCode}
           destinationTitle={destinationTitle}
           currentLocation={currentLocation}

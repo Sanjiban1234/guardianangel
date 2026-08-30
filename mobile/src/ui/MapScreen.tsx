@@ -1,9 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View, Text, Pressable, Alert, Share } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import LiveMapView from '../components/LiveMapView';
 import RideAlertOverlay from '../components/RideAlertOverlay';
 import { RideAlertState } from '../ride/RideAlertStore';
+import { EMPTY_RECOMMENDATIONS, RecommendationCategory, RouteRecommendations } from '../recommendations/types';
+
+export function filterRecommendations(recommendations: RouteRecommendations, visible: Record<RecommendationCategory, boolean>) {
+  return (Object.keys(recommendations) as RecommendationCategory[]).flatMap(category => visible[category] ? recommendations[category] : []);
+}
+
+export async function fetchRouteRecommendations(apiBaseUrl: string, authToken: string, payload: Record<string, unknown>): Promise<RouteRecommendations | null> {
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/routes/recommendations`, { method: 'POST', headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (!response.ok) return null;
+    const body = await response.json();
+    return body.recommendations || null;
+  } catch { return null; }
+}
 
 interface MapScreenProps {
   roomCode: string;
@@ -43,6 +57,8 @@ interface MapScreenProps {
   onLeaveRoom: () => void;
   rideAlertState: RideAlertState;
   onDismissRideAlert: (alertId: string) => void;
+  apiBaseUrl: string;
+  authToken: string;
 }
 
 const COLORS = {
@@ -105,7 +121,7 @@ function decodePolyline(encoded: string): Array<{ latitude: number; longitude: n
 async function fetchRoute(
   origin: { latitude: number; longitude: number },
   destination: { latitude: number; longitude: number },
-): Promise<Array<{ latitude: number; longitude: number }> | null> {
+): Promise<{ coordinates: Array<{ latitude: number; longitude: number }>; encoded: string; distanceMeters: number } | null> {
   try {
     const apiKey = typeof process !== 'undefined' && process.env
       ? process.env.GOOGLE_MAPS_API_KEY
@@ -134,7 +150,7 @@ async function fetchRoute(
     const overviewPolyline = data.routes[0].overview_polyline?.points;
     if (!overviewPolyline) return null;
 
-    return decodePolyline(overviewPolyline);
+    return { coordinates: decodePolyline(overviewPolyline), encoded: overviewPolyline, distanceMeters: Number(data.routes[0].legs?.[0]?.distance?.value || 0) };
   } catch {
     console.warn('[MapScreen] Route fetch failed');
     return null;
@@ -157,11 +173,16 @@ export default function MapScreen({
   onLeaveRoom,
   rideAlertState,
   onDismissRideAlert,
+  apiBaseUrl,
+  authToken,
 }: MapScreenProps) {
   const [routeCoordinates, setRouteCoordinates] = useState<
     Array<{ latitude: number; longitude: number }> | undefined
   >(undefined);
   const [copyConfirmationVisible, setCopyConfirmationVisible] = useState(false);
+  const [recommendations, setRecommendations] = useState<RouteRecommendations>(EMPTY_RECOMMENDATIONS);
+  const [visibleCategories, setVisibleCategories] = useState<Record<RecommendationCategory, boolean>>({ fuel: true, food: true, workshops: false });
+  const recommendationDestinationKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!currentLocation || !destination) {
@@ -171,9 +192,18 @@ export default function MapScreen({
 
     let cancelled = false;
 
-    fetchRoute(currentLocation, destination).then(route => {
+    fetchRoute(currentLocation, destination).then(async route => {
       if (!cancelled && route) {
-        setRouteCoordinates(route);
+        setRouteCoordinates(route.coordinates);
+        if (!route.distanceMeters || !authToken) return;
+        const destinationKey = `${destination.latitude.toFixed(5)}:${destination.longitude.toFixed(5)}`;
+        if (recommendationDestinationKeyRef.current === destinationKey) return;
+        recommendationDestinationKeyRef.current = destinationKey;
+        setRecommendations(EMPTY_RECOMMENDATIONS);
+        try {
+          const next = await fetchRouteRecommendations(apiBaseUrl, authToken, { origin: currentLocation, destination, routePolyline: route.encoded, routeDistanceMeters: route.distanceMeters });
+          if (!cancelled && next) setRecommendations(next);
+        } catch { /* recommendations are optional and never break the ride map */ }
       }
     });
 
@@ -181,11 +211,16 @@ export default function MapScreen({
       cancelled = true;
     };
   }, [
-    currentLocation?.latitude?.toFixed(3),
-    currentLocation?.longitude?.toFixed(3),
+    currentLocation?.latitude?.toFixed(2),
+    currentLocation?.longitude?.toFixed(2),
     destination?.latitude,
     destination?.longitude,
+    apiBaseUrl,
+    authToken,
   ]);
+
+  const visibleRecommendations = filterRecommendations(recommendations, visibleCategories);
+  const filters = <View style={styles.recommendationFilters}>{(['fuel', 'food', 'workshops'] as RecommendationCategory[]).map(category => <Pressable key={category} accessibilityRole="button" accessibilityState={{ selected: visibleCategories[category] }} onPress={() => setVisibleCategories(current => ({ ...current, [category]: !current[category] }))} style={[styles.filterChip, visibleCategories[category] && styles.filterChipActive]}><Text style={styles.filterText}>{category === 'workshops' ? 'Workshops' : category[0].toUpperCase() + category.slice(1)}</Text></Pressable>)}</View>;
 
   const handleShareCode = async () => {
     try {
@@ -219,7 +254,9 @@ export default function MapScreen({
           destination={destination}
           routeCoordinates={routeCoordinates}
           onRecenterPress={() => {}}
+          recommendations={visibleRecommendations}
         />
+        {filters}
 
         <View style={styles.floatingHeader}>
           <View style={styles.headerLeft}>
@@ -276,7 +313,9 @@ export default function MapScreen({
           destination={destination}
           routeCoordinates={routeCoordinates}
           onRecenterPress={() => {}}
+          recommendations={visibleRecommendations}
         />
+        {filters}
       </View>
 
       {/* Bottom panel */}
@@ -631,4 +670,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
+  recommendationFilters: { position: 'absolute', top: 120, right: 12, flexDirection: 'row', gap: 6 },
+  filterChip: { backgroundColor: 'rgba(11,19,14,0.9)', borderColor: COLORS.line, borderWidth: 1, borderRadius: 14, paddingHorizontal: 9, paddingVertical: 6 },
+  filterChipActive: { borderColor: COLORS.green, backgroundColor: 'rgba(22,163,74,0.28)' },
+  filterText: { color: COLORS.text, fontSize: 10, fontWeight: '800' },
 });
