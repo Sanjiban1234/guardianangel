@@ -3,13 +3,17 @@ import { TelemetryService, TelemetryReading } from '../services/TelemetryService
 import { GroupCoherenceService } from '../services/GroupCoherenceService';
 import { RoomState } from './SessionHandler';
 import { logger } from '../utils/logger';
+import { GuardianPortalShareService } from '../services/GuardianPortalShareService';
+import { PortalBroadcaster } from '../sockets/GuardianPortalSocketController';
 
 export class LocationHandler {
   constructor(
     private readonly socket: AuthenticatedSocket,
     private readonly roomState: RoomState,
     private readonly telemetryService: TelemetryService,
-    private readonly coherenceService?: GroupCoherenceService
+    private readonly coherenceService?: GroupCoherenceService,
+    private readonly portalShares?: GuardianPortalShareService,
+    private readonly portal?: PortalBroadcaster,
   ) {}
 
   register(): void {
@@ -57,6 +61,9 @@ export class LocationHandler {
       };
 
       this.socket.to(`group:${groupCode}`).emit('location:broadcast', broadcastPayload);
+      const shareIds = this.portalShares ? await this.portalShares.activeSharesForRoom(groupCode) : [];
+      const ownShareIds = shareIds.filter((share) => share.owner_user_id === userId).map((share) => share.id);
+      this.portal?.location(ownShareIds, { latitude: reading.latitude, longitude: reading.longitude, lastUpdatedAt: broadcastPayload.last_updated_at });
     } catch (err) {
       logger.error('location broadcast failed', err);
     }
@@ -67,9 +74,13 @@ export class LocationHandler {
 
         for (const alert of alerts) {
           this.socket.nsp.to(`group:${groupCode}`).emit('group:separationAlert', alert);
+          const shareIds = await this.portalShares?.markSeparation(groupCode, alert.separated_rider.user_id, 'separated') || [];
+          this.portal?.separation(shareIds, 'separated', alert.timestamp);
         }
         for (const reunion of reunions) {
           this.socket.nsp.to(`group:${groupCode}`).emit('group:reunited', reunion);
+          const shareIds = await this.portalShares?.markSeparation(groupCode, reunion.user_id, 'reunited') || [];
+          this.portal?.separation(shareIds, 'reunited', reunion.timestamp);
         }
       } catch (coherenceErr) {
         logger.error('group coherence evaluation failed', coherenceErr);

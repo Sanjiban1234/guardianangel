@@ -3,6 +3,8 @@ import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { RoomService } from '../services/RoomService';
 import { PresenceService } from '../services/PresenceService';
 import { logger } from '../utils/logger';
+import { GuardianPortalShareService } from '../services/GuardianPortalShareService';
+import { PortalBroadcaster } from '../sockets/GuardianPortalSocketController';
 
 export interface RoomState {
   currentGroupCode: string | null;
@@ -14,7 +16,7 @@ export class SessionHandler {
     private readonly socket: AuthenticatedSocket,
     private readonly roomState: RoomState,
     private readonly roomService: RoomService,
-    private readonly presenceService: PresenceService,
+    private readonly presenceService: PresenceService, private readonly portalShares?: GuardianPortalShareService, private readonly portal?: PortalBroadcaster,
   ) {}
 
   register(): void {
@@ -122,6 +124,7 @@ export class SessionHandler {
       .emit('session:member_left', { user_id: userId, name });
 
     this.socket.leave(`group:${groupCode}`);
+    this.portal?.revoked(await this.portalShares?.revokeForRider(groupCode, userId) || []);
     this.presenceService.markLeft(groupCode, userId, this.socket.id);
     this.roomState.currentGroupCode = null;
     logger.info('session state cleared');

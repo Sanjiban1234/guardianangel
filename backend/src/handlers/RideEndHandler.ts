@@ -3,6 +3,8 @@ import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { RoomService } from '../services/RoomService';
 import { RoomState } from './SessionHandler';
 import { logger } from '../utils/logger';
+import { GuardianPortalShareService } from '../services/GuardianPortalShareService';
+import { PortalBroadcaster } from '../sockets/GuardianPortalSocketController';
 
 /** Host-authorized ride termination.  Members must use session:leave instead. */
 export class RideEndHandler {
@@ -10,7 +12,7 @@ export class RideEndHandler {
     private readonly io: Server,
     private readonly socket: AuthenticatedSocket,
     private readonly roomState: RoomState,
-    private readonly roomService: RoomService,
+    private readonly roomService: RoomService, private readonly portalShares?: GuardianPortalShareService, private readonly portal?: PortalBroadcaster,
   ) {}
 
   register(): void {
@@ -29,7 +31,8 @@ export class RideEndHandler {
         callback?.({ error: 'Only the host can end this ride' });
         return;
       }
-      this.io.to(`group:${groupCode}`).emit('ride:ended', { group_code: groupCode, ended_at: Date.now() });
+      const endedAt = Date.now(); this.io.to(`group:${groupCode}`).emit('ride:ended', { group_code: groupCode, ended_at: endedAt });
+      this.portal?.rideEnded((await this.portalShares?.activeSharesForRoom(groupCode) || []).map((share) => share.id), endedAt);
       callback?.({ success: true });
     } catch (err) {
       logger.error('ride end failed', err);

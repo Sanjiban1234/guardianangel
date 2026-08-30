@@ -4,6 +4,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import LiveMapView from '../components/LiveMapView';
 import RideAlertOverlay from '../components/RideAlertOverlay';
 import { RideAlertState } from '../ride/RideAlertStore';
+import GuardianPortalControls from '../guardianPortal/GuardianPortalControls';
 
 interface MapScreenProps {
   roomCode: string;
@@ -43,6 +44,8 @@ interface MapScreenProps {
   onLeaveRoom: () => void;
   rideAlertState: RideAlertState;
   onDismissRideAlert: (alertId: string) => void;
+  apiBaseUrl: string;
+  authToken: string;
 }
 
 const COLORS = {
@@ -157,6 +160,8 @@ export default function MapScreen({
   onLeaveRoom,
   rideAlertState,
   onDismissRideAlert,
+  apiBaseUrl,
+  authToken,
 }: MapScreenProps) {
   const [routeCoordinates, setRouteCoordinates] = useState<
     Array<{ latitude: number; longitude: number }> | undefined
@@ -254,6 +259,7 @@ export default function MapScreen({
           criticalAlert={rideAlertState.criticalAlert}
           onDismiss={onDismissRideAlert}
         />
+        <GuardianPortalControls apiBaseUrl={apiBaseUrl} authToken={authToken} groupCode={roomCode} />
 
         <Pressable onPress={onOpenControls} style={styles.controlsButton}>
           <Text style={styles.controlsButtonIcon}>⚙️</Text>

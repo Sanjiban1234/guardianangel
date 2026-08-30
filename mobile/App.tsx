@@ -1319,6 +1319,8 @@ function App() {
           onLeaveRoom={handleLeaveRoom}
           rideAlertState={rideAlertState}
           onDismissRideAlert={dismissActiveRideAlert}
+          apiBaseUrl={API_BASE_URL}
+          authToken={authToken}
         />
         );
       })()}

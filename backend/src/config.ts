@@ -25,3 +25,7 @@ export const MAX_BULK_BATCH = Number.isFinite(configuredMaxBulkBatch) && configu
   : 300;
 export const SOCKET_MAX_HTTP_BUFFER_SIZE = Number(process.env.SOCKET_MAX_HTTP_BUFFER_SIZE || 64 * 1024);
 export const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
+export const GUARDIAN_PORTAL_BASE_URL = (process.env.GUARDIAN_PORTAL_BASE_URL || 'http://localhost:5173').replace(/\/$/, '');
+export const GUARDIAN_PORTAL_ALLOWED_ORIGIN = process.env.GUARDIAN_PORTAL_ALLOWED_ORIGIN || 'http://localhost:5173';
+export const GUARDIAN_PORTAL_SHARE_LIFETIME_MS = 24 * 60 * 60 * 1000;
+export const GUARDIAN_PORTAL_OBSERVER_SECRET = process.env.GUARDIAN_PORTAL_OBSERVER_SECRET || JWT_SECRET;
