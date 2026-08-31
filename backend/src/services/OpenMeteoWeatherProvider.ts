@@ -1,0 +1,16 @@
+import type { NormalizedWeather, WeatherPoint } from '@guardian-angel/contracts/weather';
+import { mapWeatherCode } from './WeatherService';
+const num = (v: unknown): number | null => typeof v === 'number' && Number.isFinite(v) ? v : null;
+
+/** Owns Open-Meteo HTTP and provider field names. */
+export class OpenMeteoWeatherProvider {
+  async current(point: WeatherPoint): Promise<NormalizedWeather> { return this.load(point, 'current=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,wind_speed_10m,wind_gusts_10m,visibility'); }
+  async hourly(point: WeatherPoint, at = new Date()): Promise<NormalizedWeather> {
+    const data = await this.request(point, 'hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,wind_speed_10m,wind_gusts_10m,visibility&forecast_days=2'); const h = data.hourly as Record<string, unknown>;
+    if (!h || !Array.isArray(h.time)) throw new Error('Malformed Open-Meteo hourly response'); let best = 0; let delta = Infinity;
+    h.time.forEach((v: unknown, i: number) => { const d = Math.abs(new Date(String(v)).getTime() - at.getTime()); if (d < delta) { delta = d; best = i; } }); return this.normalize(h, best, String(h.time[best]));
+  }
+  private async load(point: WeatherPoint, q: string) { const data = await this.request(point, q); if (!data.current || typeof data.current !== 'object') throw new Error('Malformed Open-Meteo current response'); return this.normalize(data.current as Record<string, unknown>, undefined, new Date().toISOString()); }
+  private async request(point: WeatherPoint, q: string): Promise<Record<string, unknown>> { const c = new AbortController(); const timeout = setTimeout(() => c.abort(), 5000); try { const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${point.latitude}&longitude=${point.longitude}&${q}`, { signal: c.signal }); if (!r.ok) throw new Error(`Open-Meteo returned ${r.status}`); const body = await r.json(); if (!body || typeof body !== 'object') throw new Error('Malformed Open-Meteo response'); return body as Record<string, unknown>; } finally { clearTimeout(timeout); } }
+  private normalize(source: Record<string, unknown>, index: number | undefined, forecastAt: string): NormalizedWeather { const v = (k: string) => index === undefined ? num(source[k]) : Array.isArray(source[k]) ? num(source[k][index]) : null; const code = v('weather_code'); const visibility = v('visibility'); return { condition: mapWeatherCode(code ?? -1), weatherCode: code, temperatureC: v('temperature_2m'), apparentTemperatureC: v('apparent_temperature'), precipitationProbability: v('precipitation_probability'), precipitationMm: v('precipitation'), windSpeedKmh: v('wind_speed_10m'), windGustKmh: v('wind_gusts_10m'), visibilityKm: visibility == null ? null : visibility / 1000, forecastAt, fetchedAt: new Date().toISOString() }; }
+}

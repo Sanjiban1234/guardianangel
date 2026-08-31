@@ -1319,6 +1319,8 @@ function App() {
           onLeaveRoom={handleLeaveRoom}
           rideAlertState={rideAlertState}
           onDismissRideAlert={dismissActiveRideAlert}
+          authToken={authToken}
+          onWeatherAdvisory={(advisory) => addRideAlert({ id: advisory.id, type: 'WEATHER', severity: advisory.severity, timestamp: Date.now(), title: advisory.title, message: advisory.message, dedupeKey: advisory.id })}
         />
         );
       })()}

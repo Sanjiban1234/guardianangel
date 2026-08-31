@@ -11,7 +11,8 @@ export type RideAlertType =
   | 'RIDER_DISCONNECTED'
   | 'RIDER_RECONNECTED'
   | 'SOS'
-  | 'RIDE_STARTED';
+  | 'RIDE_STARTED'
+  | 'WEATHER';
 
 export interface RideAlert {
   id: string;
