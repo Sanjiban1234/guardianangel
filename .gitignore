@@ -21,6 +21,9 @@ backend/docker-compose.override.yml
 .DS_Store
 *.log
 backend/dist/
+guardian-portal/node_modules/
+guardian-portal/dist/
+guardian-portal/*.tsbuildinfo
 .claude/
 
 # IDE

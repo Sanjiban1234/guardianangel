@@ -160,6 +160,7 @@ describe('Temporary Pause Feature Backend Tests', () => {
       await pauseCallback({ group_code: groupCode }, ack);
 
       expect(mockRoomService.pauseRider).toHaveBeenCalledWith(groupCode, riderId);
+      expect(mockCoherenceService.resetRiderState).toHaveBeenCalledWith(groupCode, riderId);
       expect(mockIo.to).toHaveBeenCalledWith(`group:${groupCode}`);
       expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: true, user_id: riderId }));
     });

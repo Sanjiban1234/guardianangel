@@ -48,6 +48,10 @@ export class RidePauseHandler {
 
       logger.info('rider paused');
 
+      // A paused rider is excluded from coherence calculations. Drop any
+      // partial separation state now so it cannot survive the pause period.
+      this.coherenceService?.resetRiderState(groupCode, userId);
+
       const payload = {
         user_id: userId,
         name,
