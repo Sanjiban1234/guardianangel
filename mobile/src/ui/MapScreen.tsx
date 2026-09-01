@@ -358,8 +358,7 @@ export default function MapScreen({
           onDismiss={onDismissRideAlert}
         />
         <WeatherSafetyCard data={weather} expanded={weatherExpanded} onPress={() => setWeatherExpanded(value => !value)} />
-        <WeatherSafetyCard data={weather} expanded={weatherExpanded} onPress={() => setWeatherExpanded(value => !value)} />
-         <GuardianPortalControls apiBaseUrl={apiBaseUrl} authToken={authToken} groupCode={roomCode} />
+        {apiBaseUrl && <GuardianPortalControls apiBaseUrl={apiBaseUrl} authToken={authToken} groupCode={roomCode} />}
 
         <Pressable onPress={onOpenControls} style={styles.controlsButton}>
           <Text style={styles.controlsButtonIcon}>⚙️</Text>
