@@ -1,0 +1,3 @@
+export interface PlaceCandidate { placeId:string; name:string; latitude:number; longitude:number; category:'fuel'|'food'|'workshop'; rating?:number; userRatingCount?:number; address?:string; openNow?:boolean; distanceFromRouteMeters:number; routeProgressMeters:number }
+export interface ScoredCandidate extends PlaceCandidate { score:number }
+export function scoreCandidate(item: PlaceCandidate): ScoredCandidate { const clamp=(v:number)=>Math.max(0,Math.min(1,Number.isFinite(v)?v:0)); const distance=clamp(1-item.distanceFromRouteMeters/2_000),rating=clamp((item.rating??0)/5),reviews=clamp(Math.log10((item.userRatingCount??0)+1)/5),open=item.openNow===true ? .1 : 0; return {...item,score:Math.round(100*(.4*distance+.3*rating+.2*reviews+.1*open)*100)/100}; }

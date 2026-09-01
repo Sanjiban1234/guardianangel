@@ -29,3 +29,7 @@ export const GUARDIAN_PORTAL_BASE_URL = (process.env.GUARDIAN_PORTAL_BASE_URL ||
 export const GUARDIAN_PORTAL_ALLOWED_ORIGIN = process.env.GUARDIAN_PORTAL_ALLOWED_ORIGIN || 'http://localhost:5173';
 export const GUARDIAN_PORTAL_SHARE_LIFETIME_MS = 24 * 60 * 60 * 1000;
 export const GUARDIAN_PORTAL_OBSERVER_SECRET = process.env.GUARDIAN_PORTAL_OBSERVER_SECRET || JWT_SECRET;
+export const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
+export const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
+export const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
+export const ROUTE_RECOMMENDATION = Object.freeze({ corridorMeters: 2_000, maximumRoutePoints: 500, maximumRouteMeters: 1_000_000, maximumCandidates: 10, maximumResults: 6, cacheTtlMs: 15 * 60_000, maximumCacheEntries: 500, providerTimeoutMs: 5_000, deepSeekTimeoutMs: 6_000 });

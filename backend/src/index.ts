@@ -41,6 +41,7 @@ import { FriendService } from './services/FriendService';
 import { RideInvitationService } from './services/RideInvitationService';
 import { RideInvitationRouter } from './routes/RideInvitationRouter';
 import { GuardianPortalRouter } from './routes/GuardianPortalRouter';
+import { RouteRecommendationRouter } from './routes/RouteRecommendationRouter';
 import { GuardianPortalShareService } from './services/GuardianPortalShareService';
 import { GuardianPortalSocketController } from './sockets/GuardianPortalSocketController';
 
@@ -80,6 +81,7 @@ const medicalRouter      = new MedicalInfoRouter(medicalService);
 const userProfileRouter  = new UserProfileRouter(userService);
 const guardianPortalSocketController = new GuardianPortalSocketController(guardianPortalShares);
 const guardianPortalRouter = new GuardianPortalRouter(guardianPortalShares, guardianPortalSocketController);
+const routeRecommendationRouter = new RouteRecommendationRouter();
 
 const socketController = new RideSocketController(
   roomService,
@@ -139,6 +141,7 @@ app.use('/api',      userProfileRouter.router);
 app.use('/api',      friendRouter.router);
 app.use('/api',      rideInvitationRouter.router);
 app.use('/api',      guardianPortalRouter.router);
+app.use('/api',      routeRecommendationRouter.router);
 
 // Register WebSocket controller
 socketController.register(io);

@@ -14,6 +14,7 @@ import type { MetricsSnapshot } from '../telemetry/RideMetricsAccumulator';
 import type { RouteProgressSnapshot, RouteResult } from '../navigation/RouteProgressTracker';
 import type { DeadEndState } from '../navigation/DeadEndDetector';
 import { useRouteDeviation } from '../tracking/useRouteDeviation';
+import { RecommendationCategory, RouteRecommendation } from '../recommendations/types';
 
 interface MapScreenProps {
   roomCode: string;
@@ -205,10 +206,17 @@ export default function MapScreen({
 }: MapScreenProps) {
   const [copyConfirmationVisible, setCopyConfirmationVisible] = useState(false);
   const [weatherExpanded, setWeatherExpanded] = useState(false);
+  const [recommendationCategory, setRecommendationCategory] = useState<RecommendationCategory | null>(null);
+  const [recommendations, setRecommendations] = useState<RouteRecommendation[]>([]);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
+  const recommendationRequestRef = useRef(0);
   const routeCoordinates = activeRoute?.polyline;
   const weather = useWeatherSafety(roomCode, authToken, currentLocation, destination || null, routeCoordinates || [], true, onWeatherAdvisory, activeRoute?.fetchedAt);
 
   const { isRerouting, rerouteError, evaluateAndReroute, clearRerouteError } = useRouteDeviation();
+
+  useEffect(() => { setRecommendations([]); recommendationRequestRef.current += 1; }, [activeRoute?.fetchedAt]);
+  useEffect(() => { if (!recommendationCategory || !activeRoute || !apiBaseUrl) return; const request=++recommendationRequestRef.current,controller=new AbortController(); setRecommendationsLoading(true); fetch(`${apiBaseUrl}/api/routes/recommendations`,{method:'POST',signal:controller.signal,headers:{Authorization:`Bearer ${authToken}`,'Content-Type':'application/json'},body:JSON.stringify({category:recommendationCategory,route:activeRoute.polyline})}).then(r=>r.ok?r.json():Promise.reject()).then(body=>{if(request===recommendationRequestRef.current)setRecommendations(Array.isArray(body.recommendations)?body.recommendations.slice(0,6):[]);}).catch(()=>{if(request===recommendationRequestRef.current)setRecommendations([]);}).finally(()=>{if(request===recommendationRequestRef.current)setRecommendationsLoading(false);}); return()=>controller.abort();},[recommendationCategory,activeRoute?.fetchedAt,apiBaseUrl,authToken]);
 
   useEffect(() => {
     if (!currentLocation || !destination) {
@@ -284,6 +292,7 @@ export default function MapScreen({
           riders={riders}
           destination={destination}
           routeCoordinates={routeCoordinates}
+          recommendations={recommendations}
           onRecenterPress={() => {}}
         />
 
@@ -359,6 +368,7 @@ export default function MapScreen({
           onDismiss={onDismissRideAlert}
         />
         <WeatherSafetyCard data={weather} expanded={weatherExpanded} onPress={() => setWeatherExpanded(value => !value)} />
+        <View style={styles.recommendationControls}>{(['fuel','food','workshop'] as RecommendationCategory[]).map(category=><Pressable key={category} onPress={()=>setRecommendationCategory(value=>value===category?null:category)} style={styles.recommendationChip}><Text style={styles.recommendationText}>{recommendationsLoading&&recommendationCategory===category?'…':category}</Text></Pressable>)}</View>
         {apiBaseUrl && <GuardianPortalControls apiBaseUrl={apiBaseUrl} authToken={authToken} groupCode={roomCode} />}
 
         <Pressable onPress={onOpenControls} style={styles.controlsButton}>
@@ -766,6 +776,9 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 1,
   },
+  recommendationControls: { position: 'absolute', right: 12, bottom: 96, flexDirection: 'row', gap: 6 },
+  recommendationChip: { backgroundColor: 'rgba(11,19,14,0.9)', borderColor: COLORS.line, borderWidth: 1, borderRadius: 14, paddingHorizontal: 9, paddingVertical: 6 },
+  recommendationText: { color: COLORS.text, fontSize: 10, fontWeight: '800' },
   reroutingBadgeOverlay: {
     position: 'absolute',
     top: 130,
