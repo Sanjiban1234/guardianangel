@@ -40,12 +40,15 @@ import { FriendRouter } from './routes/FriendRouter';
 import { FriendService } from './services/FriendService';
 import { RideInvitationService } from './services/RideInvitationService';
 import { RideInvitationRouter } from './routes/RideInvitationRouter';
+import { GuardianPortalRouter } from './routes/GuardianPortalRouter';
+import { GuardianPortalShareService } from './services/GuardianPortalShareService';
+import { GuardianPortalSocketController } from './sockets/GuardianPortalSocketController';
 
 // ─── Socket Controller ────────────────────────────────────────────────────
 import { RideSocketController } from './sockets/RideSocketController';
 
 // ─── Config ───────────────────────────────────────────────────────────────
-import { ALLOWED_ORIGINS, MAX_BODY_SIZE, PORT, SOCKET_MAX_HTTP_BUFFER_SIZE, TRUST_PROXY } from './config';
+import { ALLOWED_ORIGINS, GUARDIAN_PORTAL_ALLOWED_ORIGIN, MAX_BODY_SIZE, PORT, SOCKET_MAX_HTTP_BUFFER_SIZE, TRUST_PROXY } from './config';
 import { logger } from './utils/logger';
 
 // ─── Compose the dependency graph ─────────────────────────────────────────
@@ -59,6 +62,7 @@ AuthMiddleware.configureSessionValidator((jti, userId) => authSessionService.isA
 const roomService        = new RoomService(queryRunner);
 const friendService      = new FriendService(queryRunner);
 const rideInvitationService = new RideInvitationService(queryRunner, roomService);
+const guardianPortalShares = new GuardianPortalShareService(queryRunner);
 const telemetryService   = new TelemetryService(queryRunner);
 const alertService       = new EmergencyAlertService(queryRunner);
 const presenceService    = new PresenceService(queryRunner);
@@ -74,6 +78,8 @@ const crashRepo          = new CrashCandidateRepository(queryRunner);
 const deviceRouter       = new DeviceRouter(fcmPushService);
 const medicalRouter      = new MedicalInfoRouter(medicalService);
 const userProfileRouter  = new UserProfileRouter(userService);
+const guardianPortalSocketController = new GuardianPortalSocketController(guardianPortalShares);
+const guardianPortalRouter = new GuardianPortalRouter(guardianPortalShares, guardianPortalSocketController);
 
 const socketController = new RideSocketController(
   roomService,
@@ -86,6 +92,7 @@ const socketController = new RideSocketController(
   medicalService,
   refillService,
   disclosureAuditService
+  , guardianPortalShares, guardianPortalSocketController
 );
 
 // ─── Express + Socket.io setup ─────────────────────────────────────────────
@@ -97,7 +104,7 @@ app.set('trust proxy', TRUST_PROXY ? 1 : false);
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+      if (!origin || [...ALLOWED_ORIGINS, GUARDIAN_PORTAL_ALLOWED_ORIGIN].includes(origin)) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));
@@ -110,7 +117,7 @@ app.use(
 const io = new Server(server, {
   maxHttpBufferSize: SOCKET_MAX_HTTP_BUFFER_SIZE,
   cors: {
-    origin: ALLOWED_ORIGINS,
+    origin: [...new Set([...ALLOWED_ORIGINS, GUARDIAN_PORTAL_ALLOWED_ORIGIN])],
     credentials: true,
     methods: ['GET', 'POST'],
   },
@@ -131,9 +138,11 @@ app.use('/api',      medicalRouter.router);
 app.use('/api',      userProfileRouter.router);
 app.use('/api',      friendRouter.router);
 app.use('/api',      rideInvitationRouter.router);
+app.use('/api',      guardianPortalRouter.router);
 
 // Register WebSocket controller
 socketController.register(io);
+guardianPortalSocketController.register(io);
 
 // ─── Graceful Shutdown ────────────────────────────────────────────────────
 

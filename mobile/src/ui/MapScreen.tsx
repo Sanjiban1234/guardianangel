@@ -7,6 +7,7 @@ import { RideAlertState } from '../ride/RideAlertStore';
 import FriendInvitePicker from '../friends/FriendInvitePicker';
 import { useWeatherSafety } from '../weather/useWeatherSafety';
 import { WeatherSafetyCard } from '../weather/WeatherSafetyCard';
+import GuardianPortalControls from '../guardianPortal/GuardianPortalControls';
 
 interface MapScreenProps {
   roomCode: string;
@@ -268,6 +269,8 @@ export default function MapScreen({
           onDismiss={onDismissRideAlert}
         />
         <WeatherSafetyCard data={weather} expanded={weatherExpanded} onPress={() => setWeatherExpanded(value => !value)} />
+        <WeatherSafetyCard data={weather} expanded={weatherExpanded} onPress={() => setWeatherExpanded(value => !value)} />
+         <GuardianPortalControls apiBaseUrl={apiBaseUrl} authToken={authToken} groupCode={roomCode} />
 
         <Pressable onPress={onOpenControls} style={styles.controlsButton}>
           <Text style={styles.controlsButtonIcon}>⚙️</Text>

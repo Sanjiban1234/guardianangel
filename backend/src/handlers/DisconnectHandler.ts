@@ -2,12 +2,16 @@ import { AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { PresenceService } from '../services/PresenceService';
 import { RoomState } from './SessionHandler';
 import { logger } from '../utils/logger';
+import { GuardianPortalShareService } from '../services/GuardianPortalShareService';
+import { PortalBroadcaster } from '../sockets/GuardianPortalSocketController';
 
 export class DisconnectHandler {
   constructor(
     private readonly socket: AuthenticatedSocket,
     private readonly roomState: RoomState,
-    private readonly presenceService: PresenceService
+    private readonly presenceService: PresenceService,
+    private readonly portalShares?: GuardianPortalShareService,
+    private readonly portal?: PortalBroadcaster,
   ) {}
 
   register(): void {
@@ -51,6 +55,8 @@ export class DisconnectHandler {
     }
 
     this.socket.to(`group:${groupCode}`).emit('peer:lastKnown', payload);
+    const shareIds = this.portalShares ? await this.portalShares.activeSharesForRoom(groupCode) : [];
+    this.portal?.presence(shareIds.filter((share) => share.owner_user_id === userId).map((share) => share.id), { lastUpdatedAt: payload.timestamp, connectionState: 'DISCONNECTED', freshness: 'STALE' });
 
     logger.info('last known location broadcast completed');
   }

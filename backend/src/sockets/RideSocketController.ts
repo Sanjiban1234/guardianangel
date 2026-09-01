@@ -20,6 +20,8 @@ import { RideEndHandler } from '../handlers/RideEndHandler';
 import { RefillNotificationService } from '../services/RefillNotificationService';
 import { EmergencyDisclosureAuditService } from '../services/EmergencyDisclosureAuditService';
 import { logger } from '../utils/logger';
+import { GuardianPortalShareService } from '../services/GuardianPortalShareService';
+import { PortalBroadcaster } from './GuardianPortalSocketController';
 
 export class RideSocketController {
   private readonly socketsByUser = new Map<string, number>();
@@ -33,7 +35,7 @@ export class RideSocketController {
     private readonly breakdownService?: VehicleBreakdownService,
     private readonly medicalService?: MedicalInfoService,
     private readonly refillService?: RefillNotificationService
-    , private readonly disclosureAudit?: EmergencyDisclosureAuditService
+    , private readonly disclosureAudit?: EmergencyDisclosureAuditService, private readonly portalShares?: GuardianPortalShareService, private readonly portal?: PortalBroadcaster
   ) {}
 
   register(io: Server): void {
@@ -84,13 +86,13 @@ export class RideSocketController {
 
       const roomState: RoomState = { currentGroupCode: null };
 
-      new SessionHandler(io, socket, roomState, this.roomService, this.presenceService).register();
+      new SessionHandler(io, socket, roomState, this.roomService, this.presenceService, this.portalShares, this.portal).register();
       new RideStartHandler(io, socket, roomState, this.roomService).register();
-      new RideEndHandler(io, socket, roomState, this.roomService).register();
-      new LocationHandler(socket, roomState, this.telemetryService, this.coherenceService).register();
+      new RideEndHandler(io, socket, roomState, this.roomService, this.portalShares, this.portal).register();
+      new LocationHandler(socket, roomState, this.telemetryService, this.coherenceService, this.portalShares, this.portal).register();
       new BulkSyncHandler(socket, roomState, this.telemetryService).register();
-      new CrashHandler(io, socket, roomState, this.alertService, this.crashRepo, this.medicalService, this.presenceService, this.disclosureAudit).register();
-      new DisconnectHandler(socket, roomState, this.presenceService).register();
+      new CrashHandler(io, socket, roomState, this.alertService, this.crashRepo, this.medicalService, this.presenceService, this.disclosureAudit, this.portalShares, this.portal).register();
+      new DisconnectHandler(socket, roomState, this.presenceService, this.portalShares, this.portal).register();
       if (this.breakdownService) {
         new VehicleBreakdownHandler(io, socket, roomState, this.breakdownService, this.medicalService, this.presenceService).register();
       }

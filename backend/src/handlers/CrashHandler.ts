@@ -7,6 +7,8 @@ import { PresenceService } from '../services/PresenceService';
 import { RoomState } from './SessionHandler';
 import { logger } from '../utils/logger';
 import { EmergencyDisclosureAuditService } from '../services/EmergencyDisclosureAuditService';
+import { GuardianPortalShareService } from '../services/GuardianPortalShareService';
+import { PortalBroadcaster } from '../sockets/GuardianPortalSocketController';
 
 export class CrashHandler {
   private static readonly userCrashTimestamps: Map<string, number[]> = new Map();
@@ -23,7 +25,7 @@ export class CrashHandler {
     private readonly crashRepo: CrashCandidateRepository,
     private readonly medicalService?: MedicalInfoService,
     private readonly presenceService?: PresenceService,
-    private readonly disclosureAudit?: EmergencyDisclosureAuditService,
+    private readonly disclosureAudit?: EmergencyDisclosureAuditService, private readonly portalShares?: GuardianPortalShareService, private readonly portal?: PortalBroadcaster,
   ) {}
 
   register(): void {
@@ -181,6 +183,7 @@ export class CrashHandler {
         longitude: data.longitude,
         medical_info: medicalInfo,
       });
+      this.portal?.sos((await this.portalShares?.activeSharesForRoom(groupCode) || []).filter((share) => share.owner_user_id === userId).map((share) => share.id), { timestamp: data.timestamp, latitude: data.latitude, longitude: data.longitude });
     } catch (err) {
       logger.error('SOS creation failed', err);
     }

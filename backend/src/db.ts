@@ -189,6 +189,23 @@ export const initDb = async (): Promise<void> => {
     await client.query('ALTER TABLE ride_rooms ADD COLUMN IF NOT EXISTS ride_started_at TIMESTAMPTZ');
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS guardian_portal_shares (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        room_id UUID NOT NULL REFERENCES ride_rooms(id) ON DELETE CASCADE,
+        owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        expires_at TIMESTAMPTZ NOT NULL,
+        revoked_at TIMESTAMPTZ,
+        separation_state TEXT NOT NULL DEFAULT 'unknown'
+          CHECK (separation_state IN ('unknown', 'separated', 'reunited')),
+        separation_updated_at TIMESTAMPTZ,
+        UNIQUE (room_id, owner_user_id)
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS guardian_portal_shares_validity_idx ON guardian_portal_shares (token_hash, expires_at) WHERE revoked_at IS NULL');
+
+    await client.query(`
       CREATE TABLE IF NOT EXISTS room_members (
         room_id UUID NOT NULL REFERENCES ride_rooms(id) ON DELETE CASCADE,
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
