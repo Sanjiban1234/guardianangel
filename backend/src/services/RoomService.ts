@@ -327,4 +327,42 @@ export class RoomService {
     );
     return result.rows.length > 0;
   }
+
+  async pauseRider(groupCode: string, userId: string): Promise<boolean> {
+    const tokenHash = this.hashToken(groupCode.toUpperCase());
+    const result = await this.db.run(
+      `SELECT rr.id, rr.ride_started_at
+       FROM ride_rooms rr
+       JOIN room_members rm ON rm.room_id = rr.id AND rm.user_id = $2
+       WHERE rr.token_hash = $1 AND rr.status = 'active'`,
+      [tokenHash, userId]
+    );
+    if (result.rows.length === 0) return false;
+    if (!result.rows[0].ride_started_at) return false;
+
+    const updateRes = await this.db.run(
+      `UPDATE room_members rm
+       SET ride_state = 'paused'
+       FROM ride_rooms rr
+       WHERE rm.room_id = rr.id AND rr.token_hash = $1 AND rr.status = 'active'
+         AND rm.user_id = $2
+       RETURNING rm.user_id`,
+      [tokenHash, userId]
+    );
+    return updateRes.rows.length > 0;
+  }
+
+  async resumeRider(groupCode: string, userId: string): Promise<boolean> {
+    const tokenHash = this.hashToken(groupCode.toUpperCase());
+    const result = await this.db.run(
+      `UPDATE room_members rm
+       SET ride_state = 'active'
+       FROM ride_rooms rr
+       WHERE rm.room_id = rr.id AND rr.token_hash = $1 AND rr.status = 'active'
+         AND rm.user_id = $2
+       RETURNING rm.user_id`,
+      [tokenHash, userId]
+    );
+    return result.rows.length > 0;
+  }
 }

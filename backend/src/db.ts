@@ -199,6 +199,10 @@ export const initDb = async (): Promise<void> => {
     await client.query("UPDATE room_members SET role = 'member' WHERE role = 'rider'");
     await client.query("ALTER TABLE room_members ADD CONSTRAINT room_members_role_check CHECK (role IN ('owner', 'member', 'guardian'))");
     await client.query('CREATE INDEX IF NOT EXISTS room_members_user_room_idx ON room_members (user_id, room_id)');
+    await client.query("ALTER TABLE room_members ADD COLUMN IF NOT EXISTS ride_state TEXT NOT NULL DEFAULT 'active'");
+    await client.query('ALTER TABLE room_members DROP CONSTRAINT IF EXISTS room_members_ride_state_check');
+    await client.query("ALTER TABLE room_members ADD CONSTRAINT room_members_ride_state_check CHECK (ride_state IN ('active', 'paused'))");
+
 
     // Add room_id FK to emergency_alarms now that ride_rooms exists
     await client.query(`

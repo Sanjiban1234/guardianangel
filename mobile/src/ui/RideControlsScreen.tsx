@@ -18,6 +18,7 @@ interface RoomMember {
   plateNumber?: string;
   connectionState?: 'CONNECTED' | 'DISCONNECTED';
   locationFreshness?: 'FRESH' | 'STALE';
+  rideState?: 'active' | 'paused';
 }
 
 interface RideControlsScreenProps {
@@ -37,6 +38,9 @@ interface RideControlsScreenProps {
   breakdownPlateNumber: string;
   separationsByRider: RiderSeparations;
   profile: any;
+  isPaused?: boolean;
+  isPausing?: boolean;
+  onTogglePause?: () => void;
   onClose: () => void;
   onOpenRefuelModal: () => void;
   onResolveRefuel: () => void;
@@ -82,6 +86,9 @@ export default function RideControlsScreen({
   breakdownPlateNumber,
   separationsByRider,
   profile,
+  isPaused = false,
+  isPausing = false,
+  onTogglePause,
   onClose,
   onOpenRefuelModal,
   onResolveRefuel,
@@ -111,6 +118,9 @@ export default function RideControlsScreen({
   };
 
   const presenceFor = (member: RoomMember) => {
+    if (member.rideState === 'paused') {
+      return { label: 'PAUSED', color: COLORS.amber };
+    }
     if (member.isYou) {
       return connection === 'live'
         ? { label: 'Connected', color: COLORS.green }
@@ -237,6 +247,28 @@ export default function RideControlsScreen({
         {/* SAFETY CONTROLS */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Safety Controls</Text>
+
+          {isPaused ? (
+            <Pressable
+              onPress={onTogglePause}
+              disabled={isPausing}
+              style={[styles.resumeButton, isPausing && styles.buttonDisabled]}
+            >
+              <Text style={styles.resumeButtonText}>
+                {isPausing ? 'Resuming...' : '▶️ Resume Ride'}
+              </Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={onTogglePause}
+              disabled={isPausing}
+              style={[styles.pauseButton, isPausing && styles.buttonDisabled]}
+            >
+              <Text style={styles.pauseButtonText}>
+                {isPausing ? 'Pausing...' : '⏸️ Temporary Pause'}
+              </Text>
+            </Pressable>
+          )}
 
           <Pressable onPress={onOpenRefuelModal} style={styles.refuelButton}>
             <Text style={styles.refuelButtonText}>⛽ Request Fuel Stop</Text>
@@ -509,5 +541,34 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 14,
     fontWeight: '700',
+  },
+  pauseButton: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderColor: COLORS.amber,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  pauseButtonText: {
+    color: COLORS.amber,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  resumeButton: {
+    backgroundColor: COLORS.green,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  resumeButtonText: {
+    color: COLORS.ink,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
 });

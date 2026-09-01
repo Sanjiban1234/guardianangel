@@ -34,6 +34,7 @@ export interface SessionJoinedPayload {
     last_updated_at?: number;
     connection_state: 'CONNECTED' | 'DISCONNECTED';
     location_freshness: 'FRESH' | 'STALE';
+    ride_state?: 'active' | 'paused';
   }>;
 }
 
@@ -289,5 +290,44 @@ export interface RideStartedPayload {
   group_code: string;
   started_at: number; // Server timestamp (epoch ms)
 }
+
+/**
+ * 24. ride:pause (Client -> Server)
+ * Emitted by an active rider to temporarily pause participation.
+ */
+export interface RidePausePayload {
+  group_code: string;
+}
+
+/**
+ * 25. ride:paused (Server -> Room Broadcast)
+ * Broadcast to room members when a rider temporarily pauses.
+ */
+export interface RidePausedPayload {
+  user_id: string;
+  name: string;
+  group_code: string;
+  timestamp: number;
+}
+
+/**
+ * 26. ride:resume (Client -> Server)
+ * Emitted by a paused rider to resume active participation.
+ */
+export interface RideResumePayload {
+  group_code: string;
+}
+
+/**
+ * 27. ride:resumed (Server -> Room Broadcast)
+ * Broadcast to room members when a rider resumes active participation.
+ */
+export interface RideResumedPayload {
+  user_id: string;
+  name: string;
+  group_code: string;
+  timestamp: number;
+}
+
 
 

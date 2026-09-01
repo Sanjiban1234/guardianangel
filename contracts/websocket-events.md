@@ -270,3 +270,32 @@ This contract defines the real-time communication events between the Guardian An
 ```json
 { "refill_id": "uuid-string", "user_id": "uuid-string", "name": "sanjiban", "group_code": "RIDE11ABCDEF", "note": "Stopping for fuel", "timestamp": 1720958500000 }
 ```
+
+### 22. `ride:pause` (Client → Server)
+- **Description:** Self-service request by an active rider to temporarily pause their ride participation.
+- **Payload Shape:**
+```json
+{ "group_code": "RIDE11ABCDEF" }
+```
+
+### 23. `ride:paused` (Server → Room Broadcast)
+- **Description:** Broadcast to room members when a rider temporarily pauses.
+- **Payload Shape:**
+```json
+{ "user_id": "uuid-string", "name": "utsuk", "group_code": "RIDE11ABCDEF", "timestamp": 1720958500000 }
+```
+
+### 24. `ride:resume` (Client → Server)
+- **Description:** Self-service request by a paused rider to resume active participation.
+- **Payload Shape:**
+```json
+{ "group_code": "RIDE11ABCDEF" }
+```
+
+### 25. `ride:resumed` (Server → Room Broadcast)
+- **Description:** Broadcast to room members when a rider resumes active participation.
+- **Payload Shape:**
+```json
+{ "user_id": "uuid-string", "name": "utsuk", "group_code": "RIDE11ABCDEF", "timestamp": 1720958500000 }
+```
+
