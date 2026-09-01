@@ -4,11 +4,13 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import LiveMapView from '../components/LiveMapView';
 import RideAlertOverlay from '../components/RideAlertOverlay';
 import { RideAlertState } from '../ride/RideAlertStore';
+import { useRouteDeviation } from '../tracking/useRouteDeviation';
 
 interface MapScreenProps {
   roomCode: string;
   destinationTitle: string;
-  currentLocation: { latitude: number; longitude: number } | null;
+  currentLocation: { latitude: number; longitude: number; accuracy?: number } | null;
+  isPaused?: boolean;
   riders: Array<{
     user_id: string;
     name: string;
@@ -20,6 +22,7 @@ interface MapScreenProps {
     lastUpdatedAt?: number;
     connectionState?: 'CONNECTED' | 'DISCONNECTED';
     locationFreshness?: 'FRESH' | 'STALE';
+    rideState?: 'active' | 'paused';
   }>;
   destination?: { latitude: number; longitude: number; label: string } | null;
   onOpenControls: () => void;
@@ -145,6 +148,7 @@ export default function MapScreen({
   roomCode,
   destinationTitle,
   currentLocation,
+  isPaused = false,
   riders,
   destination,
   onOpenControls,
@@ -162,6 +166,8 @@ export default function MapScreen({
     Array<{ latitude: number; longitude: number }> | undefined
   >(undefined);
   const [copyConfirmationVisible, setCopyConfirmationVisible] = useState(false);
+
+  const { isRerouting, rerouteError, evaluateAndReroute, clearRerouteError } = useRouteDeviation();
 
   useEffect(() => {
     if (!currentLocation || !destination) {
@@ -181,8 +187,29 @@ export default function MapScreen({
       cancelled = true;
     };
   }, [
-    currentLocation?.latitude?.toFixed(3),
-    currentLocation?.longitude?.toFixed(3),
+    destination?.latitude,
+    destination?.longitude,
+  ]);
+
+  // Evaluate route deviation on location updates
+  useEffect(() => {
+    if (!currentLocation || !destination || !routeCoordinates || routeCoordinates.length < 2) {
+      return;
+    }
+
+    let cancelled = false;
+    evaluateAndReroute(currentLocation, destination, routeCoordinates, fetchRoute).then(newRoute => {
+      if (!cancelled && newRoute && newRoute.length >= 2) {
+        setRouteCoordinates(newRoute);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentLocation?.latitude,
+    currentLocation?.longitude,
     destination?.latitude,
     destination?.longitude,
   ]);
@@ -240,6 +267,27 @@ export default function MapScreen({
             <Text style={styles.endButtonText}>{isHost ? '✕ End Ride' : '← Leave Group'}</Text>
           </Pressable>
         </View>
+
+        {isPaused && (
+          <View style={styles.pausedBadgeOverlay}>
+            <Text style={styles.pausedBadgeText}>⏸️ PAUSED</Text>
+          </View>
+        )}
+
+        {isRerouting && (
+          <View style={styles.reroutingBadgeOverlay}>
+            <Text style={styles.reroutingBadgeText}>↻ Rerouting...</Text>
+          </View>
+        )}
+
+        {rerouteError && (
+          <View style={styles.rerouteErrorBanner}>
+            <Text style={styles.rerouteErrorText}>{rerouteError}</Text>
+            <Pressable onPress={clearRerouteError} style={styles.dismissErrorBtn}>
+              <Text style={styles.dismissErrorText}>✕</Text>
+            </Pressable>
+          </View>
+        )}
 
         {riders.length > 0 && (
           <View style={styles.riderCountBadge}>
@@ -630,5 +678,75 @@ const styles = StyleSheet.create({
     color: COLORS.muted,
     fontSize: 14,
     fontWeight: '700',
+  },
+  pausedBadgeOverlay: {
+    position: 'absolute',
+    top: 90,
+    alignSelf: 'center',
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    zIndex: 10,
+  },
+  pausedBadgeText: {
+    color: '#0B130E',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  reroutingBadgeOverlay: {
+    position: 'absolute',
+    top: 130,
+    alignSelf: 'center',
+    backgroundColor: '#2F80ED',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    zIndex: 10,
+  },
+  reroutingBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  rerouteErrorBanner: {
+    position: 'absolute',
+    top: 170,
+    left: 20,
+    right: 20,
+    backgroundColor: '#142318',
+    borderColor: '#DC2626',
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 10,
+  },
+  rerouteErrorText: {
+    color: '#F0FDF4',
+    fontSize: 12,
+    fontWeight: '600',
+    flex: 1,
+  },
+  dismissErrorBtn: {
+    marginLeft: 10,
+    padding: 4,
+  },
+  dismissErrorText: {
+    color: '#A3B8A8',
+    fontSize: 14,
+    fontWeight: '800',
   },
 });

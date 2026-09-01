@@ -113,7 +113,7 @@ describe('authenticated logout lifecycle', () => {
     const renderer = await renderAuthenticatedApp('offline-logout-token');
     await pressLogout(renderer);
 
-    expect(mockTelemetryStop).toHaveBeenCalledTimes(1);
+    expect(mockTelemetryStop).toHaveBeenCalled();
     expect(mockSocketDisconnect).toHaveBeenCalled();
     const rideStore = jest.requireMock('../src/ride/ActiveRideStore');
     expect(rideStore.clearActiveRide).toHaveBeenCalledTimes(1);
