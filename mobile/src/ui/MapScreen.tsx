@@ -1,9 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View, Text, Pressable, Alert, Share } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import LiveMapView from '../components/LiveMapView';
 import RideAlertOverlay from '../components/RideAlertOverlay';
 import { RideAlertState } from '../ride/RideAlertStore';
+import { LiveStatsPanel } from './LiveStatsPanel';
+import { DeadEndAdvisoryBanner } from './DeadEndAdvisoryBanner';
+import type { MetricsSnapshot } from '../telemetry/RideMetricsAccumulator';
+import type { RouteProgressSnapshot } from '../navigation/RouteProgressTracker';
+import type { DeadEndState } from '../navigation/DeadEndDetector';
 
 interface MapScreenProps {
   roomCode: string;
@@ -43,6 +48,14 @@ interface MapScreenProps {
   onLeaveRoom: () => void;
   rideAlertState: RideAlertState;
   onDismissRideAlert: (alertId: string) => void;
+  /** Live ride statistics from RideMetricsAccumulator (null = not in active ride). */
+  liveMetrics?: MetricsSnapshot | null;
+  /** Route progress / ETA from RouteProgressTracker (null = no route available). */
+  routeProgress?: RouteProgressSnapshot | null;
+  /** Dead-end advisory state (null treated as 'clear'). */
+  deadEndState?: DeadEndState | null;
+  /** Called when user dismisses the dead-end advisory banner. */
+  onDismissDeadEnd?: () => void;
 }
 
 const COLORS = {
@@ -101,6 +114,10 @@ function decodePolyline(encoded: string): Array<{ latitude: number; longitude: n
 /**
  * Fetch route from Google Directions API.
  * Falls back gracefully if API key is not configured or request fails.
+ *
+ * Returns polyline coordinates for the map overlay. The caller is responsible
+ * for passing leg distance/duration to RouteProgressTracker separately via
+ * `createGoogleDirectionsProvider` (see App.tsx integration).
  */
 async function fetchRoute(
   origin: { latitude: number; longitude: number },
@@ -157,6 +174,10 @@ export default function MapScreen({
   onLeaveRoom,
   rideAlertState,
   onDismissRideAlert,
+  liveMetrics = null,
+  routeProgress = null,
+  deadEndState = null,
+  onDismissDeadEnd,
 }: MapScreenProps) {
   const [routeCoordinates, setRouteCoordinates] = useState<
     Array<{ latitude: number; longitude: number }> | undefined
@@ -211,6 +232,9 @@ export default function MapScreen({
   // ACTIVE RIDE — full-screen map with floating overlays
   // ──────────────────────────────────────────
   if (rideStarted) {
+    const showDeadEnd =
+      deadEndState?.state === 'suspected' || deadEndState?.state === 'confirmed';
+
     return (
       <View style={styles.container}>
         <LiveMapView
@@ -221,6 +245,7 @@ export default function MapScreen({
           onRecenterPress={() => {}}
         />
 
+        {/* ── Floating header bar ─────────────────────────────────── */}
         <View style={styles.floatingHeader}>
           <View style={styles.headerLeft}>
             <Text style={styles.roomCodeText}>CODE: {roomCode}</Text>
@@ -248,6 +273,22 @@ export default function MapScreen({
             </Text>
           </View>
         )}
+
+        {/* ── Live Stats Panel (floating, above controls) ─────────── */}
+        <View style={styles.liveStatsContainer}>
+          {showDeadEnd && deadEndState && (
+            <DeadEndAdvisoryBanner
+              state={deadEndState}
+              onDismiss={onDismissDeadEnd ?? (() => {})}
+              testID="dead-end-banner"
+            />
+          )}
+          <LiveStatsPanel
+            metrics={liveMetrics}
+            routeProgress={routeProgress}
+            testID="live-stats-panel"
+          />
+        </View>
 
         <RideAlertOverlay
           alerts={rideAlertState.alerts}
@@ -434,6 +475,13 @@ const styles = StyleSheet.create({
     color: COLORS.ink,
     fontSize: 13,
     fontWeight: '900',
+  },
+  liveStatsContainer: {
+    position: 'absolute',
+    bottom: 90,
+    left: 16,
+    right: 16,
+    gap: 8,
   },
   riderCountBadge: {
     position: 'absolute',

@@ -74,6 +74,14 @@ import {
   RideAlert,
   RideAlertState,
 } from './src/ride/RideAlertStore';
+import { RideMetricsAccumulator, MetricsSnapshot } from './src/telemetry/RideMetricsAccumulator';
+import {
+  RouteProgressTracker,
+  RouteProgressSnapshot,
+  createGoogleDirectionsProvider,
+  EMPTY_ROUTE_PROGRESS,
+} from './src/navigation/RouteProgressTracker';
+import { DeadEndDetector, DeadEndState, DEAD_END_STATE_CLEAR } from './src/navigation/DeadEndDetector';
 
 type Screen =
   | 'login'
@@ -281,6 +289,29 @@ function App() {
   const [deviceRole, setDeviceRole] = useState<'HOST' | 'RIDER' | 'UNKNOWN'>('UNKNOWN');
   const reconnectingRef = useRef(false);
 
+  // Live ride stats
+  const [liveMetrics, setLiveMetrics] = useState<MetricsSnapshot | null>(null);
+  const [routeProgress, setRouteProgress] = useState<RouteProgressSnapshot | null>(null);
+  const [deadEndState, setDeadEndState] = useState<DeadEndState>(DEAD_END_STATE_CLEAR);
+
+  const metricsAccumulatorRef = useRef<RideMetricsAccumulator | null>(null);
+  const routeTrackerRef = useRef<RouteProgressTracker | null>(null);
+  const deadEndDetectorRef = useRef<DeadEndDetector | null>(null);
+
+  // Initialise feature services once (stable across renders)
+  if (!routeTrackerRef.current) {
+    const apiKey = typeof process !== 'undefined' && process.env
+      ? (process.env.GOOGLE_MAPS_API_KEY ?? '')
+      : '';
+    routeTrackerRef.current = new RouteProgressTracker(
+      createGoogleDirectionsProvider(apiKey),
+    );
+  }
+  if (!deadEndDetectorRef.current) {
+    deadEndDetectorRef.current = new DeadEndDetector(null);
+    deadEndDetectorRef.current.onStateChange((s) => setDeadEndState({ ...s }));
+  }
+
   const clearActiveRideState = async (nextScreen: Screen = 'portal') => {
     await clearActiveRide().catch(() => {});
     console.log('[ACTIVE RIDE CLEARED]');
@@ -330,23 +361,43 @@ function App() {
     saveActiveRide(ride).catch(() => console.warn('[ACTIVE RIDE RESTORE] persist failed'));
   };
 
-  // Update current location from telemetry
+  // Update current location from telemetry + feed live stats + route + dead-end
   useEffect(() => {
     const subscription = telemetryStream$.subscribe((reading) => {
-      setCurrentLocation({
-        timestamp: reading.timestamp,
-        latitude: reading.latitude,
-        longitude: reading.longitude,
-        accuracy: reading.accuracy,
-        speed: reading.speed,
-      });
-      currentLocationRef.current = {
+      const location = {
         timestamp: reading.timestamp,
         latitude: reading.latitude,
         longitude: reading.longitude,
         accuracy: reading.accuracy,
         speed: reading.speed,
       };
+      setCurrentLocation(location);
+      currentLocationRef.current = location;
+
+      // Feed live stats accumulator
+      if (metricsAccumulatorRef.current) {
+        metricsAccumulatorRef.current.addReading(reading);
+        setLiveMetrics(metricsAccumulatorRef.current.snapshot());
+      }
+
+      // Feed route progress tracker (non-blocking — rate-limited internally)
+      if (routeTrackerRef.current) {
+        void routeTrackerRef.current.updatePosition({
+          latitude: reading.latitude,
+          longitude: reading.longitude,
+        }).then((snap) => setRouteProgress(snap));
+      }
+
+      // Feed dead-end detector
+      if (deadEndDetectorRef.current) {
+        deadEndDetectorRef.current.processReading({
+          timestamp: reading.timestamp,
+          latitude: reading.latitude,
+          longitude: reading.longitude,
+          accuracy: reading.accuracy,
+          speed: reading.speed,
+        });
+      }
     });
     return () => subscription.unsubscribe();
   }, [telemetryStream$]);
@@ -864,6 +915,12 @@ function App() {
   useEffect(() => {
     if (!authToken || !fineLocationGranted || !activeRoomCode || !rideStarted) return;
     console.log('[ACTIVE RIDE -> START GPS]');
+
+    // Reset live stats accumulator when ride (re)starts
+    const acc = new RideMetricsAccumulator(Date.now());
+    metricsAccumulatorRef.current = acc;
+    setLiveMetrics(acc.snapshot());
+
     telemetryModuleRef.current.start({
       socketUrl: API_BASE_URL,
       authToken,
@@ -986,11 +1043,17 @@ function App() {
   const handleCreatedRoomStart = (roomData: CreatedRoomData) => {
     setActiveRoomCode(roomData.groupCode);
     setDestinationTitle(roomData.destination.title);
-    setDestination({
+    const dest = {
       latitude: roomData.destination.latitude,
       longitude: roomData.destination.longitude,
       label: roomData.destination.title,
-    });
+    };
+    setDestination(dest);
+    // Update route tracker and dead-end detector with new destination
+    routeTrackerRef.current?.setDestination(dest);
+    deadEndDetectorRef.current?.setDestination(dest);
+    setRouteProgress(null);
+    setDeadEndState(DEAD_END_STATE_CLEAR);
     setRoomMembers([]);
     setSeparationsByRider(clearAllSeparations());
     setRideAlertState(clearRideAlerts());
@@ -1010,12 +1073,20 @@ function App() {
     setActiveRoomCode(preview.groupCode);
     setDestinationTitle(preview.destinationTitle);
     if (preview.destination) {
-      setDestination({
+      const dest = {
         latitude: preview.destination.latitude,
         longitude: preview.destination.longitude,
         label: preview.destination.label || preview.destinationTitle,
-      });
+      };
+      setDestination(dest);
+      routeTrackerRef.current?.setDestination(dest);
+      deadEndDetectorRef.current?.setDestination(dest);
+    } else {
+      routeTrackerRef.current?.setDestination(null);
+      deadEndDetectorRef.current?.setDestination(null);
     }
+    setRouteProgress(null);
+    setDeadEndState(DEAD_END_STATE_CLEAR);
     setRoomMembers([]);
     setSeparationsByRider(clearAllSeparations());
     setRideAlertState(clearRideAlerts());
@@ -1319,6 +1390,10 @@ function App() {
           onLeaveRoom={handleLeaveRoom}
           rideAlertState={rideAlertState}
           onDismissRideAlert={dismissActiveRideAlert}
+          liveMetrics={liveMetrics}
+          routeProgress={routeProgress}
+          deadEndState={deadEndState}
+          onDismissDeadEnd={() => deadEndDetectorRef.current?.dismiss()}
         />
         );
       })()}
