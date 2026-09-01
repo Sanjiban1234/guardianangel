@@ -5,8 +5,8 @@ import type { GroupSeparationAlertPayload, GroupReunitedPayload } from '@guardia
 export interface RiderLocation {
   user_id: string;
   name: string;
-  vehicle_model?: string;
-  plate_number?: string;
+  vehicle_model?: string | null;
+  plate_number?: string | null;
   latitude: number;
   longitude: number;
   speed: number;
@@ -141,7 +141,7 @@ export class GroupCoherenceService {
           r.connection_state === 'CONNECTED' && r.location_freshness === 'FRESH' && r.ride_state !== 'paused' &&
           r.latitude != null && r.longitude != null && r.speed != null && r.last_updated_at != null,
         )
-        .map((r) => ({ user_id: r.user_id, name: r.name, vehicle_model: r.vehicle_model, plate_number: r.plate_number, latitude: r.latitude, longitude: r.longitude,
+        .map((r) => ({ user_id: r.user_id, name: r.name, vehicle_model: r.vehicle_model ?? null, plate_number: r.plate_number ?? null, latitude: r.latitude, longitude: r.longitude,
           speed: r.speed, timestamp: r.last_updated_at, has_active_breakdown: r.has_active_breakdown }));
 
       if (riders.length < 2) {

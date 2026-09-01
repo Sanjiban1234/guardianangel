@@ -187,8 +187,8 @@ export interface GroupSeparationAlertPayload {
   separated_rider: {
     user_id: string;
     name: string;
-    vehicle_model?: string;
-    plate_number?: string;
+    vehicle_model?: string | null;
+    plate_number?: string | null;
     current_speed: number;
     recommended_speed: number | null;
     distance_from_nearest_meters: number;

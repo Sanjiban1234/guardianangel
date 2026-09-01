@@ -165,6 +165,8 @@ describe('GroupCoherenceService Unit & Integration Tests', () => {
         {
           user_id: 'user-separated',
           name: 'Dave',
+          vehicle_model: 'Yamaha MT-15',
+          plate_number: 'BA 12 PA 3456',
           latitude: 28.2100, // ~1.1 km away
           longitude: 83.9800,
           speed: 15.0,
@@ -185,6 +187,8 @@ describe('GroupCoherenceService Unit & Integration Tests', () => {
       const alert = res.alerts[0];
       expect(alert.separated_rider.user_id).toBe('user-separated');
       expect(alert.separated_rider.name).toBe('Dave');
+      expect(alert.separated_rider.vehicle_model).toBe('Yamaha MT-15');
+      expect(alert.separated_rider.plate_number).toBe('BA 12 PA 3456');
       expect(alert.separated_rider.distance_from_nearest_meters).toBeGreaterThan(1000);
       expect(alert.meeting_point.is_approximate).toBe(true);
       expect(alert.separated_rider.recommended_speed).not.toBeNull();
