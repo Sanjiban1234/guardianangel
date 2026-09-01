@@ -79,6 +79,7 @@ import { RideMetricsAccumulator, MetricsSnapshot } from './src/telemetry/RideMet
 import {
   RouteProgressTracker,
   RouteProgressSnapshot,
+  RouteResult,
   createGoogleDirectionsProvider,
   EMPTY_ROUTE_PROGRESS,
 } from './src/navigation/RouteProgressTracker';
@@ -229,7 +230,7 @@ function App() {
     user_id: string; name: string; role?: string; isYou?: boolean;
     vehicleModel?: string; plateNumber?: string;
     latitude?: number; longitude?: number; accuracy?: number; lastUpdatedAt?: number;
-    connectionState?: 'CONNECTED' | 'DISCONNECTED'; locationFreshness?: 'FRESH' | 'STALE';
+    connectionState?: 'CONNECTED' | 'DISCONNECTED'; locationFreshness?: 'FRESH' | 'STALE'; rideState?: 'active' | 'paused';
   }>>([]);
   const roomMembersRef = useRef(roomMembers);
   const [currentLocation, setCurrentLocation] = useState<LatestLocationSnapshot | null>(null);
@@ -285,6 +286,9 @@ function App() {
 
   // Ride start state
   const [rideStarted, setRideStarted] = useState<boolean>(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isPauseActionPending, setIsPauseActionPending] = useState(false);
+  const pauseActionGenerationRef = useRef(0);
   const [isStartingRide, setIsStartingRide] = useState<boolean>(false);
   const startRideInFlightRef = useRef(false);
   const endRideInFlightRef = useRef(false);
@@ -297,6 +301,7 @@ function App() {
   const [liveMetrics, setLiveMetrics] = useState<MetricsSnapshot | null>(null);
   const [routeProgress, setRouteProgress] = useState<RouteProgressSnapshot | null>(null);
   const [deadEndState, setDeadEndState] = useState<DeadEndState>(DEAD_END_STATE_CLEAR);
+  const [activeRoute, setActiveRoute] = useState<RouteResult | null>(null);
 
   const metricsAccumulatorRef = useRef<RideMetricsAccumulator | null>(null);
   const routeTrackerRef = useRef<RouteProgressTracker | null>(null);
@@ -326,6 +331,10 @@ function App() {
     setSeparationsByRider(clearAllSeparations());
     setRideAlertState(clearRideAlerts());
     setRideStarted(false);
+    setIsPaused(false);
+    setIsPauseActionPending(false);
+    pauseActionGenerationRef.current += 1;
+    setActiveRoute(null);
     setIsHost(false);
     setDeviceRole('UNKNOWN');
     endRideInFlightRef.current = false;
@@ -410,6 +419,40 @@ function App() {
     currentLocationRef.current = location;
     setCurrentLocation(location);
   };
+
+  const handleTogglePause = useCallback(() => {
+    if (isPauseActionPending || !activeRoomCodeRef.current || !socketRef.current.isConnected()) {
+      Alert.alert('Ride status unavailable', 'Reconnect to the ride before changing your pause status.');
+      return;
+    }
+    const event = isPaused ? 'ride:resume' : 'ride:pause';
+    const requestGeneration = ++pauseActionGenerationRef.current;
+    setIsPauseActionPending(true);
+    try {
+      socketRef.current.emitEventWithAck(event, { group_code: activeRoomCodeRef.current }, (response: any) => {
+        if (requestGeneration !== pauseActionGenerationRef.current) return;
+        setIsPauseActionPending(false);
+        if (!response?.success) {
+          Alert.alert('Unable to update ride status', response?.error || 'The server did not accept this change.');
+          return;
+        }
+        // The server acknowledgement is authoritative; the room broadcast also
+        // updates peers and reconnect hydration below.
+        setIsPaused(event === 'ride:pause');
+      });
+    } catch {
+      setIsPauseActionPending(false);
+      Alert.alert('Ride status unavailable', 'Reconnect to the ride before changing your pause status.');
+    }
+  }, [isPaused, isPauseActionPending]);
+
+  const handleActiveRouteChanged = useCallback((route: RouteResult) => {
+    setActiveRoute(route);
+    routeTrackerRef.current?.ingestRoute(route);
+    const position = currentLocationRef.current;
+    setRouteProgress(routeTrackerRef.current?.getSnapshot(position ? { latitude: position.latitude, longitude: position.longitude } : null) ?? null);
+    deadEndDetectorRef.current?.acknowledgeReroute();
+  }, []);
 
   // Freshness is server-authored on socket events, then aged locally so a
   // quiet/stalled peer is not rendered as live indefinitely between events.
@@ -631,6 +674,7 @@ function App() {
                 lastUpdatedAt: m.last_updated_at ?? existing?.lastUpdatedAt,
                 connectionState: m.connection_state ?? existing?.connectionState ?? 'DISCONNECTED',
                 locationFreshness: m.location_freshness ?? existing?.locationFreshness ?? 'STALE',
+                rideState: m.ride_state ?? existing?.rideState ?? 'active',
               };
             });
           });
@@ -639,6 +683,8 @@ function App() {
           setRideStarted(true);
           setScreen('map');
         }
+        const self = payload?.members?.find((member: any) => member.user_id === userId);
+        if (self?.ride_state) setIsPaused(self.ride_state === 'paused');
       });
 
       listen('session:member_joined', (payload: any) => {
@@ -693,11 +739,23 @@ function App() {
         }
       });
       listen('ride:ended', (payload: { group_code?: string }) => {
+        pauseActionGenerationRef.current += 1;
+        setIsPauseActionPending(false);
         const groupCode = payload?.group_code || activeRoomCodeRef.current;
         if (!groupCode) return;
         console.log('[RIDE ENDED EVENT]');
         Alert.alert('Ride ended', 'The host ended this ride.');
         showCompletedRideSummary(groupCode);
+      });
+      listen('ride:paused', (payload: any) => {
+        if (!payload?.user_id) return;
+        setRoomMembers(prev => prev.map(member => member.user_id === payload.user_id ? { ...member, rideState: 'paused' } : member));
+        if (payload.user_id === userId) setIsPaused(true);
+      });
+      listen('ride:resumed', (payload: any) => {
+        if (!payload?.user_id) return;
+        setRoomMembers(prev => prev.map(member => member.user_id === payload.user_id ? { ...member, rideState: 'active' } : member));
+        if (payload.user_id === userId) setIsPaused(false);
       });
       listen('location:broadcast', (payload: any) => {
         console.log('[LOCATION BROADCAST RECEIVED]');
@@ -1059,6 +1117,7 @@ function App() {
     setDestination(dest);
     // Update route tracker and dead-end detector with new destination
     routeTrackerRef.current?.setDestination(dest);
+    setActiveRoute(null);
     deadEndDetectorRef.current?.setDestination(dest);
     setRouteProgress(null);
     setDeadEndState(DEAD_END_STATE_CLEAR);
@@ -1088,9 +1147,11 @@ function App() {
       };
       setDestination(dest);
       routeTrackerRef.current?.setDestination(dest);
+      setActiveRoute(null);
       deadEndDetectorRef.current?.setDestination(dest);
     } else {
       routeTrackerRef.current?.setDestination(null);
+      setActiveRoute(null);
       deadEndDetectorRef.current?.setDestination(null);
     }
     setRouteProgress(null);
@@ -1379,6 +1440,7 @@ function App() {
           roomId={activeRoomId || undefined}
           apiBaseUrl={API_BASE_URL}
           authToken={authToken}
+          isPaused={isPaused}
           destinationTitle={destinationTitle}
           currentLocation={currentLocation}
           riders={computedRiders}
@@ -1400,6 +1462,7 @@ function App() {
             locationFreshness: m.isYou || m.name === riderName
               ? (connection === 'live' ? 'FRESH' : 'STALE')
               : m.locationFreshness,
+            rideState: m.rideState,
           }))}
           onStartRide={isHost ? handleStartRide : undefined}
           isStartingRide={isStartingRide}
@@ -1411,6 +1474,8 @@ function App() {
            routeProgress={routeProgress}
            deadEndState={deadEndState}
            onDismissDeadEnd={() => deadEndDetectorRef.current?.dismiss()}
+           activeRoute={activeRoute}
+           onActiveRouteChanged={handleActiveRouteChanged}
         />
         );
       })()}
@@ -1433,6 +1498,9 @@ function App() {
           breakdownPlateNumber={breakdownPlateNumber}
           separationsByRider={separationsByRider}
           profile={profile}
+          isPaused={isPaused}
+          isPausing={isPauseActionPending}
+          onTogglePause={handleTogglePause}
           onClose={() => setScreen('map')}
           onOpenRefuelModal={() => setShowRefuelModal(true)}
           onResolveRefuel={() => setRefuelActive(false)}

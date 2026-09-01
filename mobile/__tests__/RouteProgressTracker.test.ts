@@ -375,10 +375,19 @@ describe('RouteProgressTracker', () => {
       tracker.onProgress(listener);
 
       tracker.ingestRoute(makeSampleRoute());
-      // setDestination notifies — listener called once on setDestination above
-      // ingestRoute does NOT call notify (by design — updatePosition triggers that)
-      // This verifies the listener is properly registered
-      expect(listener).toHaveBeenCalledTimes(1); // once from setDestination
+      // The listener is registered after destination reset and receives the
+      // authoritative replacement immediately.
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps an externally supplied reroute authoritative instead of refetching it', async () => {
+      tracker.setDestination(DESTINATION);
+      tracker.ingestRoute(makeSampleRoute({ totalDurationSeconds: 600 }));
+
+      const snapshot = await tracker.updatePosition(SAMPLE_POLYLINE[0]);
+
+      expect(snapshot.etaMs).not.toBeNull();
+      expect(mockProvider).not.toHaveBeenCalled();
     });
   });
 });

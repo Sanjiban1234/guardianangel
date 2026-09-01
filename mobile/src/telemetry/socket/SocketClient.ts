@@ -273,6 +273,11 @@ export class SocketClient implements ISocketClient {
     this.socket.emit(event, callback);
   }
 
+  emitEventWithAck(event: string, payload: Record<string, unknown>, callback: (response: any) => void): void {
+    if (!this.socket || !this.connected) throw new Error('Socket is not connected');
+    this.socket.emit(event, payload, callback);
+  }
+
   onEvent(event: string, listener: (payload: any) => void): () => void {
     // Capture the instance which received the listener.  Referring to
     // `this.socket` from the cleanup can remove a listener from a newer

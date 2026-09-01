@@ -177,6 +177,7 @@ export class RouteProgressTracker {
   private lastFetchOrigin: LatLng | null = null;
   private destination: LatLng | null = null;
   private isFetching = false;
+  private externallyManaged = false;
 
   private listeners: Set<(snap: RouteProgressSnapshot) => void> = new Set();
 
@@ -188,6 +189,7 @@ export class RouteProgressTracker {
     this.route = null;
     this.lastFetchedAt = null;
     this.lastFetchOrigin = null;
+    this.externallyManaged = false;
     this.notifyListeners(EMPTY_ROUTE_PROGRESS);
   }
 
@@ -199,6 +201,8 @@ export class RouteProgressTracker {
   ingestRoute(route: RouteResult): void {
     this.route = route;
     this.lastFetchedAt = route.fetchedAt;
+    this.lastFetchOrigin = route.polyline[0] || null;
+    this.externallyManaged = true;
     const snap = this.snapshot(this.lastFetchOrigin);
     this.notifyListeners(snap);
   }
@@ -212,8 +216,8 @@ export class RouteProgressTracker {
   }
 
   /** Current snapshot without triggering a fetch. */
-  getSnapshot(): RouteProgressSnapshot {
-    return this.snapshot(null);
+  getSnapshot(position: LatLng | null = null): RouteProgressSnapshot {
+    return this.snapshot(position);
   }
 
   /**
@@ -229,7 +233,7 @@ export class RouteProgressTracker {
     this.notifyListeners(snap);
 
     // Decide whether to re-fetch from provider
-    if (this.shouldFetch(position)) {
+    if (!this.externallyManaged && this.shouldFetch(position)) {
       void this.triggerFetch(position);
     }
 

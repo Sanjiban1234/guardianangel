@@ -19,15 +19,15 @@ export function useRouteDeviation(options: UseRouteDeviationOptions = {}) {
   const lastRerouteTimeRef = useRef(0);
 
   const evaluateAndReroute = useCallback(
-    async (
+    async <T extends { polyline: LatLng[] }>(
       currentLocation: { latitude: number; longitude: number; accuracy?: number } | null,
       destination: LatLng | null,
       currentRoute: LatLng[] | undefined,
       fetchRouteFn: (
         origin: LatLng,
         dest: LatLng,
-      ) => Promise<LatLng[] | null>,
-    ): Promise<LatLng[] | null> => {
+      ) => Promise<T | null>,
+    ): Promise<T | null> => {
       if (!currentLocation || !destination || !currentRoute || currentRoute.length < 2) {
         return null;
       }
@@ -64,10 +64,10 @@ export function useRouteDeviation(options: UseRouteDeviationOptions = {}) {
 
           setIsRerouting(false);
 
-          if (newRoute && newRoute.length >= 2) {
+          if (newRoute && newRoute.polyline.length >= 2) {
             deviationCountRef.current = 0;
             if (options.onRouteUpdated) {
-              options.onRouteUpdated(newRoute);
+              options.onRouteUpdated(newRoute.polyline);
             }
             return newRoute;
           } else {

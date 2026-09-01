@@ -11,7 +11,7 @@ import GuardianPortalControls from '../guardianPortal/GuardianPortalControls';
 import { LiveStatsPanel } from './LiveStatsPanel';
 import { DeadEndAdvisoryBanner } from './DeadEndAdvisoryBanner';
 import type { MetricsSnapshot } from '../telemetry/RideMetricsAccumulator';
-import type { RouteProgressSnapshot } from '../navigation/RouteProgressTracker';
+import type { RouteProgressSnapshot, RouteResult } from '../navigation/RouteProgressTracker';
 import type { DeadEndState } from '../navigation/DeadEndDetector';
 import { useRouteDeviation } from '../tracking/useRouteDeviation';
 
@@ -67,6 +67,10 @@ interface MapScreenProps {
   deadEndState?: DeadEndState | null;
   /** Called when user dismisses the dead-end advisory banner. */
   onDismissDeadEnd?: () => void;
+  /** The App-owned, single active route used by every route-dependent feature. */
+  activeRoute?: RouteResult | null;
+  /** Accepts only complete provider routes and atomically replaces the active route. */
+  onActiveRouteChanged?: (route: RouteResult) => void;
 }
 
 const COLORS = {
@@ -126,14 +130,13 @@ function decodePolyline(encoded: string): Array<{ latitude: number; longitude: n
  * Fetch route from Google Directions API.
  * Falls back gracefully if API key is not configured or request fails.
  *
- * Returns polyline coordinates for the map overlay. The caller is responsible
- * for passing leg distance/duration to RouteProgressTracker separately via
- * `createGoogleDirectionsProvider` (see App.tsx integration).
+ * Returns one complete provider route so all consumers use the same geometry,
+ * distance, and duration.
  */
 async function fetchRoute(
   origin: { latitude: number; longitude: number },
   destination: { latitude: number; longitude: number },
-): Promise<Array<{ latitude: number; longitude: number }> | null> {
+): Promise<RouteResult | null> {
   try {
     const apiKey = typeof process !== 'undefined' && process.env
       ? process.env.GOOGLE_MAPS_API_KEY
@@ -162,7 +165,10 @@ async function fetchRoute(
     const overviewPolyline = data.routes[0].overview_polyline?.points;
     if (!overviewPolyline) return null;
 
-    return decodePolyline(overviewPolyline);
+    const leg = data.routes[0].legs?.[0];
+    const polyline = decodePolyline(overviewPolyline);
+    if (polyline.length < 2 || !Number.isFinite(leg?.distance?.value) || !Number.isFinite(leg?.duration?.value)) return null;
+    return { polyline, totalDistanceMeters: leg.distance.value, totalDurationSeconds: leg.duration.value, fetchedAt: Date.now() };
   } catch {
     console.warn('[MapScreen] Route fetch failed');
     return null;
@@ -194,28 +200,25 @@ export default function MapScreen({
   routeProgress = null,
   deadEndState = null,
   onDismissDeadEnd,
+  activeRoute = null,
+  onActiveRouteChanged,
 }: MapScreenProps) {
-  const [routeCoordinates, setRouteCoordinates] = useState<
-    Array<{ latitude: number; longitude: number }> | undefined
-  >(undefined);
   const [copyConfirmationVisible, setCopyConfirmationVisible] = useState(false);
   const [weatherExpanded, setWeatherExpanded] = useState(false);
-  const weather = useWeatherSafety(roomCode, authToken, currentLocation, destination || null, routeCoordinates || [], true, onWeatherAdvisory);
+  const routeCoordinates = activeRoute?.polyline;
+  const weather = useWeatherSafety(roomCode, authToken, currentLocation, destination || null, routeCoordinates || [], true, onWeatherAdvisory, activeRoute?.fetchedAt);
 
   const { isRerouting, rerouteError, evaluateAndReroute, clearRerouteError } = useRouteDeviation();
 
   useEffect(() => {
     if (!currentLocation || !destination) {
-      setRouteCoordinates(undefined);
       return;
     }
 
     let cancelled = false;
 
     fetchRoute(currentLocation, destination).then(route => {
-      if (!cancelled && route) {
-        setRouteCoordinates(route);
-      }
+      if (!cancelled && route) onActiveRouteChanged?.(route);
     });
 
     return () => {
@@ -234,9 +237,7 @@ export default function MapScreen({
 
     let cancelled = false;
     evaluateAndReroute(currentLocation, destination, routeCoordinates, fetchRoute).then(newRoute => {
-      if (!cancelled && newRoute && newRoute.length >= 2) {
-        setRouteCoordinates(newRoute);
-      }
+      if (!cancelled && newRoute && newRoute.polyline && newRoute.polyline.length >= 2) onActiveRouteChanged?.(newRoute);
     });
 
     return () => {
