@@ -19,6 +19,8 @@ interface LiveMapViewProps {
   /** Temporary field-test aid: confirms state changes before marker rendering. */
   showDiagnostics?: boolean;
   recommendations?: RouteRecommendation[];
+  /** Height occupied by the screen's bottom overlay, used to keep map actions visible. */
+  bottomOverlayHeight?: number;
 }
 
 // Default region: Kathmandu, Nepal (app's primary area of operation)
@@ -41,6 +43,7 @@ export function LiveMapView({
   onMapPress,
   showDiagnostics = __DEV__,
   recommendations = [],
+  bottomOverlayHeight = 0,
 }: LiveMapViewProps) {
   const mapRef = useRef<MapView>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -141,17 +144,14 @@ export function LiveMapView({
         {/* Other riders (not "you") */}
         {riders
           .filter(r => !r.isYou && (r.latitude !== 0 || r.longitude !== 0))
-          .map(rider => {
-            console.log('[PEER MARKER RENDERED]');
-            return (
-              <PeerRiderMarker
-                key={rider.user_id}
-                rider={rider}
-                selected={selectedRiderId === rider.user_id}
-                onPress={() => setSelectedRiderId(rider.user_id)}
-              />
-            );
-          })}
+          .map(rider => (
+            <PeerRiderMarker
+              key={rider.user_id}
+              rider={rider}
+              selected={selectedRiderId === rider.user_id}
+              onPress={() => setSelectedRiderId(rider.user_id)}
+            />
+          ))}
 
         {/* Destination marker */}
         {destination && (
@@ -183,13 +183,13 @@ export function LiveMapView({
       )}
 
       {/* Recenter button */}
-      <Pressable style={styles.recenterButton} onPress={recenter}>
+      <Pressable style={[styles.recenterButton, { bottom: bottomOverlayHeight + 16 }]} onPress={recenter}>
         <Text style={styles.recenterText}>📍</Text>
       </Pressable>
 
       {/* Fit all markers button */}
       {(riders.length > 0 || destination) && (
-        <Pressable style={styles.fitButton} onPress={fitToMarkers}>
+        <Pressable style={[styles.fitButton, { bottom: bottomOverlayHeight + 86 }]} onPress={fitToMarkers}>
           <Text style={styles.fitText}>🎯</Text>
         </Pressable>
       )}

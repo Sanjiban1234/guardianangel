@@ -343,6 +343,29 @@ describe('mapWeatherCode', () => {
     expect(mapWeatherCode(2)).toBe('partly_cloudy');
   });
 
+  it.each([
+    [3, 'overcast'],
+    [45, 'fog'],
+    [61, 'rain'],
+    [63, 'rain'],
+    [65, 'rain'],
+    [71, 'snow'],
+    [75, 'heavy_snow'],
+    [80, 'rain_showers'],
+    [85, 'snow_showers'],
+    [95, 'thunderstorm'],
+    [96, 'thunderstorm_with_hail'],
+    [99, 'thunderstorm_with_hail'],
+  ])('maps WMO code %i to %s', (code, condition) => {
+    expect(mapWeatherCode(code)).toBe(condition);
+  });
+
+  it('does not display common rain showers as snow', () => {
+    expect(mapWeatherCode(80)).not.toBe('snow');
+    expect(mapWeatherCode(81)).not.toBe('snow');
+    expect(mapWeatherCode(82)).not.toBe('snow');
+  });
+
   it('should map WMO code 61 to rain', () => {
     expect(mapWeatherCode(61)).toBe('rain');
   });

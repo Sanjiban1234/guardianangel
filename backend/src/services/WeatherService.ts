@@ -6,7 +6,7 @@ export interface WeatherData { condition: string; temperature_celsius: number | 
 export interface RiderLocation extends WeatherPoint {}
 interface Entry { data: NormalizedWeather; expiresAt: number; }
 const TTL = 15 * 60 * 1000;
-export function mapWeatherCode(c: number): string { if (c === 0) return 'clear_sky'; if (c === 1) return 'mainly_clear'; if (c === 2) return 'partly_cloudy'; if (c === 3) return 'overcast'; if (c === 45 || c === 48) return 'fog'; if (c >= 51 && c <= 57) return 'drizzle'; if (c >= 61 && c <= 67) return 'rain'; if (c >= 71 && c <= 86) return 'snow'; if (c === 95) return 'thunderstorm'; if (c === 96 || c === 99) return 'thunderstorm_with_hail'; return 'unknown'; }
+export function mapWeatherCode(c: number): string { if (c === 0) return 'clear_sky'; if (c === 1) return 'mainly_clear'; if (c === 2) return 'partly_cloudy'; if (c === 3) return 'overcast'; if (c === 45 || c === 48) return 'fog'; if (c >= 51 && c <= 57) return 'drizzle'; if (c >= 61 && c <= 67) return 'rain'; if (c === 71 || c === 73) return 'snow'; if (c === 75) return 'heavy_snow'; if (c === 77) return 'snow_grains'; if (c >= 80 && c <= 82) return 'rain_showers'; if (c === 85 || c === 86) return 'snow_showers'; if (c === 95) return 'thunderstorm'; if (c === 96 || c === 99) return 'thunderstorm_with_hail'; return 'unknown'; }
 export class WeatherService {
   private cache = new Map<string, Entry>();
   private roomCache = new Map<string, { weather: WeatherData; location: RiderLocation; expiresAt: number }>();

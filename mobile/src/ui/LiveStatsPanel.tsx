@@ -124,7 +124,7 @@ export const LiveStatsPanel: React.FC<LiveStatsPanelProps> = ({
       >
         <View style={styles.statChip}>
           <Text style={styles.chipLabel}>SPEED</Text>
-          <Text style={styles.chipValue} testID={`${testID}-speed`}>
+          <Text adjustsFontSizeToFit minimumFontScale={0.75} numberOfLines={1} style={styles.chipValue} testID={`${testID}-speed`}>
             {currentSpeed}
           </Text>
         </View>
@@ -133,7 +133,7 @@ export const LiveStatsPanel: React.FC<LiveStatsPanelProps> = ({
 
         <View style={styles.statChip}>
           <Text style={styles.chipLabel}>DIST</Text>
-          <Text style={styles.chipValue} testID={`${testID}-distance`}>
+          <Text adjustsFontSizeToFit minimumFontScale={0.75} numberOfLines={1} style={styles.chipValue} testID={`${testID}-distance`}>
             {distance}
           </Text>
         </View>
@@ -142,7 +142,7 @@ export const LiveStatsPanel: React.FC<LiveStatsPanelProps> = ({
 
         <View style={styles.statChip}>
           <Text style={styles.chipLabel}>TIME</Text>
-          <Text style={styles.chipValue} testID={`${testID}-duration`}>
+          <Text adjustsFontSizeToFit minimumFontScale={0.75} numberOfLines={1} style={styles.chipValue} testID={`${testID}-duration`}>
             {duration}
           </Text>
         </View>
@@ -156,13 +156,14 @@ export const LiveStatsPanel: React.FC<LiveStatsPanelProps> = ({
               styles.chipValue,
               eta === '--' && styles.chipValueUnavailable,
             ]}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+            numberOfLines={1}
             testID={`${testID}-eta`}
           >
             {eta}
           </Text>
         </View>
-
-        <Text style={styles.expandIcon}>{expanded ? '▲' : '▼'}</Text>
       </Pressable>
 
       {/* ── Expanded panel ────────────────────────────────────────────── */}
@@ -264,12 +265,13 @@ const styles = StyleSheet.create({
   collapsedRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: 10,
     gap: 6,
   },
   statChip: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
   },
   chipLabel: {
@@ -280,7 +282,7 @@ const styles = StyleSheet.create({
   },
   chipValue: {
     color: '#F0FDF4',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
     fontFamily: 'monospace',
     marginTop: 1,
@@ -293,12 +295,6 @@ const styles = StyleSheet.create({
     width: 1,
     height: 28,
     backgroundColor: '#1E3A28',
-  },
-  expandIcon: {
-    color: '#A3B8A8',
-    fontSize: 10,
-    fontWeight: '700',
-    marginLeft: 4,
   },
   expandedBody: {
     borderTopWidth: 1,

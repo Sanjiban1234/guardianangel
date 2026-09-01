@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View, Text, Pressable, Alert, Share } from 'react-native';
+import { LayoutChangeEvent, StyleSheet, View, Text, Pressable, Alert, Share } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Clipboard from '@react-native-clipboard/clipboard';
 import LiveMapView from '../components/LiveMapView';
 import RideAlertOverlay from '../components/RideAlertOverlay';
@@ -203,14 +204,18 @@ export default function MapScreen({
   activeRoute = null,
   onActiveRouteChanged,
 }: MapScreenProps) {
+  const insets = useSafeAreaInsets();
   const [copyConfirmationVisible, setCopyConfirmationVisible] = useState(false);
   const [weatherExpanded, setWeatherExpanded] = useState(false);
   const [recommendationCategory, setRecommendationCategory] = useState<RecommendationCategory | null>(null);
   const [recommendations, setRecommendations] = useState<RouteRecommendation[]>([]);
   const [recommendationsLoading, setRecommendationsLoading] = useState(false);
+  const [bottomHudHeight, setBottomHudHeight] = useState(0);
   const recommendationRequestRef = useRef(0);
   const routeCoordinates = activeRoute?.polyline;
   const weather = useWeatherSafety(roomCode, authToken, currentLocation, destination || null, routeCoordinates || [], true, onWeatherAdvisory, activeRoute?.fetchedAt);
+  const handleBottomHudLayout = (event: LayoutChangeEvent) => setBottomHudHeight(event.nativeEvent.layout.height);
+  const bottomHudInset = Math.max(16, insets.bottom + 8);
 
   const { isRerouting, rerouteError, evaluateAndReroute, clearRerouteError } = useRouteDeviation();
 
@@ -292,6 +297,7 @@ export default function MapScreen({
           destination={destination}
           routeCoordinates={routeCoordinates}
           recommendations={recommendations}
+          bottomOverlayHeight={bottomHudHeight + bottomHudInset}
           onRecenterPress={() => {}}
         />
 
@@ -337,8 +343,21 @@ export default function MapScreen({
           </View>
         )}
 
-        {/* ── Live Stats Panel (floating, above controls) ─────────── */}
-        <View style={styles.liveStatsContainer}>
+        {/* One bottom overlay keeps optional recommendations, stats, and controls in flow. */}
+        <View style={[styles.bottomHud, { bottom: bottomHudInset }]} onLayout={handleBottomHudLayout}>
+          <View style={styles.recommendationControls}>
+            {(['fuel', 'food', 'workshop'] as RecommendationCategory[]).map(category => (
+              <Pressable
+                key={category}
+                onPress={() => setRecommendationCategory(value => value === category ? null : category)}
+                style={styles.recommendationChip}
+              >
+                <Text numberOfLines={1} style={styles.recommendationText}>
+                  {recommendationsLoading && recommendationCategory === category ? '…' : category}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
           {showDeadEnd && deadEndState && (
             <DeadEndAdvisoryBanner
               state={deadEndState}
@@ -351,6 +370,10 @@ export default function MapScreen({
             routeProgress={routeProgress}
             testID="live-stats-panel"
           />
+          <Pressable onPress={onOpenControls} style={styles.controlsButton}>
+            <Text style={styles.controlsButtonIcon}>⚙️</Text>
+            <Text style={styles.controlsButtonText}>Ride Controls</Text>
+          </Pressable>
         </View>
 
         <RideAlertOverlay
@@ -359,11 +382,6 @@ export default function MapScreen({
           onDismiss={onDismissRideAlert}
         />
         <WeatherSafetyCard data={weather} expanded={weatherExpanded} onPress={() => setWeatherExpanded(value => !value)} />
-        <View style={styles.recommendationControls}>{(['fuel','food','workshop'] as RecommendationCategory[]).map(category=><Pressable key={category} onPress={()=>setRecommendationCategory(value=>value===category?null:category)} style={styles.recommendationChip}><Text style={styles.recommendationText}>{recommendationsLoading&&recommendationCategory===category?'…':category}</Text></Pressable>)}</View>
-        <Pressable onPress={onOpenControls} style={styles.controlsButton}>
-          <Text style={styles.controlsButtonIcon}>⚙️</Text>
-          <Text style={styles.controlsButtonText}>Ride Controls</Text>
-        </Pressable>
       </View>
     );
   }
@@ -542,9 +560,8 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
   },
-  liveStatsContainer: {
+  bottomHud: {
     position: 'absolute',
-    bottom: 90,
     left: 16,
     right: 16,
     gap: 8,
@@ -566,10 +583,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   controlsButton: {
-    position: 'absolute',
-    bottom: 30,
-    left: 16,
-    right: 16,
     backgroundColor: 'rgba(20, 35, 24, 0.95)',
     borderColor: COLORS.line,
     borderWidth: 1,
@@ -765,9 +778,9 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 1,
   },
-  recommendationControls: { position: 'absolute', right: 12, bottom: 96, flexDirection: 'row', gap: 6 },
-  recommendationChip: { backgroundColor: 'rgba(11,19,14,0.9)', borderColor: COLORS.line, borderWidth: 1, borderRadius: 14, paddingHorizontal: 9, paddingVertical: 6 },
-  recommendationText: { color: COLORS.text, fontSize: 10, fontWeight: '800' },
+  recommendationControls: { flexDirection: 'row', gap: 6 },
+  recommendationChip: { flex: 1, minWidth: 0, alignItems: 'center', backgroundColor: 'rgba(11,19,14,0.9)', borderColor: COLORS.line, borderWidth: 1, borderRadius: 14, paddingHorizontal: 8, paddingVertical: 6 },
+  recommendationText: { color: COLORS.text, fontSize: 10, fontWeight: '800', textTransform: 'capitalize' },
   reroutingBadgeOverlay: {
     position: 'absolute',
     top: 130,
