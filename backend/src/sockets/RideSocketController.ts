@@ -17,6 +17,7 @@ import { VehicleBreakdownHandler } from '../handlers/VehicleBreakdownHandler';
 import { RefillNotificationHandler } from '../handlers/RefillNotificationHandler';
 import { RideStartHandler } from '../handlers/RideStartHandler';
 import { RideEndHandler } from '../handlers/RideEndHandler';
+import { RidePauseHandler } from '../handlers/RidePauseHandler';
 import { RefillNotificationService } from '../services/RefillNotificationService';
 import { EmergencyDisclosureAuditService } from '../services/EmergencyDisclosureAuditService';
 import { logger } from '../utils/logger';
@@ -73,6 +74,7 @@ export class RideSocketController {
           'location:update': [20, 60_000], 'telemetry:bulkSync': [6, 60_000],
           'crash:candidate': [3, 60_000], 'crash:countdownExpired': [3, 60_000],
           'session:join': [10, 60_000], 'refill:requested': [3, 60_000],
+          'ride:pause': [5, 60_000], 'ride:resume': [5, 60_000],
         };
         const limit = limits[event];
         if (!limit) return next();
@@ -89,6 +91,7 @@ export class RideSocketController {
       new SessionHandler(io, socket, roomState, this.roomService, this.presenceService, this.portalShares, this.portal).register();
       new RideStartHandler(io, socket, roomState, this.roomService).register();
       new RideEndHandler(io, socket, roomState, this.roomService, this.portalShares, this.portal).register();
+      new RidePauseHandler(io, socket, roomState, this.roomService, this.coherenceService).register();
       new LocationHandler(socket, roomState, this.telemetryService, this.coherenceService, this.portalShares, this.portal).register();
       new BulkSyncHandler(socket, roomState, this.telemetryService).register();
       new CrashHandler(io, socket, roomState, this.alertService, this.crashRepo, this.medicalService, this.presenceService, this.disclosureAudit, this.portalShares, this.portal).register();

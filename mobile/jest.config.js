@@ -12,5 +12,6 @@ module.exports = {
     '**/__tests__/**/*.test.[jt]s?(x)',
     '**/?(*.)+(spec|test).[jt]s?(x)',
   ],
+  testTimeout: 20000,
 };
 

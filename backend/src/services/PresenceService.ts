@@ -27,6 +27,7 @@ export interface RiderPresence {
   connection_state: RiderConnectionState;
   location_freshness: RiderLocationFreshness;
   has_active_breakdown?: boolean;
+  ride_state?: 'active' | 'paused';
 }
 
 export class PresenceService {
@@ -77,7 +78,7 @@ export class PresenceService {
   async getRiderPresence(groupCode: string, now: number = Date.now()): Promise<RiderPresence[]> {
     const tokenHash = this.hashToken(groupCode);
     const result = await this.db.run(
-      `SELECT rm.user_id, u.name, rm.role, u.vehicle_model, u.plate_number,
+      `SELECT rm.user_id, u.name, rm.role, u.vehicle_model, u.plate_number, rm.ride_state,
               ST_Y(rcl.location::geometry) AS latitude,
               ST_X(rcl.location::geometry) AS longitude,
               rcl.accuracy, rcl.speed, rcl.device_timestamp_ms AS device_timestamp,
@@ -113,6 +114,7 @@ export class PresenceService {
         connection_state: this.isConnected(groupCode, row.user_id) ? 'CONNECTED' : 'DISCONNECTED',
         location_freshness: this.classifyLocation(lastUpdatedAt, now),
         has_active_breakdown: Boolean(row.has_active_breakdown),
+        ride_state: row.ride_state || 'active',
       };
     });
   }

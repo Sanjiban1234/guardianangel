@@ -138,7 +138,7 @@ export class GroupCoherenceService {
       const presence = await this.presenceService.getRiderPresence(groupCode, now);
       const riders: (RiderLocation & { has_active_breakdown?: boolean })[] = presence
         .filter((r): r is RiderPresence & Required<Pick<RiderPresence, 'latitude' | 'longitude' | 'speed' | 'last_updated_at'>> =>
-          r.connection_state === 'CONNECTED' && r.location_freshness === 'FRESH' &&
+          r.connection_state === 'CONNECTED' && r.location_freshness === 'FRESH' && r.ride_state !== 'paused' &&
           r.latitude != null && r.longitude != null && r.speed != null && r.last_updated_at != null,
         )
         .map((r) => ({ user_id: r.user_id, name: r.name, vehicle_model: r.vehicle_model, plate_number: r.plate_number, latitude: r.latitude, longitude: r.longitude,
@@ -312,5 +312,13 @@ export class GroupCoherenceService {
     } else {
       this.riderStates.clear();
     }
+  }
+
+  /**
+   * Reset coherence state for a specific rider when resuming from pause.
+   */
+  public resetRiderState(groupCode: string, userId: string): void {
+    const key = `${groupCode}:${userId}`;
+    this.riderStates.delete(key);
   }
 }
