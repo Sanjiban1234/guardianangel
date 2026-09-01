@@ -74,6 +74,7 @@ import {
   RideAlert,
   RideAlertState,
 } from './src/ride/RideAlertStore';
+import { GuardianAngelTTS } from './src/services/GuardianAngelTTS';
 
 type Screen =
   | 'login'
@@ -144,6 +145,7 @@ function readCurrentLocation(): Promise<{ latitude: number; longitude: number }>
 
 function App() {
   const [screen, setScreen] = useState<Screen>('login');
+  useEffect(() => { void GuardianAngelTTS.initialize(); }, []);
   const [restoringRide, setRestoringRide] = useState(true);
   const [connection, setConnection] = useState<Connection>('offline');
   const [authToken, setAuthToken] = useState('');
@@ -291,6 +293,7 @@ function App() {
     setSeparationsByRider(clearAllSeparations());
     setRideAlertState(clearRideAlerts());
     setRideStarted(false);
+    GuardianAngelTTS.resetRideTransitions();
     setIsHost(false);
     setDeviceRole('UNKNOWN');
     endRideInFlightRef.current = false;
@@ -589,6 +592,7 @@ function App() {
             member.user_id === payload.user_id || member.name === payload.name
           );
           if (existingMember?.connectionState === 'DISCONNECTED') {
+            void GuardianAngelTTS.announceReconnect(payload.user_id, payload.name);
             addRideAlert({
               id: `reconnected:${payload.user_id}:${payload.timestamp || Date.now()}`,
               type: 'RIDER_RECONNECTED', severity: 'info', timestamp: payload.timestamp || Date.now(),
@@ -638,6 +642,7 @@ function App() {
         const groupCode = payload?.group_code || activeRoomCodeRef.current;
         if (!groupCode) return;
         console.log('[RIDE ENDED EVENT]');
+        void GuardianAngelTTS.announceRideEnded(groupCode);
         Alert.alert('Ride ended', 'The host ended this ride.');
         showCompletedRideSummary(groupCode);
       });
@@ -646,6 +651,7 @@ function App() {
         if (payload?.user_id && payload?.name) {
           const existingMember = roomMembersRef.current.find(member => member.user_id === payload.user_id);
           if (existingMember?.connectionState === 'DISCONNECTED') {
+            void GuardianAngelTTS.announceReconnect(payload.user_id, payload.name);
             addRideAlert({
               id: `reconnected:${payload.user_id}:${payload.last_updated_at || Date.now()}`,
               type: 'RIDER_RECONNECTED', severity: 'info', timestamp: payload.last_updated_at || Date.now(),
@@ -693,6 +699,7 @@ function App() {
         if (payload?.user_id && payload?.name) {
           const existingMember = roomMembersRef.current.find(member => member.user_id === payload.user_id);
           if (existingMember?.connectionState !== 'DISCONNECTED') {
+            void GuardianAngelTTS.announceDisconnect(payload.user_id, payload.name);
             addRideAlert({
               id: `disconnected:${payload.user_id}:${payload.timestamp || Date.now()}`,
               type: 'RIDER_DISCONNECTED', severity: 'warning', timestamp: payload.timestamp || Date.now(),
@@ -727,6 +734,7 @@ function App() {
       });
 
       listen('refill:notified', (payload) => {
+        if (payload?.user_id && payload?.name) void GuardianAngelTTS.announceRefuel(payload.user_id, payload.name, payload.refill_id);
         setRefuelRiderName(payload.name);
         setRefuelNote(payload.note || '');
         setRefuelActive(true);
@@ -739,6 +747,7 @@ function App() {
 
       listen('vehicle:breakdownReported', (payload: any) => {
         if (payload?.user_id && payload?.name) {
+          void GuardianAngelTTS.announceBreakdown(payload.user_id, payload.name, payload.breakdown_id);
           setBreakdownRiderId(payload.user_id);
           breakdownRiderIdRef.current = payload.user_id;
           setBreakdownRiderName(payload.name);
@@ -759,6 +768,7 @@ function App() {
 
       listen('vehicle:breakdownResolved', (payload: any) => {
         if (payload?.user_id && payload.user_id === breakdownRiderIdRef.current) {
+          if (payload?.name) void GuardianAngelTTS.announceBreakdownResolved(payload.user_id, payload.name, payload.breakdown_id);
           setBreakdownActive(false);
           setBreakdownRiderId('');
           breakdownRiderIdRef.current = '';
@@ -774,6 +784,7 @@ function App() {
         setSeparationsByRider((prev) => recordSeparation(prev, payload));
         const rider = payload?.separated_rider;
         if (rider?.user_id && rider?.name) {
+          void GuardianAngelTTS.announceSeparation(rider.user_id, rider.name, rider.distance_from_nearest_meters, rider.user_id === userId);
           const distance = formatDistanceMeters(rider.distance_from_nearest_meters);
           const groupSpeed = formatSpeedKph(payload?.group_recommendation?.recommended_speed);
           addRideAlert({
@@ -789,6 +800,7 @@ function App() {
       });
 
       listen('group:reunited', (payload: any) => {
+        if (payload?.user_id && payload?.name) void GuardianAngelTTS.announceReunion(payload.user_id, payload.name, payload.user_id === userId);
         setSeparationsByRider((prev) => clearRiderSeparation(prev, payload?.user_id));
         if (payload?.user_id && payload?.name) addRideAlert({
           id: `reunion:${payload.user_id}:${payload.timestamp || Date.now()}`,
@@ -800,6 +812,7 @@ function App() {
 
       listen('ride:started', (payload: any) => {
         if (payload?.group_code) {
+          void GuardianAngelTTS.announceRideStarted(payload.group_code);
           setRideStarted(true);
           setScreen('map');
           addRideAlert({
@@ -812,6 +825,7 @@ function App() {
 
       listen('sos:broadcast', (payload: any) => {
         if (payload?.name && payload?.user_id) {
+          void GuardianAngelTTS.announceSOS(payload.user_id, payload.name, payload.user_id === userId, payload.alarm_no);
           addRideAlert({
             id: `sos:${payload.alarm_no}`, type: 'SOS', severity: 'critical', timestamp: payload.timestamp || Date.now(),
             title: 'Emergency SOS', riderId: payload.user_id, riderName: payload.name,
@@ -892,6 +906,7 @@ function App() {
 
   useEffect(() => {
     if (!lastCandidate || !socketRef.current.isConnected()) return;
+    void GuardianAngelTTS.announceFallDetected();
     readCurrentLocation().then((location) => {
       lastCrashLocationRef.current = location;
       socketRef.current.emitEvent('crash:candidate', {
@@ -911,6 +926,7 @@ function App() {
         timestamp: Date.now(), latitude: location.latitude, longitude: location.longitude,
       });
     }
+    void GuardianAngelTTS.announceSOS(userId || 'self', riderName || undefined, true, `local:${Date.now()}`);
     setScreen('sos');
   }), []);
 

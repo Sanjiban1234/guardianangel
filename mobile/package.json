@@ -10,6 +10,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@mhpdev/react-native-speech": "^1.4.2",
     "@react-native-async-storage/async-storage": "^3.1.1",
     "@react-native-clipboard/clipboard": "^1.16.3",
     "@react-native-community/geolocation": "^3.4.0",

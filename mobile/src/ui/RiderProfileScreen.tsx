@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import TTSSettingsSection from '../components/TTSSettingsSection';
 
 const COLORS = {
   forest: '#14532D',
@@ -278,6 +279,8 @@ export function RiderProfileScreen({
             <Text style={styles.clearLinkText}>Clear Medical ID fields (Keep optional)</Text>
           </Pressable>
         </View>
+
+        <TTSSettingsSection />
 
         {/* ACTIONS */}
         <View style={styles.actionGroup}>
