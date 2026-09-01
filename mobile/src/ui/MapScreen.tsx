@@ -5,6 +5,8 @@ import LiveMapView from '../components/LiveMapView';
 import RideAlertOverlay from '../components/RideAlertOverlay';
 import { RideAlertState } from '../ride/RideAlertStore';
 import FriendInvitePicker from '../friends/FriendInvitePicker';
+import { useWeatherSafety } from '../weather/useWeatherSafety';
+import { WeatherSafetyCard } from '../weather/WeatherSafetyCard';
 
 interface MapScreenProps {
   roomCode: string;
@@ -46,7 +48,8 @@ interface MapScreenProps {
   onDismissRideAlert: (alertId: string) => void;
   roomId?: string;
   apiBaseUrl?: string;
-  authToken?: string;
+  authToken: string;
+  onWeatherAdvisory?: (alert: { id: string; severity: 'info' | 'warning'; title: string; message: string }) => void;
 }
 
 const COLORS = {
@@ -164,11 +167,14 @@ export default function MapScreen({
   roomId,
   apiBaseUrl,
   authToken,
+  onWeatherAdvisory,
 }: MapScreenProps) {
   const [routeCoordinates, setRouteCoordinates] = useState<
     Array<{ latitude: number; longitude: number }> | undefined
   >(undefined);
   const [copyConfirmationVisible, setCopyConfirmationVisible] = useState(false);
+  const [weatherExpanded, setWeatherExpanded] = useState(false);
+  const weather = useWeatherSafety(roomCode, authToken, currentLocation, destination || null, routeCoordinates || [], true, onWeatherAdvisory);
 
   useEffect(() => {
     if (!currentLocation || !destination) {
@@ -261,6 +267,7 @@ export default function MapScreen({
           criticalAlert={rideAlertState.criticalAlert}
           onDismiss={onDismissRideAlert}
         />
+        <WeatherSafetyCard data={weather} expanded={weatherExpanded} onPress={() => setWeatherExpanded(value => !value)} />
 
         <Pressable onPress={onOpenControls} style={styles.controlsButton}>
           <Text style={styles.controlsButtonIcon}>⚙️</Text>
@@ -315,6 +322,7 @@ export default function MapScreen({
         </View>
 
         {copyConfirmationVisible && <Text style={styles.copyConfirmation}>Room code copied</Text>}
+        <WeatherSafetyCard data={weather} expanded={weatherExpanded} onPress={() => setWeatherExpanded(value => !value)} />
 
         {/* Member list */}
         <View style={styles.memberSection}>
