@@ -70,6 +70,7 @@ import {
 } from './src/separation/SeparationState';
 import {
   clearRideAlerts,
+  clearWeatherRideAlerts,
   dismissRideAlert,
   enqueueRideAlert,
   RideAlert,
@@ -282,6 +283,10 @@ function App() {
   const addRideAlert = useCallback((alert: RideAlert) => {
     setRideAlertState(previous => enqueueRideAlert(previous, alert));
   }, []);
+  const handleWeatherAdvisory = useCallback((advisory: { type?: string; severity: 'info' | 'warning'; title: string; message: string }, snapshotKey: string) => {
+    const semanticType = advisory.type || advisory.title;
+    addRideAlert({ id: `${semanticType}:${snapshotKey}`, type: 'WEATHER', severity: advisory.severity, timestamp: Date.now(), title: advisory.title, message: advisory.message, dedupeKey: `weather:${semanticType}:${snapshotKey}` });
+  }, [addRideAlert]);
   const [permissionIntent, setPermissionIntent] = useState<'create' | 'join' | null>(null);
 
   // Ride start state
@@ -448,6 +453,7 @@ function App() {
 
   const handleActiveRouteChanged = useCallback((route: RouteResult) => {
     setActiveRoute(route);
+    setRideAlertState(previous => clearWeatherRideAlerts(previous));
     routeTrackerRef.current?.ingestRoute(route);
     const position = currentLocationRef.current;
     setRouteProgress(routeTrackerRef.current?.getSnapshot(position ? { latitude: position.latitude, longitude: position.longitude } : null) ?? null);
@@ -1469,7 +1475,7 @@ function App() {
           onLeaveRoom={handleLeaveRoom}
           rideAlertState={rideAlertState}
           onDismissRideAlert={dismissActiveRideAlert}
-          onWeatherAdvisory={(advisory) => addRideAlert({ id: advisory.id, type: 'WEATHER', severity: advisory.severity, timestamp: Date.now(), title: advisory.title, message: advisory.message, dedupeKey: advisory.id })}
+          onWeatherAdvisory={handleWeatherAdvisory}
            liveMetrics={liveMetrics}
            routeProgress={routeProgress}
            deadEndState={deadEndState}

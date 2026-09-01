@@ -5,6 +5,8 @@ import { WeatherService } from '../services/WeatherService';
 import { logger } from '../utils/logger';
 import { evaluateWeatherAdvisories } from '../services/WeatherSafetyRules';
 import type { RouteWeatherPoint, WeatherPoint } from '@guardian-angel/contracts/weather';
+import type { NormalizedWeather } from '@guardian-angel/contracts/weather';
+import { WeatherProviderError } from '../services/OpenMeteoWeatherProvider';
 
 export class WeatherRouter {
   readonly router: Router;
@@ -39,12 +41,15 @@ export class WeatherRouter {
     if ((body.destination && !this.validPoint(body.destination)) || route.length > 5 || route.some((x: unknown) => !this.validPoint((x as RouteWeatherPoint).location))) { res.status(400).json({ error: 'Invalid weather coordinates or route point limit' }); return; }
     try {
       const riderLocations = await this.weatherService.getRiderLocations(room.id); const currentPoint = body.start && this.validPoint(body.start) ? body.start : riderLocations.length ? this.weatherService.computeCentroid(riderLocations) : null;
-      const current = currentPoint ? await this.weatherService.currentAt(currentPoint) : null;
-      const destination = body.destination ? await this.weatherService.forecastAt(body.destination) : null;
-      const ahead = await Promise.all(route.map(async (entry: RouteWeatherPoint) => ({ location: entry.location, progress: entry.progress, weather: await this.weatherService.forecastAt(entry.location, entry.etaAt ? new Date(entry.etaAt) : undefined) })));
+      const failures: string[] = [];
+      const optional = async (category: string, loader: () => Promise<NormalizedWeather>): Promise<NormalizedWeather | null> => { try { return await loader(); } catch (error) { failures.push(error instanceof WeatherProviderError ? error.reason : 'unknown'); logger.warn('weather_sample_failed', { category, reason: failures[failures.length - 1] }); return null; } };
+      const current = currentPoint ? await optional('current', () => this.weatherService.currentAt(currentPoint)) : null;
+      const destination = body.destination ? await optional('destination', () => this.weatherService.forecastAt(body.destination)) : null;
+      const ahead = await Promise.all(route.map(async (entry: RouteWeatherPoint) => ({ location: entry.location, progress: entry.progress, weather: await optional('ahead', () => this.weatherService.forecastAt(entry.location, entry.etaAt ? new Date(entry.etaAt) : undefined)) })));
       const advisories = [current && evaluateWeatherAdvisories(current, 'current'), destination && evaluateWeatherAdvisories(destination, 'destination'), ...ahead.map(item => item.weather && evaluateWeatherAdvisories(item.weather, 'ahead'))].flat().filter(Boolean);
-      res.status(200).json({ current, destination, ahead, advisories, fetchedAt: new Date().toISOString(), ...(current ? {} : { reason: 'no_location_data' }) });
-    } catch { logger.warn('weather_provider_failed', { category: 'weather_provider_failed' }); res.status(200).json({ current: null, destination: null, ahead: [], advisories: [], fetchedAt: new Date().toISOString(), reason: 'provider_unavailable' }); }
+      const reason = failures.length ? (current || destination || ahead.some(item => item.weather) ? 'partial_failure' : failures[0]) : current ? undefined : 'no_location_data';
+      res.status(200).json({ current, destination, ahead, advisories, fetchedAt: new Date().toISOString(), ...(reason ? { reason } : {}) });
+    } catch { logger.warn('weather_provider_failed', { category: 'weather_provider_failed', reason: 'unknown' }); res.status(200).json({ current: null, destination: null, ahead: [], advisories: [], fetchedAt: new Date().toISOString(), reason: 'unknown' }); }
   }
 
   private async handleGetWeather(

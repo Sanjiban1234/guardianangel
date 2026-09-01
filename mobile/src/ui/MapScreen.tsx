@@ -59,7 +59,7 @@ interface MapScreenProps {
   roomId?: string;
   apiBaseUrl?: string;
   authToken: string;
-  onWeatherAdvisory?: (alert: { id: string; severity: 'info' | 'warning'; title: string; message: string }) => void;
+  onWeatherAdvisory?: (alert: { id: string; type?: string; severity: 'info' | 'warning'; title: string; message: string }, snapshotKey: string) => void;
   /** Live ride statistics from RideMetricsAccumulator (null = not in active ride). */
   liveMetrics?: MetricsSnapshot | null;
   /** Route progress / ETA from RouteProgressTracker (null = no route available). */

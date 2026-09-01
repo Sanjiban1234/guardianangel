@@ -1,5 +1,6 @@
 import {
   clearRideAlerts,
+  clearWeatherRideAlerts,
   dismissRideAlert,
   enqueueRideAlert,
   RideAlert,
@@ -76,5 +77,11 @@ describe('RideAlertStore', () => {
     const state = enqueueRideAlert(clearRideAlerts(), alert());
     expect(clearRideAlerts()).not.toBe(state);
     expect(clearRideAlerts()).toEqual({ alerts: [], criticalAlert: null });
+  });
+
+  it('clears weather alerts when the active route is replaced', () => {
+    const weather = alert({ id: 'weather-1', type: 'WEATHER', dedupeKey: 'weather:THUNDERSTORM:route-a' });
+    const state = enqueueRideAlert(enqueueRideAlert(clearRideAlerts(), weather), alert());
+    expect(clearWeatherRideAlerts(state).alerts).toEqual([state.alerts.find(item => item.type === 'SEPARATION')]);
   });
 });

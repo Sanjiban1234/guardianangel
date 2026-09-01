@@ -64,3 +64,7 @@ export function dismissRideAlert(state: RideAlertState, alertId: string): RideAl
 export function clearRideAlerts(): RideAlertState {
   return EMPTY_RIDE_ALERT_STATE;
 }
+
+export function clearWeatherRideAlerts(state: RideAlertState): RideAlertState {
+  return { ...state, alerts: state.alerts.filter(alert => alert.type !== 'WEATHER') };
+}
