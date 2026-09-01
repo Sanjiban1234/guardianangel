@@ -41,6 +41,10 @@ export class FriendService {
   async list(userId: string): Promise<PublicUser[]> {
     return (await this.db.run(`SELECT u.id AS "userId", u.name AS "displayName", u.username FROM friendships f JOIN users u ON u.id = CASE WHEN f.user_a_id = $1 THEN f.user_b_id ELSE f.user_a_id END WHERE f.user_a_id = $1 OR f.user_b_id = $1 ORDER BY lower(u.username), u.name`, [userId])).rows;
   }
+  async publicUser(userId: string): Promise<PublicUser | null> {
+    const result = await this.db.run('SELECT id AS "userId", name AS "displayName", username FROM users WHERE id = $1', [userId]);
+    return result.rows[0] || null;
+  }
   async requests(userId: string, direction: 'incoming' | 'outgoing') {
     const column = direction === 'incoming' ? 'receiver_user_id' : 'sender_user_id';
     const other = direction === 'incoming' ? 'sender_user_id' : 'receiver_user_id';
@@ -59,10 +63,11 @@ export class FriendService {
     if (!result.rows.length) fail('Unable to send friend request', 'REQUEST_UNAVAILABLE');
     return { id: result.rows[0].id, action: 'created' };
   }
-  async respond(userId: string, requestId: string, accept: boolean): Promise<void> {
+  async respond(userId: string, requestId: string, accept: boolean): Promise<string> {
     const request = await this.db.run(`UPDATE friend_requests SET status = $3, responded_at = now() WHERE id = $1 AND receiver_user_id = $2 AND status = 'pending' RETURNING sender_user_id, receiver_user_id`, [requestId, userId, accept ? 'accepted' : 'declined']);
     if (!request.rows.length) fail('Friend request is unavailable', 'REQUEST_UNAVAILABLE');
     if (accept) await this.db.run('INSERT INTO friendships (user_a_id, user_b_id) VALUES (LEAST($1::uuid,$2::uuid), GREATEST($1::uuid,$2::uuid)) ON CONFLICT DO NOTHING', [request.rows[0].sender_user_id, userId]);
+    return request.rows[0].sender_user_id;
   }
   async cancel(userId: string, requestId: string): Promise<void> {
     const result = await this.db.run("UPDATE friend_requests SET status = 'cancelled', responded_at = now() WHERE id = $1 AND sender_user_id = $2 AND status = 'pending' RETURNING id", [requestId, userId]);

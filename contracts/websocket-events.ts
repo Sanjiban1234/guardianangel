@@ -290,4 +290,8 @@ export interface RideStartedPayload {
   started_at: number; // Server timestamp (epoch ms)
 }
 
+/** Social notifications are advisory only; REST/database state is authoritative. */
+export interface FriendNotificationPayload { userId: string; displayName?: string; username?: string; requestId?: string; }
+export interface RideInvitationNotificationPayload { invitationId: string; roomId: string; inviterName?: string; destinationLabel?: string; }
+
 

@@ -3,22 +3,23 @@ import rateLimit from 'express-rate-limit';
 import { AuthMiddleware, AuthenticatedRequest } from '../middleware/AuthMiddleware';
 import { FriendService } from '../services/FriendService';
 import { AppError } from '../utils/AppError';
+import type { Server } from 'socket.io';
 
 const searchLimiter = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many searches, please try again shortly' } });
 const mutationLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many friend actions, please try again shortly' } });
 export class FriendRouter {
   readonly router = Router();
-  constructor(private readonly friends: FriendService) {
+  constructor(private readonly friends: FriendService, private readonly io?: Server) {
     const guarded = (handler: (req: AuthenticatedRequest, res: Response) => void) => (req: any, res: Response) => handler(req as AuthenticatedRequest, res);
     this.router.put('/users/username', AuthMiddleware.authenticateJWT, mutationLimiter, guarded((req,res) => this.run(req,res, () => this.friends.setUsername(req.user!.id, req.body?.username).then(username => ({ username })))));
     this.router.get('/users/search', AuthMiddleware.authenticateJWT, searchLimiter, guarded((req,res) => this.run(req,res, () => this.friends.search(req.user!.id, String(req.query.q || '')))));
     this.router.get('/friends', AuthMiddleware.authenticateJWT, guarded((req,res) => this.run(req,res, () => this.friends.list(req.user!.id))));
     this.router.get('/friends/requests/:direction', AuthMiddleware.authenticateJWT, guarded((req,res) => this.run(req,res, () => ['incoming','outgoing'].includes(req.params.direction) ? this.friends.requests(req.user!.id, req.params.direction as 'incoming'|'outgoing') : Promise.reject(new AppError('Not found','NOT_FOUND')))));
-    this.router.post('/friends/requests', AuthMiddleware.authenticateJWT, mutationLimiter, guarded((req,res) => this.run(req,res, () => this.friends.request(req.user!.id, req.body?.receiver_user_id), 201)));
-    this.router.post('/friends/requests/:id/accept', AuthMiddleware.authenticateJWT, mutationLimiter, guarded((req,res) => this.run(req,res, () => this.friends.respond(req.user!.id, req.params.id, true), 200)));
+    this.router.post('/friends/requests', AuthMiddleware.authenticateJWT, mutationLimiter, guarded((req,res) => this.run(req,res, async () => { const result=await this.friends.request(req.user!.id, req.body?.receiver_user_id); const sender=await this.friends.publicUser(req.user!.id); if (result.action === 'created') this.io?.to(`user:${req.body.receiver_user_id}`).emit('friend:request', {...sender, requestId: result.id}); else this.io?.to(`user:${req.body.receiver_user_id}`).emit('friend:accepted', sender); return result; }, 201)));
+    this.router.post('/friends/requests/:id/accept', AuthMiddleware.authenticateJWT, mutationLimiter, guarded((req,res) => this.run(req,res, async () => { const senderId=await this.friends.respond(req.user!.id, req.params.id, true); this.io?.to(`user:${senderId}`).emit('friend:accepted', await this.friends.publicUser(req.user!.id)); }, 200)));
     this.router.post('/friends/requests/:id/decline', AuthMiddleware.authenticateJWT, mutationLimiter, guarded((req,res) => this.run(req,res, () => this.friends.respond(req.user!.id, req.params.id, false), 200)));
     this.router.delete('/friends/requests/:id', AuthMiddleware.authenticateJWT, mutationLimiter, guarded((req,res) => this.run(req,res, () => this.friends.cancel(req.user!.id, req.params.id), 200)));
-    this.router.delete('/friends/:userId', AuthMiddleware.authenticateJWT, mutationLimiter, guarded((req,res) => this.run(req,res, () => this.friends.remove(req.user!.id, req.params.userId), 204)));
+    this.router.delete('/friends/:userId', AuthMiddleware.authenticateJWT, mutationLimiter, guarded((req,res) => this.run(req,res, async () => { await this.friends.remove(req.user!.id, req.params.userId); this.io?.to(`user:${req.params.userId}`).emit('friend:removed', {userId:req.user!.id}); }, 204)));
     this.router.post('/users/:userId/block', AuthMiddleware.authenticateJWT, mutationLimiter, guarded((req,res) => this.run(req,res, () => this.friends.block(req.user!.id, req.params.userId), 204)));
     this.router.delete('/users/:userId/block', AuthMiddleware.authenticateJWT, mutationLimiter, guarded((req,res) => this.run(req,res, () => this.friends.unblock(req.user!.id, req.params.userId), 204)));
   }

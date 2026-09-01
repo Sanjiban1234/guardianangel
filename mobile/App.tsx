@@ -36,6 +36,7 @@ import RiderProfileScreen, {
   RiderProfileData,
 } from './src/ui/RiderProfileScreen';
 import { SocketClient } from './src/telemetry/socket/SocketClient';
+import FriendsScreen from './src/friends/FriendsScreen';
 import { TelemetryModule } from './src/telemetry';
 import { CommunityGeolocationProvider } from './src/telemetry/location/LocationProvider';
 import {
@@ -87,7 +88,8 @@ type Screen =
   | 'countdown'
   | 'sos'
   | 'summary'
-  | 'profile';
+  | 'profile'
+  | 'friends';
 
 type Connection = 'live' | 'offline';
 type BreakdownReason = 'flat_tire' | 'mechanical_failure' | 'fuel' | 'other';
@@ -147,6 +149,7 @@ function App() {
   const [restoringRide, setRestoringRide] = useState(true);
   const [connection, setConnection] = useState<Connection>('offline');
   const [authToken, setAuthToken] = useState('');
+  const [friendsRefreshSignal, setFriendsRefreshSignal] = useState(0);
   const [fineLocationGranted, setFineLocationGranted] = useState(false);
   const fineLocationGrantedRef = useRef(false);
   const socketRef = useRef(new SocketClient());
@@ -549,6 +552,9 @@ function App() {
       const listen = (event: string, handler: (payload: any) => void) => {
         eventCleanupsRef.current.push(socketRef.current.onEvent(event, handler));
       };
+      for (const event of ['friend:request', 'friend:accepted', 'friend:removed', 'ride:invitation']) {
+        listen(event, () => setFriendsRefreshSignal((value) => value + 1));
+      }
 
       listen('session:joined', (payload: any) => {
         console.log(`[LIVE LOCATION AUDIT] session:joined received, members: ${payload?.members?.length ?? 0}`);
@@ -1213,6 +1219,7 @@ function App() {
             }
           }}
           onOpenProfile={() => setScreen('profile')}
+          onOpenFriends={() => setScreen('friends')}
           onLogout={handleLogout}
         />
       )}
@@ -1269,6 +1276,10 @@ function App() {
           }}
           onCancel={() => setScreen('portal')}
         />
+      )}
+
+      {screen === 'friends' && (
+        <FriendsScreen apiBaseUrl={API_BASE_URL} authToken={authToken} refreshSignal={friendsRefreshSignal} onBack={() => setScreen('portal')} />
       )}
 
       {screen === 'map' && (() => {
@@ -1449,6 +1460,7 @@ function Portal({
   onCreateRide,
   onJoinRide,
   onOpenProfile,
+  onOpenFriends,
   onLogout,
 }: {
   riderName: string;
@@ -1457,6 +1469,7 @@ function Portal({
   onCreateRide: () => void | Promise<void>;
   onJoinRide: () => void | Promise<void>;
   onOpenProfile: () => void;
+  onOpenFriends: () => void;
   onLogout: () => void;
 }) {
   return (
@@ -1505,6 +1518,12 @@ function Portal({
           <Text style={styles.cardTitle}>Start a group ride</Text>
           <Text style={styles.copy}>Select a destination, generate a room code and share with your riders.</Text>
           <Button label="Create ride room & set destination →" onPress={onCreateRide} />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Friends</Text>
+          <Text style={styles.copy}>Coordinate rides with trusted friends. This never shares your location automatically.</Text>
+          <Button label="Manage friends →" tone="secondary" onPress={onOpenFriends} />
         </View>
 
         {/* JOIN RIDE CARD */}

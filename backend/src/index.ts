@@ -74,8 +74,6 @@ const crashRepo          = new CrashCandidateRepository(queryRunner);
 const deviceRouter       = new DeviceRouter(fcmPushService);
 const medicalRouter      = new MedicalInfoRouter(medicalService);
 const userProfileRouter  = new UserProfileRouter(userService);
-const friendRouter       = new FriendRouter(friendService);
-const rideInvitationRouter = new RideInvitationRouter(rideInvitationService);
 
 const socketController = new RideSocketController(
   roomService,
@@ -117,6 +115,8 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
   },
 });
+const friendRouter       = new FriendRouter(friendService, io);
+const rideInvitationRouter = new RideInvitationRouter(rideInvitationService, io);
 
 app.use(express.json({ limit: MAX_BODY_SIZE }));
 
