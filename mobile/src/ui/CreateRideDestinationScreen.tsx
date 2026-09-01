@@ -34,6 +34,7 @@ export interface RideDestination {
 }
 
 export interface CreatedRoomData {
+  roomId: string;
   groupCode: string;
   shareableUrl: string;
   destination: RideDestination;
@@ -315,6 +316,7 @@ export function CreateRideDestinationScreen({
       };
 
       onConfirmAndStartRide({
+        roomId: body.room_id,
         groupCode: body.group_code,
         shareableUrl: body.group_code,
         destination: finalDest,

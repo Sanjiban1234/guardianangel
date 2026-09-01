@@ -88,6 +88,10 @@ export const initDb = async (): Promise<void> => {
     await client.query("CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique_idx ON users(email) WHERE email IS NOT NULL");
     // Remove legacy UNIQUE(name) constraint — names are display-only, not unique identifiers
     await client.query("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_name_key");
+    // Public discovery identifier.  It is deliberately nullable for legacy
+    // accounts: users choose their own handle rather than receiving one.
+    await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(32)");
+    await client.query("CREATE UNIQUE INDEX IF NOT EXISTS users_username_normalized_unique_idx ON users (lower(username)) WHERE username IS NOT NULL");
 
     // Active Riders table (ER: GroupCode, IncludeID, GeoHash, type of Operation)
     await client.query(`
@@ -389,6 +393,42 @@ export const initDb = async (): Promise<void> => {
     await client.query('ALTER TABLE telemetry_readings ALTER COLUMN speed DROP NOT NULL');
     await client.query('ALTER TABLE medical_info ADD COLUMN IF NOT EXISTS share_medical_during_emergency BOOLEAN NOT NULL DEFAULT false');
     await client.query('ALTER TABLE medical_info ADD COLUMN IF NOT EXISTS share_emergency_contact_during_emergency BOOLEAN NOT NULL DEFAULT false');
+
+    await client.query(`CREATE TABLE IF NOT EXISTS friend_requests (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      sender_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      receiver_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','declined','cancelled')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), responded_at TIMESTAMPTZ,
+      CHECK (sender_user_id <> receiver_user_id)
+    )`);
+    await client.query("CREATE UNIQUE INDEX IF NOT EXISTS friend_requests_one_pending_pair_idx ON friend_requests (LEAST(sender_user_id, receiver_user_id), GREATEST(sender_user_id, receiver_user_id)) WHERE status = 'pending'");
+    await client.query('CREATE INDEX IF NOT EXISTS friend_requests_receiver_status_idx ON friend_requests (receiver_user_id, status, created_at DESC)');
+    await client.query('CREATE INDEX IF NOT EXISTS friend_requests_sender_status_idx ON friend_requests (sender_user_id, status, created_at DESC)');
+    await client.query(`CREATE TABLE IF NOT EXISTS friendships (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_a_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_b_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CHECK (user_a_id < user_b_id), UNIQUE (user_a_id, user_b_id)
+    )`);
+    await client.query('CREATE INDEX IF NOT EXISTS friendships_user_a_idx ON friendships (user_a_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS friendships_user_b_idx ON friendships (user_b_id)');
+    await client.query(`CREATE TABLE IF NOT EXISTS user_blocks (
+      blocker_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      blocked_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (blocker_user_id, blocked_user_id),
+      CHECK (blocker_user_id <> blocked_user_id)
+    )`);
+    await client.query('CREATE INDEX IF NOT EXISTS user_blocks_blocked_idx ON user_blocks (blocked_user_id)');
+    await client.query(`CREATE TABLE IF NOT EXISTS ride_invitations (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(), room_id UUID NOT NULL REFERENCES ride_rooms(id) ON DELETE CASCADE,
+      inviter_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      invitee_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','declined','expired','cancelled')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), expires_at TIMESTAMPTZ NOT NULL,
+      responded_at TIMESTAMPTZ, CHECK (inviter_user_id <> invitee_user_id)
+    )`);
+    await client.query("CREATE UNIQUE INDEX IF NOT EXISTS ride_invitations_one_pending_idx ON ride_invitations (room_id, invitee_user_id) WHERE status = 'pending'");
+    await client.query('CREATE INDEX IF NOT EXISTS ride_invitations_invitee_status_idx ON ride_invitations (invitee_user_id, status, created_at DESC)');
 
     await client.query('COMMIT');
     console.log('db: PostgreSQL + PostGIS schema initialised.');
