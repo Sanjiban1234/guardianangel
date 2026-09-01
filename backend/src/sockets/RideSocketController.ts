@@ -59,7 +59,9 @@ export class RideSocketController {
       this.socketsByUser.set(userId, count + 1);
       // A socket is assigned only to the room derived from its verified JWT.
       // Clients never send a user id to select this room.
-      socket.join(`user:${userId}`);
+      // Some lightweight unit-test socket doubles deliberately omit room
+      // support; production Socket.IO sockets always implement join.
+      if (typeof socket.join === 'function') socket.join(`user:${userId}`);
 
       // Boundary limiter: normal GPS cadence is ~5 seconds. A short burst is
       // tolerated; sustained floods are dropped before handlers reach storage.
