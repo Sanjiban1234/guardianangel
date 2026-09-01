@@ -36,6 +36,10 @@ import { createSafetyRouter } from './routes/SafetyRouter';
 import { DeviceRouter } from './routes/DeviceRouter';
 import { MedicalInfoRouter } from './routes/MedicalInfoRouter';
 import { UserProfileRouter } from './routes/UserProfileRouter';
+import { FriendRouter } from './routes/FriendRouter';
+import { FriendService } from './services/FriendService';
+import { RideInvitationService } from './services/RideInvitationService';
+import { RideInvitationRouter } from './routes/RideInvitationRouter';
 
 // ─── Socket Controller ────────────────────────────────────────────────────
 import { RideSocketController } from './sockets/RideSocketController';
@@ -53,6 +57,8 @@ const disclosureAuditService = new EmergencyDisclosureAuditService(queryRunner);
 const userService        = new UserService(queryRunner, authSessionService);
 AuthMiddleware.configureSessionValidator((jti, userId) => authSessionService.isActive(jti, userId));
 const roomService        = new RoomService(queryRunner);
+const friendService      = new FriendService(queryRunner);
+const rideInvitationService = new RideInvitationService(queryRunner, roomService);
 const telemetryService   = new TelemetryService(queryRunner);
 const alertService       = new EmergencyAlertService(queryRunner);
 const presenceService    = new PresenceService(queryRunner);
@@ -68,6 +74,8 @@ const crashRepo          = new CrashCandidateRepository(queryRunner);
 const deviceRouter       = new DeviceRouter(fcmPushService);
 const medicalRouter      = new MedicalInfoRouter(medicalService);
 const userProfileRouter  = new UserProfileRouter(userService);
+const friendRouter       = new FriendRouter(friendService);
+const rideInvitationRouter = new RideInvitationRouter(rideInvitationService);
 
 const socketController = new RideSocketController(
   roomService,
@@ -121,6 +129,8 @@ app.use('/api',      createWeatherRouter(roomService, weatherService));
 app.use('/api',      deviceRouter.router);
 app.use('/api',      medicalRouter.router);
 app.use('/api',      userProfileRouter.router);
+app.use('/api',      friendRouter.router);
+app.use('/api',      rideInvitationRouter.router);
 
 // Register WebSocket controller
 socketController.register(io);

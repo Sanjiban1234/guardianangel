@@ -133,6 +133,24 @@ export class RoomService {
     };
   }
 
+  /** Invitation-only join path. It deliberately performs the same profile,
+   * lifecycle, capacity, and membership checks as a room-code join. */
+  async joinRoomById(userId: string, roomId: string): Promise<JoinRoomResult> {
+    await this.assertProfileComplete(userId);
+    const existing = await this.db.run(`SELECT id, status, created_at, destination_latitude, destination_longitude, destination_label,
+      created_at + INTERVAL '${ROOM_EXPIRY_HOURS} hours' AS expires_at FROM ride_rooms WHERE id = $1 LIMIT 1`, [roomId]);
+    if (!existing.rows.length) throw new AppError('Ride group not found', 'ROOM_NOT_FOUND');
+    const room = existing.rows[0];
+    if (room.status !== 'active') throw new AppError('This ride group has already ended', 'ROOM_ENDED');
+    if (new Date(room.expires_at).getTime() <= Date.now()) throw new AppError('This ride group has expired', 'ROOM_EXPIRED');
+    if ((await this.db.run('SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2 LIMIT 1', [room.id, userId])).rows.length) {
+      const error: any = new AppError('You are already a member of this ride group', 'ALREADY_MEMBER'); error.room_id = room.id; throw error;
+    }
+    if (Number((await this.db.run('SELECT COUNT(*)::int AS count FROM room_members WHERE room_id = $1', [room.id])).rows[0]?.count ?? 0) >= MAX_ROOM_MEMBERS) throw new AppError('This ride group is full', 'ROOM_FULL');
+    await this.db.run("INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'member')", [room.id, userId]);
+    return { room_id: room.id, destination: room.destination_latitude != null ? { latitude: room.destination_latitude, longitude: room.destination_longitude, label: room.destination_label } : undefined };
+  }
+
   /** Return persisted room details needed to recover an idempotent join. */
   async getRoomByCode(groupCode: string): Promise<{ room_id: string; destination?: { latitude: number; longitude: number; label: string | null } } | null> {
     const tokenHash = this.hashToken(groupCode.toUpperCase());
