@@ -211,6 +211,7 @@ function App() {
 
   // Room / Destination state
   const [activeRoomCode, setActiveRoomCode] = useState<string>('');
+  const [activeRoomId, setActiveRoomId] = useState<string>('');
   // This deliberately is not persisted.  It identifies a completed room long
   // enough to fetch its authoritative post-ride summary without treating the
   // ended room as an active membership on a later launch.
@@ -990,6 +991,7 @@ function App() {
   };
 
   const handleCreatedRoomStart = (roomData: CreatedRoomData) => {
+    setActiveRoomId(roomData.roomId);
     setActiveRoomCode(roomData.groupCode);
     setDestinationTitle(roomData.destination.title);
     setDestination({
@@ -1303,6 +1305,9 @@ function App() {
         return (
         <MapScreen
           roomCode={activeRoomCode}
+          roomId={activeRoomId || undefined}
+          apiBaseUrl={API_BASE_URL}
+          authToken={authToken}
           destinationTitle={destinationTitle}
           currentLocation={currentLocation}
           riders={computedRiders}

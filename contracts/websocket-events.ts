@@ -293,5 +293,6 @@ export interface RideStartedPayload {
 /** Social notifications are advisory only; REST/database state is authoritative. */
 export interface FriendNotificationPayload { userId: string; displayName?: string; username?: string; requestId?: string; }
 export interface RideInvitationNotificationPayload { invitationId: string; roomId: string; inviterName?: string; destinationLabel?: string; }
+export interface RideInvitationResponseNotificationPayload { invitationId: string; invitee: FriendNotificationPayload | null; }
 
 

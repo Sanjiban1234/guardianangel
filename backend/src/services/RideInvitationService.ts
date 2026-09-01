@@ -15,11 +15,11 @@ export class RideInvitationService {
     try { const result = await this.db.run(`INSERT INTO ride_invitations (room_id, inviter_user_id, invitee_user_id, expires_at) VALUES ($1,$2,$3,now() + interval '24 hours') RETURNING id, expires_at`, [roomId, inviterId, inviteeId]); return result.rows[0]; }
     catch (e: any) { if (e?.code === '23505') throw new AppError('Invitation already pending', 'INVITATION_PENDING'); throw e; }
   }
-  async decline(userId: string, invitationId: string) { const r=await this.db.run("UPDATE ride_invitations SET status='declined', responded_at=now() WHERE id=$1 AND invitee_user_id=$2 AND status='pending' RETURNING id", [invitationId,userId]); if(!r.rows.length) throw new AppError('Invitation unavailable','INVITATION_UNAVAILABLE'); }
+  async decline(userId: string, invitationId: string) { const r=await this.db.run("UPDATE ride_invitations SET status='declined', responded_at=now() WHERE id=$1 AND invitee_user_id=$2 AND status='pending' RETURNING id, inviter_user_id", [invitationId,userId]); if(!r.rows.length) throw new AppError('Invitation unavailable','INVITATION_UNAVAILABLE'); return r.rows[0]; }
   async accept(userId: string, invitationId: string) {
-    const invitation=await this.db.run("SELECT room_id FROM ride_invitations WHERE id=$1 AND invitee_user_id=$2 AND status='pending' AND expires_at>now()", [invitationId,userId]);
+    const invitation=await this.db.run("SELECT room_id, inviter_user_id FROM ride_invitations WHERE id=$1 AND invitee_user_id=$2 AND status='pending' AND expires_at>now()", [invitationId,userId]);
     if(!invitation.rows.length) throw new AppError('Invitation unavailable','INVITATION_UNAVAILABLE');
     const joined=await this.rooms.joinRoomById(userId, invitation.rows[0].room_id);
-    await this.db.run("UPDATE ride_invitations SET status='accepted', responded_at=now() WHERE id=$1 AND invitee_user_id=$2 AND status='pending'", [invitationId,userId]); return joined;
+    await this.db.run("UPDATE ride_invitations SET status='accepted', responded_at=now() WHERE id=$1 AND invitee_user_id=$2 AND status='pending'", [invitationId,userId]); return { joined, inviterUserId: invitation.rows[0].inviter_user_id };
   }
 }

@@ -116,7 +116,7 @@ const io = new Server(server, {
   },
 });
 const friendRouter       = new FriendRouter(friendService, io);
-const rideInvitationRouter = new RideInvitationRouter(rideInvitationService, io);
+const rideInvitationRouter = new RideInvitationRouter(rideInvitationService, friendService, io);
 
 app.use(express.json({ limit: MAX_BODY_SIZE }));
 
