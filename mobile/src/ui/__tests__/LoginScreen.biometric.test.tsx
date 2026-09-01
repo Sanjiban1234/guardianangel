@@ -41,7 +41,7 @@ const pressables = (renderer: TestRenderer.ReactTestRenderer): TestRenderer.Reac
   renderer.root.findAll(node => typeof node.props.onPress === 'function');
 
 const biometricButton = (renderer: TestRenderer.ReactTestRenderer): TestRenderer.ReactTestInstance =>
-  pressables(renderer).find(button => textIn(button.props.children).includes('Login with'))!;
+  pressables(renderer).find(button => typeof button.props.accessibilityLabel === 'string' && button.props.accessibilityLabel.startsWith('Login with'))!;
 
 const signInButton = (renderer: TestRenderer.ReactTestRenderer): TestRenderer.ReactTestInstance =>
   pressables(renderer).find(button => textIn(button.props.children).includes('Sign In'))!;

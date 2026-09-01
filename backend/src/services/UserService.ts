@@ -5,6 +5,17 @@ import { JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET } from '../config';
 import { AppError } from '../utils/AppError';
 import crypto from 'crypto';
 import { AuthSessionService } from './AuthSessionService';
+import { FriendService } from './FriendService';
+
+const databaseErrorCode = (error: unknown): string | undefined =>
+  typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'
+    ? error.code
+    : undefined;
+
+const databaseErrorConstraint = (error: unknown): string | undefined =>
+  typeof error === 'object' && error !== null && 'constraint' in error && typeof error.constraint === 'string'
+    ? error.constraint
+    : undefined;
 
 export interface RegisterResult {
   id: string;
@@ -13,17 +24,19 @@ export interface RegisterResult {
   vehicle_model?: string;
   plate_number?: string;
   vehicle_color?: string;
+  username?: string;
 }
 
 export interface LoginResult {
   token: string;
-  user: { id: string; name: string; email: string; profile_complete: boolean; vehicle_model?: string; plate_number?: string; vehicle_color?: string };
+  user: { id: string; name: string; email: string; username?: string; profile_complete: boolean; vehicle_model?: string; plate_number?: string; vehicle_color?: string };
 }
 
 export interface VehicleProfile {
   vehicle_model?: string;
   plate_number?: string;
   vehicle_color?: string;
+  username?: string;
 }
 
 type LoginUser = {
@@ -35,6 +48,7 @@ type LoginUser = {
   vehicle_model?: string;
   plate_number?: string;
   vehicle_color?: string;
+  username?: string;
 };
 
 export class UserService {
@@ -49,6 +63,7 @@ export class UserService {
     vehicleModel?: string,
     plateNumber?: string,
     vehicleColor?: string,
+    username?: string,
   ): Promise<RegisterResult> {
     // Check if email is already registered
     const existingEmail = await this.db.run(
@@ -62,14 +77,22 @@ export class UserService {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    const result = await this.db.run(
-      `INSERT INTO users (name, email, password_hash, phone, vehicle_model, plate_number, vehicle_color, profile_complete)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, true)
-       RETURNING id, name, email, vehicle_model, plate_number, vehicle_color`,
-      [name, email, passwordHash, phone, vehicleModel, plateNumber, vehicleColor]
-    );
-
-    return result.rows[0] as RegisterResult;
+    const normalizedUsername = username === undefined ? undefined : FriendService.normalizeUsername(username);
+    try {
+      const result = await this.db.run(
+        `INSERT INTO users (name, email, password_hash, phone, vehicle_model, plate_number, vehicle_color, username, profile_complete)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
+         RETURNING id, name, email, username, vehicle_model, plate_number, vehicle_color`,
+        [name, email, passwordHash, phone, vehicleModel, plateNumber, vehicleColor, normalizedUsername]
+      );
+      return result.rows[0] as RegisterResult;
+    } catch (error) {
+      if (databaseErrorCode(error) === '23505') {
+        if (databaseErrorConstraint(error)?.includes('username')) throw new AppError('Username is unavailable', 'USERNAME_TAKEN');
+        throw new AppError('Email is already registered', 'EMAIL_TAKEN');
+      }
+      throw error;
+    }
   }
 
   async login(email: string, password: string): Promise<LoginResult> {
@@ -113,6 +136,7 @@ export class UserService {
         id: user.id,
         name: user.name,
         email: user.email,
+        username: user.username || undefined,
         profile_complete: user.profile_complete !== false,
         vehicle_model: user.vehicle_model || undefined,
         plate_number: user.plate_number || undefined,
@@ -130,7 +154,7 @@ export class UserService {
 
   async getVehicleProfile(userId: string): Promise<VehicleProfile | null> {
     const result = await this.db.run(
-      'SELECT vehicle_model, plate_number, vehicle_color FROM users WHERE id = $1',
+      'SELECT username, vehicle_model, plate_number, vehicle_color FROM users WHERE id = $1',
       [userId],
     );
     return result.rows[0] ? result.rows[0] as VehicleProfile : null;

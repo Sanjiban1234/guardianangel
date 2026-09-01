@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import type { RiderSeparations } from '../separation/SeparationState';
+import GuardianPortalControls from '../guardianPortal/GuardianPortalControls';
 
 interface RoomMember {
   user_id: string;
@@ -37,7 +38,8 @@ interface RideControlsScreenProps {
   breakdownVehicleModel: string;
   breakdownPlateNumber: string;
   separationsByRider: RiderSeparations;
-  profile: any;
+  apiBaseUrl?: string;
+  authToken: string;
   isPaused?: boolean;
   isPausing?: boolean;
   onTogglePause?: () => void;
@@ -85,7 +87,8 @@ export default function RideControlsScreen({
   breakdownVehicleModel,
   breakdownPlateNumber,
   separationsByRider,
-  profile,
+  apiBaseUrl,
+  authToken,
   isPaused = false,
   isPausing = false,
   onTogglePause,
@@ -279,6 +282,8 @@ export default function RideControlsScreen({
           </Pressable>
         </View>
 
+        {apiBaseUrl ? <GuardianPortalControls apiBaseUrl={apiBaseUrl} authToken={authToken} groupCode={roomCode} /> : null}
+
         {/* PROFILE LINK */}
         <Pressable onPress={onOpenProfile} style={styles.profileButton}>
           <Text style={styles.profileButtonText}>⚙️ Settings & Medical Profile</Text>
@@ -297,7 +302,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.line,
@@ -310,7 +316,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: COLORS.text,
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
     marginTop: 2,
   },
@@ -351,7 +357,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   scrollContent: {
-    padding: 20,
+    padding: 16,
     gap: 16,
   },
   statusBanner: {

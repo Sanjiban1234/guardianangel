@@ -25,6 +25,7 @@ const COLORS = {
 
 export interface RegistrationData {
   fullName: string;
+  username: string;
   email: string;
   phoneNumber: string;
   emergencyContact: string;
@@ -50,6 +51,7 @@ export function RegistrationGateScreen({
   onCompleteRegistration,
 }: RegistrationGateScreenProps) {
   const [fullName, setFullName] = useState(initialData?.fullName || '');
+  const [username, setUsername] = useState(initialData?.username || '');
   const [email, setEmail] = useState(initialData?.email || '');
   const [phoneNumber, setPhoneNumber] = useState(initialData?.phoneNumber || '');
   const [emergencyContact, setEmergencyContact] = useState(initialData?.emergencyContact || '');
@@ -72,6 +74,11 @@ export function RegistrationGateScreen({
 
     if (!fullName.trim()) {
       newErrors.fullName = 'Full name is required';
+    }
+    if (!/^[a-z][a-z0-9_]{2,31}$/.test(username.trim().toLowerCase())) {
+      newErrors.username = 'Username must be 3–32 characters, start with a letter, and use only letters, numbers, or underscores';
+    } else if (['admin', 'support', 'guardianangel', 'api'].includes(username.trim().toLowerCase())) {
+      newErrors.username = 'That username is reserved. Please choose another.';
     }
     if (!email.trim()) {
       newErrors.email = 'Email is required';
@@ -118,6 +125,7 @@ export function RegistrationGateScreen({
       setErrors({});
       const data: RegistrationData = {
         fullName: fullName.trim(),
+        username: username.trim().toLowerCase(),
         email: email.toLowerCase().trim(),
         phoneNumber: normalizeNepaliPhone(phoneNumber.trim()),
         emergencyContact: emergencyContact.trim(),
@@ -132,6 +140,7 @@ export function RegistrationGateScreen({
           headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: data.fullName,
+          username: data.username,
           email: data.email,
           password: data.password,
           phone: data.phoneNumber,
@@ -180,6 +189,11 @@ export function RegistrationGateScreen({
             autoCapitalize="words"
           />
           {errors.fullName ? <Text style={styles.errorText}>{errors.fullName}</Text> : null}
+
+          <Text style={styles.fieldLabel}>USERNAME *</Text>
+          <TextInput value={username} onChangeText={setUsername} placeholder="e.g. alex_rides" placeholderTextColor="#5C7062" style={[styles.input, errors.username ? styles.inputError : null]} autoCapitalize="none" autoCorrect={false} maxLength={32} />
+          <Text style={styles.fieldHint}>Your public handle for finding friends. Email stays private.</Text>
+          {errors.username ? <Text style={styles.errorText}>{errors.username}</Text> : null}
 
           <Text style={styles.fieldLabel}>EMAIL ADDRESS *</Text>
           <TextInput
@@ -305,7 +319,7 @@ export function RegistrationGateScreen({
 
 const styles = StyleSheet.create({
   shell: { flex: 1, backgroundColor: COLORS.ink },
-  scrollContent: { padding: 20, gap: 16 },
+  scrollContent: { paddingHorizontal: 16, paddingVertical: 20, gap: 16, width: '100%', maxWidth: 640, alignSelf: 'center' },
   header: { marginBottom: 4 },
   badgeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   gateBadge: {
@@ -332,6 +346,7 @@ const styles = StyleSheet.create({
   cardSectionTitle: { color: COLORS.text, fontSize: 16, fontWeight: '800' },
   cardCopy: { color: COLORS.muted, fontSize: 12, lineHeight: 16, marginBottom: 4 },
   fieldLabel: { color: COLORS.muted, fontSize: 11, fontWeight: '800', letterSpacing: 0.8, marginTop: 6 },
+  fieldHint: { color: COLORS.muted, fontSize: 11, lineHeight: 15 },
   input: {
     backgroundColor: COLORS.darkInput,
     borderColor: COLORS.line,

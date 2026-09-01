@@ -589,6 +589,7 @@ function App() {
         void fetch(`${API_BASE_URL}/api/users/profile`, { headers: { Authorization: `Bearer ${token}` } })
           .then(response => response.ok ? response.json() : null)
           .then(body => body?.profile && setProfile(prev => ({ ...prev,
+            username: body.profile.username || '',
             vehicleModel: body.profile.vehicle_model || '',
             plateNumber: body.profile.plate_number || '',
             vehicleColor: body.profile.vehicle_color || '',
@@ -1044,7 +1045,7 @@ function App() {
 
   const handleLoginSuccess = (
     token: string,
-    userData: { id: string; name: string; email: string; profile_complete: boolean; vehicle_model?: string; plate_number?: string; vehicle_color?: string }
+    userData: { id: string; name: string; email: string; username?: string; profile_complete: boolean; vehicle_model?: string; plate_number?: string; vehicle_color?: string }
   ) => {
     setSeparationsByRider(clearAllSeparations());
     setRideAlertState(clearRideAlerts());
@@ -1052,13 +1053,14 @@ function App() {
     setUserId(userData.id);
     setRiderName(userData.name);
     setRiderEmail(userData.email);
-    setProfile(prev => ({ ...prev, vehicleModel: userData.vehicle_model || '', plateNumber: userData.plate_number || '', vehicleColor: userData.vehicle_color || '' }));
+    setProfile(prev => ({ ...prev, username: userData.username || '', vehicleModel: userData.vehicle_model || '', plateNumber: userData.plate_number || '', vehicleColor: userData.vehicle_color || '' }));
     setHasCompletedRegistration(userData.profile_complete !== false);
     setScreen(userData.profile_complete === false ? 'registration' : 'portal');
     saveSession(token).catch(() => {});
     void fetch(`${API_BASE_URL}/api/users/profile`, { headers: { Authorization: `Bearer ${token}` } })
       .then(response => response.ok ? response.json() : null)
       .then(body => body?.profile && setProfile(prev => ({ ...prev,
+        username: body.profile.username || '',
         vehicleModel: body.profile.vehicle_model || '',
         plateNumber: body.profile.plate_number || '',
         vehicleColor: body.profile.vehicle_color || '',
@@ -1089,6 +1091,7 @@ function App() {
     setRiderEmail(data.email);
     setProfile(prev => ({
       ...prev,
+      username: data.username,
       vehicleModel: data.vehicleModel,
       plateNumber: data.plateNumber,
       vehicleColor: data.vehicleColor,
@@ -1320,6 +1323,7 @@ function App() {
         <RegistrationGateScreen
           initialData={{
             fullName: riderName,
+            username: profile.username,
             email: riderEmail,
             vehicleModel: profile.vehicleModel,
             plateNumber: profile.plateNumber,
@@ -1414,6 +1418,7 @@ function App() {
             setProfile(data);
             setScreen('portal');
           }}
+          onUsernameChanged={username => setProfile(current => ({ ...current, username }))}
           onCancel={() => setScreen('portal')}
         />
       )}
@@ -1503,7 +1508,8 @@ function App() {
           breakdownVehicleModel={breakdownVehicleModel}
           breakdownPlateNumber={breakdownPlateNumber}
           separationsByRider={separationsByRider}
-          profile={profile}
+          apiBaseUrl={API_BASE_URL}
+          authToken={authToken}
           isPaused={isPaused}
           isPausing={isPauseActionPending}
           onTogglePause={handleTogglePause}

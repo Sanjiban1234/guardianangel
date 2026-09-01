@@ -25,6 +25,7 @@ const COLORS = {
 };
 
 export interface RiderProfileData {
+  username: string;
   vehicleModel: string;
   plateNumber: string;
   vehicleColor: string;
@@ -37,6 +38,7 @@ export interface RiderProfileData {
 }
 
 export const INITIAL_PROFILE_DATA: RiderProfileData = {
+  username: '',
   vehicleModel: '',
   plateNumber: '',
   vehicleColor: '',
@@ -56,6 +58,7 @@ interface RiderProfileScreenProps {
   authToken: string;
   isOnline: boolean;
   onSave: (data: RiderProfileData) => void;
+  onUsernameChanged: (username: string) => void;
   onCancel: () => void;
 }
 
@@ -65,8 +68,12 @@ export function RiderProfileScreen({
   authToken,
   isOnline,
   onSave,
+  onUsernameChanged,
   onCancel,
 }: RiderProfileScreenProps) {
+  const [username, setUsername] = useState(initialData.username);
+  const [usernameStatus, setUsernameStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [usernameError, setUsernameError] = useState('');
   const [vehicleModel, setVehicleModel] = useState(initialData.vehicleModel);
   const [plateNumber, setPlateNumber] = useState(initialData.plateNumber);
   const [vehicleColor, setVehicleColor] = useState(initialData.vehicleColor);
@@ -77,8 +84,32 @@ export function RiderProfileScreen({
   const [shareMedicalDuringEmergency, setShareMedicalDuringEmergency] = useState(initialData.shareMedicalDuringEmergency);
   const [shareEmergencyContactDuringEmergency, setShareEmergencyContactDuringEmergency] = useState(initialData.shareEmergencyContactDuringEmergency);
 
+  const handleChangeUsername = async () => {
+    const nextUsername = username.trim().toLowerCase();
+    if (!/^[a-z][a-z0-9_]{2,31}$/.test(nextUsername) || ['admin', 'support', 'guardianangel', 'api'].includes(nextUsername)) {
+      setUsernameStatus('error');
+      setUsernameError('Username must be 3–32 characters, start with a letter, and use only letters, numbers, or underscores.');
+      return;
+    }
+    if (!isOnline) { setUsernameStatus('error'); setUsernameError('Username changes require a live connection.'); return; }
+    setUsernameStatus('saving');
+    setUsernameError('');
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/users/username`, { method: 'PUT', headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ username: nextUsername }) });
+      const body = await response.json();
+      if (!response.ok || typeof body.username !== 'string') throw new Error(body.error || 'Unable to update username');
+      setUsername(body.username);
+      onUsernameChanged(body.username);
+      setUsernameStatus('success');
+    } catch (error) {
+      setUsernameStatus('error');
+      setUsernameError(error instanceof Error ? error.message : 'Unable to update username');
+    }
+  };
+
   const handleSave = async () => {
     const data = {
+      username,
       vehicleModel,
       plateNumber,
       vehicleColor,
@@ -122,6 +153,7 @@ export function RiderProfileScreen({
       const contact = [medical.emergency_contact_name, medical.emergency_contact_phone].filter(Boolean).join(' ');
       onSave({
         ...data,
+        username,
         vehicleModel: vehicleBody.profile.vehicle_model || '',
         plateNumber: vehicleBody.profile.plate_number || '',
         vehicleColor: vehicleBody.profile.vehicle_color || '',
@@ -157,6 +189,16 @@ export function RiderProfileScreen({
           <Text style={styles.subtitle}>
             Manage your ride details and emergency medical profile in one place.
           </Text>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Account Settings</Text>
+          <Text style={styles.cardCopy}>Your username is your public handle for friends and ride invitations. Your email remains private.</Text>
+          <Text style={styles.fieldLabel}>CURRENT USERNAME</Text>
+          <TextInput value={username} onChangeText={value => { setUsername(value); setUsernameStatus('idle'); setUsernameError(''); }} placeholder="e.g. alex_rides" placeholderTextColor="#5C7062" style={styles.input} autoCapitalize="none" autoCorrect={false} maxLength={32} />
+          {usernameStatus === 'success' ? <Text style={styles.successText}>Username updated.</Text> : null}
+          {usernameStatus === 'error' ? <Text style={styles.errorText}>{usernameError}</Text> : null}
+          <Pressable onPress={handleChangeUsername} disabled={usernameStatus === 'saving'} style={[styles.usernameButton, usernameStatus === 'saving' && styles.buttonDisabled]}><Text style={styles.usernameButtonText}>{usernameStatus === 'saving' ? 'Updating username…' : 'Change Username'}</Text></Pressable>
         </View>
 
         {/* SECTION 1: VEHICLE INFORMATION */}
@@ -295,7 +337,7 @@ export function RiderProfileScreen({
 
 const styles = StyleSheet.create({
   shell: { flex: 1, backgroundColor: COLORS.ink },
-  scrollContent: { padding: 20, gap: 16 },
+  scrollContent: { paddingHorizontal: 16, paddingVertical: 20, gap: 16, width: '100%', maxWidth: 640, alignSelf: 'center' },
   header: { marginBottom: 4 },
   backButton: { alignSelf: 'flex-start', paddingVertical: 6, paddingRight: 12, marginBottom: 8 },
   backButtonText: { color: COLORS.blue, fontWeight: '700', fontSize: 14 },
@@ -327,6 +369,11 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   cardCopy: { color: COLORS.muted, fontSize: 12, lineHeight: 17 },
+  errorText: { color: COLORS.red, fontSize: 11, fontWeight: '600', marginTop: 2 },
+  successText: { color: '#86EFAC', fontSize: 12, fontWeight: '700' },
+  usernameButton: { minHeight: 46, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0F2918', borderColor: '#16A34A', borderWidth: 1, borderRadius: 12, marginTop: 4 },
+  usernameButtonText: { color: '#86EFAC', fontSize: 14, fontWeight: '800' },
+  buttonDisabled: { opacity: 0.6 },
   fieldLabel: { color: COLORS.muted, fontSize: 11, fontWeight: '800', letterSpacing: 0.8, marginTop: 6 },
   input: {
     backgroundColor: COLORS.darkInput,

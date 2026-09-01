@@ -75,6 +75,33 @@ describe('Authentication REST Endpoints & Security Controls', () => {
       expect(mockedQuery).toHaveBeenCalledTimes(1);
     });
 
+    it('stores a valid username selected during registration', async () => {
+      mockedQuery.mockResolvedValueOnce({ rows: [] } as any);
+      mockedQuery.mockResolvedValueOnce({
+        rows: [{ id: 'user-uuid-username', name: 'testrider', email: 'username@example.com', username: 'test_rider' }],
+      } as any);
+
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({ name: 'testrider', username: 'Test_Rider', email: 'username@example.com', password: 'Password123', phone: '+9779812345678' });
+
+      expect(response.status).toBe(201);
+      expect(response.body.user.username).toBe('test_rider');
+      expect(mockedQuery).toHaveBeenLastCalledWith(expect.stringContaining('username'), expect.arrayContaining(['test_rider']));
+    });
+
+    it('returns a meaningful conflict when the selected username is unavailable', async () => {
+      mockedQuery.mockResolvedValueOnce({ rows: [] } as any);
+      mockedQuery.mockRejectedValueOnce({ code: '23505', constraint: 'users_username_normalized_unique_idx' });
+
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({ name: 'testrider', username: 'test_rider', email: 'taken-username@example.com', password: 'Password123', phone: '+9779812345678' });
+
+      expect(response.status).toBe(409);
+      expect(response.body).toEqual({ error: 'Username is unavailable' });
+    });
+
     it('rejects blank vehicle values when a client supplies them', async () => {
       const response = await request(app)
         .post('/api/auth/register')

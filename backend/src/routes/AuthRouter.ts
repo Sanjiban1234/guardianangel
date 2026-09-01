@@ -118,7 +118,7 @@ export class AuthRouter {
     req: AuthenticatedRequest,
     res: Response
   ): Promise<void> {
-    const { name, email, password, phone, vehicle_model, plate_number, vehicle_color } = req.body;
+    const { name, email, password, phone, username, vehicle_model, plate_number, vehicle_color } = req.body;
 
     if (!name || !email || !password || !phone) {
       res.status(400).json({ error: 'Name, email, password, and phone number are required' });
@@ -129,6 +129,7 @@ export class AuthRouter {
       typeof email !== 'string' ||
       typeof password !== 'string' ||
       typeof phone !== 'string' ||
+      (username !== undefined && typeof username !== 'string') ||
       (vehicle_model !== undefined && typeof vehicle_model !== 'string') ||
       (plate_number !== undefined && typeof plate_number !== 'string') ||
       (vehicle_color !== undefined && typeof vehicle_color !== 'string')
@@ -204,14 +205,16 @@ export class AuthRouter {
     }
 
     try {
-      const user = await this.userService.register(name.trim(), email.toLowerCase().trim(), password, normalizedPhone, vehicleModel, plateNumber, vehicleColor);
+      const user = await this.userService.register(name.trim(), email.toLowerCase().trim(), password, normalizedPhone, vehicleModel, plateNumber, vehicleColor, username);
       res.status(201).json({
         message: 'User registered successfully',
-        user: { id: user.id, name: user.name, email: user.email, vehicle_model: user.vehicle_model, plate_number: user.plate_number, vehicle_color: user.vehicle_color },
+        user: { id: user.id, name: user.name, email: user.email, username: user.username, vehicle_model: user.vehicle_model, plate_number: user.plate_number, vehicle_color: user.vehicle_color },
       });
     } catch (err: any) {
       if (err?.code === 'EMAIL_TAKEN') {
         res.status(409).json({ error: 'Email is already registered' });
+      } else if (err?.code === 'USERNAME_TAKEN') {
+        res.status(409).json({ error: 'Username is unavailable' });
       } else {
         logger.error('registration failed', err);
         res.status(500).json({ error: 'Internal server error during registration' });

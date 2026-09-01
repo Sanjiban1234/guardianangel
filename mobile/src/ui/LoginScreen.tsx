@@ -494,14 +494,11 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
             <Pressable
               onPress={handleBiometricLogin}
               disabled={isSubmitting}
+              accessibilityRole="button"
+              accessibilityLabel={`Login with ${biometricType || 'biometrics'}`}
               style={[styles.biometricBtn, isSubmitting ? styles.submitBtnDisabled : null]}
             >
-              <Text style={styles.biometricIcon}>🔒</Text>
-              <View style={styles.biometricLabelGroup}>
-                <Text style={styles.biometricBtnLabel}>
-                  Login with {biometricType}
-                </Text>
-              </View>
+              <Text style={styles.biometricIcon}>🫆</Text>
             </Pressable>
           </View>
         )}
@@ -516,7 +513,7 @@ export function LoginScreen({ apiBaseUrl, onLoginSuccess, onNavigateToRegister }
 
 const styles = StyleSheet.create({
   shell: { flex: 1, backgroundColor: COLORS.ink },
-  scrollContent: { padding: 20, gap: 16, justifyContent: 'center', minHeight: '100%' },
+  scrollContent: { paddingHorizontal: 16, paddingVertical: 20, gap: 16, justifyContent: 'center', minHeight: '100%', width: '100%', maxWidth: 640, alignSelf: 'center' },
   header: { marginBottom: 16, alignItems: 'center' },
   title: { color: COLORS.text, fontSize: 32, fontWeight: '900', marginBottom: 8 },
   subtitle: { color: COLORS.muted, fontSize: 14 },
@@ -595,13 +592,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 12,
     paddingVertical: 12,
-    paddingHorizontal: 16,
-    gap: 12,
+    minHeight: 56,
+    justifyContent: 'center',
   },
-  biometricIcon: { fontSize: 22 },
-  biometricLabelGroup: { flex: 1 },
-  biometricBtnLabel: { color: COLORS.text, fontWeight: '700', fontSize: 14 },
-  biometricBtnEmail: { color: COLORS.muted, fontSize: 11, marginTop: 1 },
+  biometricIcon: { fontSize: 30 },
   submitBtnDisabled: { opacity: 0.6 },
   submitBtnText: { color: COLORS.ink, fontWeight: '900', fontSize: 15, letterSpacing: 0.2 },
   registerBtn: { alignSelf: 'center', paddingVertical: 12 },

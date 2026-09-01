@@ -7,7 +7,6 @@ import { RideAlertState } from '../ride/RideAlertStore';
 import FriendInvitePicker from '../friends/FriendInvitePicker';
 import { useWeatherSafety } from '../weather/useWeatherSafety';
 import { WeatherSafetyCard } from '../weather/WeatherSafetyCard';
-import GuardianPortalControls from '../guardianPortal/GuardianPortalControls';
 import { LiveStatsPanel } from './LiveStatsPanel';
 import { DeadEndAdvisoryBanner } from './DeadEndAdvisoryBanner';
 import type { MetricsSnapshot } from '../telemetry/RideMetricsAccumulator';
@@ -304,14 +303,6 @@ export default function MapScreen({
               {destinationTitle || 'No destination set'}
             </Text>
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Copy room code"
-            onPress={handleCopyCode}
-            style={styles.copyBtn}
-          >
-            <Text style={styles.copyBtnText}>{copyConfirmationVisible ? 'Copied' : 'Copy'}</Text>
-          </Pressable>
           <Pressable onPress={isHost ? onEndRide : onLeaveRoom} style={styles.endButton}>
             <Text style={styles.endButtonText}>{isHost ? '✕ End Ride' : '← Leave Group'}</Text>
           </Pressable>
@@ -369,8 +360,6 @@ export default function MapScreen({
         />
         <WeatherSafetyCard data={weather} expanded={weatherExpanded} onPress={() => setWeatherExpanded(value => !value)} />
         <View style={styles.recommendationControls}>{(['fuel','food','workshop'] as RecommendationCategory[]).map(category=><Pressable key={category} onPress={()=>setRecommendationCategory(value=>value===category?null:category)} style={styles.recommendationChip}><Text style={styles.recommendationText}>{recommendationsLoading&&recommendationCategory===category?'…':category}</Text></Pressable>)}</View>
-        {apiBaseUrl && <GuardianPortalControls apiBaseUrl={apiBaseUrl} authToken={authToken} groupCode={roomCode} />}
-
         <Pressable onPress={onOpenControls} style={styles.controlsButton}>
           <Text style={styles.controlsButtonIcon}>⚙️</Text>
           <Text style={styles.controlsButtonText}>Ride Controls</Text>
