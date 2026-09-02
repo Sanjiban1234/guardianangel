@@ -75,4 +75,36 @@ describe('GuardianAngelTTSService', () => {
     expect(speech.stop).toHaveBeenCalledTimes(1);
     expect(speech.speak).toHaveBeenCalledWith('SOS received from Ram.', expect.any(Object));
   });
+
+  it('speaks one fresh weather summary and collapses duplicate route advisories', async () => {
+    const service = new GuardianAngelTTSService();
+    await service.announceWeatherSnapshot({ current: { temperatureC: 22.4, condition: 'partly_cloudy' }, advisories: [{ type: 'THUNDERSTORM' }, { type: 'THUNDERSTORM' }], isStale: false });
+    await service.announceWeatherSnapshot({ current: { temperatureC: 22.4, condition: 'partly_cloudy' }, advisories: [{ type: 'THUNDERSTORM' }], isStale: false });
+    expect(speech.speak).toHaveBeenCalledTimes(2);
+    expect(speech.speak).toHaveBeenCalledWith('Current weather is 22 degrees with partly cloudy conditions.', expect.any(Object));
+    expect(speech.speak).toHaveBeenCalledWith(expect.stringContaining('Thunderstorms'), expect.any(Object));
+  });
+
+  it('allows a cleared weather hazard on a later refresh and resets it for a new ride', async () => {
+    const service = new GuardianAngelTTSService();
+    await service.announceWeatherSnapshot({ current: null, advisories: [{ type: 'THUNDERSTORM' }], isStale: false });
+    await service.announceWeatherSnapshot({ current: null, advisories: [], isStale: false });
+    await service.announceWeatherSnapshot({ current: null, advisories: [{ type: 'THUNDERSTORM' }], isStale: false });
+    service.resetRideTransitions();
+    await service.announceWeatherSnapshot({ current: { temperatureC: 18, condition: 'rain' }, advisories: [{ type: 'THUNDERSTORM' }], isStale: false });
+    expect(speech.speak).toHaveBeenCalledTimes(4);
+  });
+
+  it('does not speak stale or disabled weather and lets severe weather interrupt ordinary speech', async () => {
+    const service = new GuardianAngelTTSService();
+    await service.announceWeatherSnapshot({ current: { temperatureC: 22, condition: 'clear_sky' }, advisories: [], isStale: true });
+    expect(speech.speak).not.toHaveBeenCalled();
+    speech.isSpeaking.mockResolvedValue(true);
+    await service.announceWeatherSnapshot({ current: null, advisories: [{ type: 'THUNDERSTORM' }], isStale: false });
+    expect(speech.stop).toHaveBeenCalledTimes(1);
+    await service.setEnabled(false);
+    jest.clearAllMocks();
+    await service.announceWeatherSnapshot({ current: null, advisories: [{ type: 'LOW_VISIBILITY' }], isStale: false });
+    expect(speech.speak).not.toHaveBeenCalled();
+  });
 });

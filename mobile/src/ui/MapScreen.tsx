@@ -6,7 +6,7 @@ import LiveMapView from '../components/LiveMapView';
 import RideAlertOverlay from '../components/RideAlertOverlay';
 import { RideAlertState } from '../ride/RideAlertStore';
 import FriendInvitePicker from '../friends/FriendInvitePicker';
-import { useWeatherSafety } from '../weather/useWeatherSafety';
+import { useWeatherSafety, WeatherSafety } from '../weather/useWeatherSafety';
 import { WeatherSafetyCard } from '../weather/WeatherSafetyCard';
 import { LiveStatsPanel } from './LiveStatsPanel';
 import { DeadEndAdvisoryBanner } from './DeadEndAdvisoryBanner';
@@ -60,6 +60,7 @@ interface MapScreenProps {
   apiBaseUrl?: string;
   authToken: string;
   onWeatherAdvisory?: (alert: { id: string; type?: string; severity: 'info' | 'warning'; title: string; message: string }, snapshotKey: string) => void;
+  onWeatherSnapshot?: (snapshot: WeatherSafety, isStale: boolean) => void;
   /** Live ride statistics from RideMetricsAccumulator (null = not in active ride). */
   liveMetrics?: MetricsSnapshot | null;
   /** Route progress / ETA from RouteProgressTracker (null = no route available). */
@@ -197,6 +198,7 @@ export default function MapScreen({
   apiBaseUrl,
   authToken,
   onWeatherAdvisory,
+  onWeatherSnapshot,
   liveMetrics = null,
   routeProgress = null,
   deadEndState = null,
@@ -214,6 +216,9 @@ export default function MapScreen({
   const recommendationRequestRef = useRef(0);
   const routeCoordinates = activeRoute?.polyline;
   const weather = useWeatherSafety(roomCode, authToken, currentLocation, destination || null, routeCoordinates || [], true, onWeatherAdvisory, activeRoute?.fetchedAt);
+  useEffect(() => {
+    if (rideStarted && weather.data && !weather.isStale) onWeatherSnapshot?.(weather.data, false);
+  }, [rideStarted, weather.data, weather.isStale, onWeatherSnapshot]);
   const handleBottomHudLayout = (event: LayoutChangeEvent) => setBottomHudHeight(event.nativeEvent.layout.height);
   const bottomHudInset = Math.max(16, insets.bottom + 8);
 

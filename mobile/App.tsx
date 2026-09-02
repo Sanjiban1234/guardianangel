@@ -87,6 +87,7 @@ import {
 } from './src/navigation/RouteProgressTracker';
 import { DeadEndDetector, DeadEndState, DEAD_END_STATE_CLEAR } from './src/navigation/DeadEndDetector';
 import { GuardianAngelTTS } from './src/services/GuardianAngelTTS';
+import type { WeatherSafety } from './src/weather/useWeatherSafety';
 
 type Screen =
   | 'login'
@@ -302,6 +303,9 @@ function App() {
     const semanticType = advisory.type || advisory.title;
     addRideAlert({ id: `${semanticType}:${snapshotKey}`, type: 'WEATHER', severity: advisory.severity, timestamp: Date.now(), title: advisory.title, message: advisory.message, dedupeKey: `weather:${semanticType}:${snapshotKey}` });
   }, [addRideAlert]);
+  const handleWeatherSnapshot = useCallback((snapshot: WeatherSafety, isStale: boolean) => {
+    void GuardianAngelTTS.announceWeatherSnapshot({ current: snapshot.current, advisories: snapshot.advisories, isStale });
+  }, []);
   const [permissionIntent, setPermissionIntent] = useState<'create' | 'join' | null>(null);
 
   // Ride start state
@@ -1144,6 +1148,7 @@ function App() {
   };
 
   const handleCreatedRoomStart = (roomData: CreatedRoomData) => {
+    GuardianAngelTTS.resetWeatherTransitions();
     setActiveRoomId(roomData.roomId);
     setActiveRoomCode(roomData.groupCode);
     setDestinationTitle(roomData.destination.title);
@@ -1175,6 +1180,7 @@ function App() {
   };
 
   const handleJoinedRoomConfirm = (preview: RoomPreviewDetails) => {
+    GuardianAngelTTS.resetWeatherTransitions();
     setActiveRoomCode(preview.groupCode);
     setDestinationTitle(preview.destinationTitle);
     if (preview.destination) {
@@ -1510,6 +1516,7 @@ function App() {
           rideAlertState={rideAlertState}
           onDismissRideAlert={dismissActiveRideAlert}
           onWeatherAdvisory={handleWeatherAdvisory}
+          onWeatherSnapshot={handleWeatherSnapshot}
            liveMetrics={liveMetrics}
            routeProgress={routeProgress}
            deadEndState={deadEndState}
