@@ -103,10 +103,15 @@ const app    = express();
 const server = createServer(app);
 app.set('trust proxy', TRUST_PROXY ? 1 : false);
 
+const isGuardianPortalDeployment = (origin: string): boolean =>
+  /^https:\/\/guardian-angel-portal-[a-z0-9-]+\.vercel\.app$/.test(origin);
+const isAllowedOrigin = (origin: string | undefined): boolean =>
+  !origin || [...ALLOWED_ORIGINS, GUARDIAN_PORTAL_ALLOWED_ORIGIN].includes(origin) || isGuardianPortalDeployment(origin);
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || [...ALLOWED_ORIGINS, GUARDIAN_PORTAL_ALLOWED_ORIGIN].includes(origin)) {
+      if (isAllowedOrigin(origin)) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));
@@ -119,7 +124,7 @@ app.use(
 const io = new Server(server, {
   maxHttpBufferSize: SOCKET_MAX_HTTP_BUFFER_SIZE,
   cors: {
-    origin: [...new Set([...ALLOWED_ORIGINS, GUARDIAN_PORTAL_ALLOWED_ORIGIN])],
+    origin: (origin, callback) => callback(null, isAllowedOrigin(origin)),
     credentials: true,
     methods: ['GET', 'POST'],
   },
