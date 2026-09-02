@@ -59,6 +59,8 @@ export class SessionHandler {
 
       this.socket.join(`group:${group_code}`);
       this.presenceService.markConnected(group_code, userId, this.socket.id);
+      const ownShareIds = (await this.portalShares?.activeSharesForRoom(group_code) || []).filter((share) => share.owner_user_id === userId).map((share) => share.id);
+      this.portal?.presence(ownShareIds, { connectionState: 'CONNECTED', updatedAt: Date.now() });
 
       const members = await this.presenceService.getRiderPresence(group_code);
       const joiningRider = members.find((member) => member.user_id === userId);

@@ -1,17 +1,19 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { QueryRunner } from '../db/QueryRunner';
+import { PresenceService } from './PresenceService';
 import { GUARDIAN_PORTAL_BASE_URL, GUARDIAN_PORTAL_OBSERVER_SECRET, GUARDIAN_PORTAL_SHARE_LIFETIME_MS } from '../config';
 
 type SeparationState = 'unknown' | 'separated' | 'reunited';
-export interface PortalLocation { latitude: number; longitude: number; lastUpdatedAt: number | null; connectionState: 'CONNECTED' | 'DISCONNECTED'; freshness: 'FRESH' | 'STALE'; }
-export interface PortalBootstrap { shareId: string; riderName: string; rideStatus: 'live' | 'ended'; startedAt: string; endedAt?: string; location?: PortalLocation; separationState: SeparationState; observerCredential?: string; }
+export interface PortalLocation { latitude: number; longitude: number; lastUpdatedAt: number | null; freshness: 'FRESH' | 'STALE'; }
+export interface PortalPresence { connectionState: 'CONNECTED' | 'DISCONNECTED'; updatedAt: number; }
+export interface PortalBootstrap { shareId: string; riderName: string; rideStatus: 'live' | 'ended'; startedAt: string; endedAt?: string; location?: PortalLocation; presence: PortalPresence; separationState: SeparationState; observerCredential?: string; }
 export interface ObserverClaims extends jwt.JwtPayload { shareId: string; roomId: string; ownerUserId: string; scope: 'guardian-portal-observer'; }
 
 export class GuardianPortalShareError extends Error { constructor(public readonly code: 'NOT_ACTIVE_RIDER' | 'UNAVAILABLE') { super(code); } }
 
 export class GuardianPortalShareService {
-  constructor(private readonly db: QueryRunner) {}
+  constructor(private readonly db: QueryRunner, private readonly presence?: PresenceService) {}
   private hash(token: string): string { return crypto.createHash('sha256').update(token).digest('hex'); }
 
   async create(userId: string, groupCode: string): Promise<{ url: string; expiresAt: string }> {
@@ -52,11 +54,12 @@ export class GuardianPortalShareService {
     const result = await this.db.run(`SELECT s.id AS share_id, s.room_id, s.owner_user_id, s.expires_at, s.revoked_at, s.separation_state, rr.status, rr.ride_started_at, rr.ended_at, u.name, ST_Y(l.location::geometry) AS latitude, ST_X(l.location::geometry) AS longitude, EXTRACT(EPOCH FROM tr.received_at)*1000 AS last_updated_at FROM guardian_portal_shares s JOIN ride_rooms rr ON rr.id=s.room_id JOIN room_members rm ON rm.room_id=rr.id AND rm.user_id=s.owner_user_id JOIN users u ON u.id=s.owner_user_id LEFT JOIN rider_current_locations l ON l.room_id=rr.id AND l.user_id=s.owner_user_id LEFT JOIN telemetry_readings tr ON tr.room_id=l.room_id AND tr.user_id=l.user_id AND tr.device_timestamp_ms=l.device_timestamp_ms WHERE s.token_hash=$1 LIMIT 1`, [this.hash(rawToken)]);
     const row = result.rows[0];
     if (!row || row.revoked_at || new Date(row.expires_at).getTime() <= Date.now() || !row.ride_started_at) throw new GuardianPortalShareError('UNAVAILABLE');
-    if (row.status !== 'active') return { shareId: row.share_id, riderName: row.name, rideStatus: 'ended', startedAt: row.ride_started_at, endedAt: row.ended_at, separationState: row.separation_state };
+    const presence: PortalPresence = { connectionState: this.presence?.isUserConnected(row.owner_user_id) ? 'CONNECTED' : 'DISCONNECTED', updatedAt: Date.now() };
+    if (row.status !== 'active') return { shareId: row.share_id, riderName: row.name, rideStatus: 'ended', startedAt: row.ride_started_at, endedAt: row.ended_at, presence, separationState: row.separation_state };
     const updated = row.last_updated_at == null ? null : Number(row.last_updated_at);
     const fresh = updated !== null && Date.now() - updated <= 15_000;
-    const location = row.latitude == null || row.longitude == null ? undefined : { latitude: Number(row.latitude), longitude: Number(row.longitude), lastUpdatedAt: updated, connectionState: fresh ? 'CONNECTED' : 'DISCONNECTED', freshness: fresh ? 'FRESH' : 'STALE' } as PortalLocation;
-    return { shareId: row.share_id, riderName: row.name, rideStatus: 'live', startedAt: row.ride_started_at, location, separationState: row.separation_state, observerCredential: this.issueObserverCredential(row.share_id, row.room_id, row.owner_user_id, row.expires_at) };
+    const location = row.latitude == null || row.longitude == null ? undefined : { latitude: Number(row.latitude), longitude: Number(row.longitude), lastUpdatedAt: updated, freshness: fresh ? 'FRESH' : 'STALE' } as PortalLocation;
+    return { shareId: row.share_id, riderName: row.name, rideStatus: 'live', startedAt: row.ride_started_at, location, presence, separationState: row.separation_state, observerCredential: this.issueObserverCredential(row.share_id, row.room_id, row.owner_user_id, row.expires_at) };
   }
 
   private issueObserverCredential(shareId: string, roomId: string, ownerUserId: string, expiresAt: string): string {

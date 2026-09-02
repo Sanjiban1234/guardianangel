@@ -3,8 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { io } from 'socket.io-client';
 import './styles.css';
 
-type Location = { latitude: number; longitude: number; lastUpdatedAt: number | null; connectionState: 'CONNECTED' | 'DISCONNECTED'; freshness: 'FRESH' | 'STALE' };
-type State = { riderName: string; rideStatus: 'live' | 'ended'; startedAt: string; location?: Location; separationState: 'unknown' | 'separated' | 'reunited'; observerCredential?: string };
+type Location = { latitude: number; longitude: number; lastUpdatedAt: number | null; freshness: 'FRESH' | 'STALE' };
+type Presence = { connectionState: 'CONNECTED' | 'DISCONNECTED'; updatedAt: number };
+type State = { riderName: string; rideStatus: 'live' | 'ended'; startedAt: string; location?: Location; presence: Presence; separationState: 'unknown' | 'separated' | 'reunited'; observerCredential?: string };
 
 const FRESHNESS_MS = 15_000;
 // The portal is served separately from the API. Strip an accidental /api suffix
@@ -28,8 +29,8 @@ function App() {
     socket.on('disconnect', (reason: string) => console.warn(`[TEMP PORTAL DIAG] socket_disconnected reason=${socketDisconnectCategory(reason)}`));
     socket.io.on('reconnect_attempt', (attempt: number) => console.info(`[TEMP PORTAL DIAG] reconnect_attempt attempt=${attempt}`));
     socket.io.on('reconnect', (attempt: number) => console.info(`[TEMP PORTAL DIAG] reconnect_success attempt=${attempt}`));
-    socket.on('portal:location', (p: { latitude: number; longitude: number; lastUpdatedAt: number }) => { console.info('[TEMP PORTAL DIAG] portal_location_received live_restored'); setState(current => current ? { ...current, location: { ...p, connectionState: 'CONNECTED', freshness: 'FRESH' } } : current); });
-    socket.on('portal:presence', (p: Pick<Location, 'lastUpdatedAt' | 'connectionState' | 'freshness'>) => setState(current => current ? { ...current, location: current.location ? { ...current.location, ...p } : current.location } : current));
+    socket.on('portal:location', (p: { latitude: number; longitude: number; lastUpdatedAt: number }) => { console.info('[TEMP PORTAL DIAG] portal_location_received fresh_location'); setState(current => current ? { ...current, location: { ...p, freshness: 'FRESH' } } : current); });
+    socket.on('portal:presence', (p: Presence) => { console.info(`[TEMP PORTAL DIAG] portal_presence_received state=${p.connectionState.toLowerCase()}`); setState(current => current ? { ...current, presence: p } : current); });
     socket.on('portal:separated', () => { setState(current => current ? { ...current, separationState: 'separated' } : current); setEvents(current => ['Rider separated from the group', ...current]); });
     socket.on('portal:reunited', () => { setState(current => current ? { ...current, separationState: 'reunited' } : current); setEvents(current => ['Rider reunited with the group', ...current]); });
     socket.on('portal:sos', () => setEvents(current => ['Emergency alert: rider triggered SOS', ...current]));
@@ -38,11 +39,13 @@ function App() {
     socket.connect();
     return () => { socket.close(); };
   }, [state?.observerCredential, state?.rideStatus]);
-  useEffect(() => { const timer = window.setInterval(() => setState(current => { const location = current?.location; if (!current || !location || location.connectionState !== 'CONNECTED' || location.lastUpdatedAt === null || Date.now() - location.lastUpdatedAt <= FRESHNESS_MS) return current; console.warn('[TEMP PORTAL DIAG] freshness_expired stale_transition'); return { ...current, location: { ...location, connectionState: 'DISCONNECTED', freshness: 'STALE' } }; }), 1_000); return () => window.clearInterval(timer); }, []);
+  useEffect(() => { const timer = window.setInterval(() => setState(current => { const location = current?.location; if (!current || !location || location.lastUpdatedAt === null || location.freshness === 'STALE' || Date.now() - location.lastUpdatedAt <= FRESHNESS_MS) return current; console.warn('[TEMP PORTAL DIAG] location_freshness_expired stale_location'); return { ...current, location: { ...location, freshness: 'STALE' } }; }), 1_000); return () => window.clearInterval(timer); }, []);
   if (error) return <main><h1>Guardian Portal</h1><p>{error}</p></main>;
   if (!state) return <main><h1>Guardian Portal</h1><p>Loading live ride…</p></main>;
-  const stale = !state.location || state.location.freshness === 'STALE';
-  return <main><header><strong>GUARDIAN ANGEL</strong><span>Guardian Portal</span></header><h1>{state.riderName}</h1><p className={state.rideStatus === 'ended' ? 'ended' : stale ? 'stale' : 'live'}>{state.rideStatus === 'ended' ? 'Ride ended' : stale ? 'Temporarily offline — showing last known location' : 'Live ride'}</p><p>Ride started {new Date(state.startedAt).toLocaleString()}</p><Map location={state.location} /><p>Last updated: {state.location?.lastUpdatedAt ? new Date(state.location.lastUpdatedAt).toLocaleTimeString() : '—'}</p>{state.separationState === 'separated' && <p className="sos">Separation alert active</p>}<section><h2>Safety updates</h2>{events.length ? events.map((event, index) => <p key={index}>{event}</p>) : <p>No safety alerts.</p>}</section></main>;
+  const offline = state.presence.connectionState === 'DISCONNECTED';
+  const fresh = Boolean(state.location && state.location.freshness === 'FRESH');
+  const status = state.rideStatus === 'ended' ? 'Ride ended' : offline ? 'Temporarily offline — showing last known location' : fresh ? 'Live ride' : 'Online — showing last known location';
+  return <main><header><strong>GUARDIAN ANGEL</strong><span>Guardian Portal</span></header><h1>{state.riderName}</h1><p className={state.rideStatus === 'ended' ? 'ended' : offline || !fresh ? 'stale' : 'live'}>{status}</p><p>Ride started {new Date(state.startedAt).toLocaleString()}</p><Map location={state.location} /><p>Last updated: {state.location?.lastUpdatedAt ? new Date(state.location.lastUpdatedAt).toLocaleTimeString() : '—'}</p>{state.separationState === 'separated' && <p className="sos">Separation alert active</p>}<section><h2>Safety updates</h2>{events.length ? events.map((event, index) => <p key={index}>{event}</p>) : <p>No safety alerts.</p>}</section></main>;
 }
 createRoot(document.getElementById('root')!).render(<App />);
 

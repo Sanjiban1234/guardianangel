@@ -5,7 +5,7 @@ import { logger } from '../utils/logger';
 
 export interface PortalBroadcaster {
   location(shareIds: string[], payload: { latitude: number; longitude: number; lastUpdatedAt: number; }): void;
-  presence(shareIds: string[], payload: { lastUpdatedAt: number; connectionState: 'DISCONNECTED'; freshness: 'STALE'; }): void;
+  presence(shareIds: string[], payload: { updatedAt: number; connectionState: 'CONNECTED' | 'DISCONNECTED'; }): void;
   separation(shareIds: string[], state: 'separated' | 'reunited', timestamp: number): void;
   sos(shareIds: string[], payload: { timestamp: number; latitude: number; longitude: number; }): void;
   rideEnded(shareIds: string[], endedAt: number): void;
@@ -67,7 +67,7 @@ export class GuardianPortalSocketController implements PortalBroadcaster {
       if (count === 1 || count % 12 === 0) logger.info('temporary portal location emitted', { shareFingerprint: this.fingerprint(shareId), emissionCount: count, observerSockets: this.roomSize(shareId) });
     }
   }
-  presence(shareIds: string[], payload: { lastUpdatedAt: number; connectionState: 'DISCONNECTED'; freshness: 'STALE'; }): void { this.emit(shareIds, 'portal:presence', payload); }
+  presence(shareIds: string[], payload: { updatedAt: number; connectionState: 'CONNECTED' | 'DISCONNECTED'; }): void { this.emit(shareIds, 'portal:presence', payload); }
   separation(shareIds: string[], state: 'separated' | 'reunited', timestamp: number): void { this.emit(shareIds, state === 'separated' ? 'portal:separated' : 'portal:reunited', { timestamp }); }
   sos(shareIds: string[], payload: { timestamp: number; latitude: number; longitude: number; }): void { this.emit(shareIds, 'portal:sos', payload); }
   rideEnded(shareIds: string[], endedAt: number): void { this.emit(shareIds, 'portal:rideEnded', { endedAt }); this.disconnect(shareIds); }

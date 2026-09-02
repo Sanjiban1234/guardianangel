@@ -61,6 +61,14 @@ export class PresenceService {
     this.markDisconnected(groupCode, userId, socketId);
   }
 
+  /** Socket presence for consumers that must not infer connectivity from GPS age. */
+  isUserConnected(userId: string): boolean {
+    for (const group of this.socketsByGroup.values()) {
+      if ((group.get(userId)?.size ?? 0) > 0) return true;
+    }
+    return false;
+  }
+
   private isConnected(groupCode: string, userId: string): boolean {
     const group = this.socketsByGroup.get(groupCode);
     // Coherence only runs after session:join in production. The fallback keeps

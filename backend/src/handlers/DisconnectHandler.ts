@@ -57,7 +57,7 @@ export class DisconnectHandler {
 
     this.socket.to(`group:${groupCode}`).emit('peer:lastKnown', payload);
     const shareIds = this.portalShares ? await this.portalShares.activeSharesForRoom(groupCode) : [];
-    this.portal?.presence(shareIds.filter((share) => share.owner_user_id === userId).map((share) => share.id), { lastUpdatedAt: payload.timestamp, connectionState: 'DISCONNECTED', freshness: 'STALE' });
+    this.portal?.presence(shareIds.filter((share) => share.owner_user_id === userId).map((share) => share.id), { connectionState: 'DISCONNECTED', updatedAt: Date.now() });
 
     logger.info('temporary last-known broadcast completed', { portalShareTargets: shareIds.filter((share) => share.owner_user_id === userId).length });
   }
