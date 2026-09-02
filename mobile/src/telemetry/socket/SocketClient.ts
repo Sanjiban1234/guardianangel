@@ -108,6 +108,20 @@ export class SocketClient implements ISocketClient {
   private connected = false;
   private connectListeners: Set<() => void> = new Set();
   private disconnectListeners: Set<() => void> = new Set();
+  private appState = 'unknown';
+
+  // TEMP PORTAL DIAGNOSTIC: supplied by App.tsx; no user or location data.
+  setAppState(state: string): void { this.appState = state; }
+  private disconnectCategory(reason?: string): string {
+    return ['transport close', 'ping timeout', 'server disconnect', 'client disconnect', 'transport error'].includes(reason || '') ? reason! : 'other';
+  }
+  private connectErrorCategory(error: any): string {
+    const message = typeof error?.message === 'string' ? error.message.toLowerCase() : '';
+    if (message.includes('timeout')) return 'timeout';
+    if (message.includes('websocket')) return 'websocket_error';
+    if (message.includes('poll')) return 'polling_error';
+    return 'other';
+  }
 
   async connect(socketUrl: string, token: string): Promise<void> {
     if (this.socket && this.connected) {
@@ -139,41 +153,41 @@ export class SocketClient implements ISocketClient {
       timeout: 20000,
     });
 
-    console.log('[SOCKET INITIALIZED]');
+    console.log('[TEMP SOCKET DIAG] initialized');
 
     this.socket.on('connect', () => {
       this.connected = true;
       const transport = this.socket?.io?.engine?.transport?.name || 'unknown';
-      console.log('[SOCKET CONNECTED]');
+      console.log(`[TEMP SOCKET DIAG] connected transport=${transport} app_state=${this.appState}`);
       for (const listener of this.connectListeners) listener();
     });
 
     this.socket.on('disconnect', (reason?: string) => {
       this.connected = false;
-      console.log('[SOCKET DISCONNECTED]');
+      console.log(`[TEMP SOCKET DIAG] disconnected reason=${this.disconnectCategory(reason)} app_state=${this.appState}`);
       for (const listener of this.disconnectListeners) listener();
     });
 
-    this.socket.on('connect_error', () => {
+    this.socket.on('connect_error', (error: any) => {
       const transport = this.socket?.io?.engine?.transport?.name || 'unknown';
-      console.log(`[SOCKET DIAG] [CONNECT_ERROR] transport=${transport}`);
+      console.log(`[TEMP SOCKET DIAG] connect_error category=${this.connectErrorCategory(error)} transport=${transport} app_state=${this.appState}`);
     });
 
     this.socket.io.on('reconnect_attempt', (attempt: number) => {
-      console.log(`[SOCKET DIAG] [RECONNECT_ATTEMPT] attempt=${attempt}`);
+      console.log(`[TEMP SOCKET DIAG] reconnect_attempt attempt=${attempt} app_state=${this.appState}`);
     });
 
     this.socket.io.on('reconnect', (attempt: number) => {
       const transport = this.socket?.io?.engine?.transport?.name || 'unknown';
-      console.log(`[SOCKET DIAG] [RECONNECT] attempt=${attempt} transport=${transport}`);
+      console.log(`[TEMP SOCKET DIAG] reconnect_success attempt=${attempt} transport=${transport} app_state=${this.appState}`);
     });
 
     this.socket.io.on('reconnect_error', () => {
-      console.log('[SOCKET DIAG] [RECONNECT_ERROR]');
+      console.log(`[TEMP SOCKET DIAG] reconnect_error app_state=${this.appState}`);
     });
 
     this.socket.io.on('reconnect_failed', () => {
-      console.log(`[SOCKET DIAG] [RECONNECT_FAILED] max attempts reached`);
+      console.log(`[TEMP SOCKET DIAG] reconnect_failed app_state=${this.appState}`);
     });
   }
 

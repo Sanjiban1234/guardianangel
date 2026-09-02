@@ -1,4 +1,5 @@
 import { Server } from 'socket.io';
+import crypto from 'crypto';
 import { AuthMiddleware, AuthenticatedSocket } from '../middleware/AuthMiddleware';
 import { RoomService } from '../services/RoomService';
 import { TelemetryService } from '../services/TelemetryService';
@@ -26,6 +27,7 @@ import { PortalBroadcaster } from './GuardianPortalSocketController';
 
 export class RideSocketController {
   private readonly socketsByUser = new Map<string, number>();
+  private fingerprint(value: string): string { return crypto.createHash('sha256').update(value).digest('hex').slice(0, 10); }
   constructor(
     private readonly roomService: RoomService,
     private readonly telemetryService: TelemetryService,
@@ -60,6 +62,7 @@ export class RideSocketController {
         return;
       }
       this.socketsByUser.set(userId, count + 1);
+      logger.info('temporary rider socket connected', { riderFingerprint: this.fingerprint(userId), transport, activeSockets: count + 1 });
       // A socket is assigned only to the room derived from its verified JWT.
       // Clients never send a user id to select this room.
       // Some lightweight unit-test socket doubles deliberately omit room

@@ -23,7 +23,12 @@ function App() {
     // Keep polling available as a fallback when a proxy cannot establish a
     // WebSocket immediately; Socket.IO upgrades to WebSocket when possible.
     const socket = io(`${api}/guardian-portal`, { autoConnect: false, auth: { credential: state.observerCredential }, reconnection: true });
-    socket.on('portal:location', (p: { latitude: number; longitude: number; lastUpdatedAt: number }) => setState(current => current ? { ...current, location: { ...p, connectionState: 'CONNECTED', freshness: 'FRESH' } } : current));
+    socket.on('connect', () => console.info('[TEMP PORTAL DIAG] socket_connected namespace=/guardian-portal'));
+    socket.on('connect_error', (error: any) => console.warn(`[TEMP PORTAL DIAG] connect_error category=${socketErrorCategory(error)}`));
+    socket.on('disconnect', (reason: string) => console.warn(`[TEMP PORTAL DIAG] socket_disconnected reason=${socketDisconnectCategory(reason)}`));
+    socket.io.on('reconnect_attempt', (attempt: number) => console.info(`[TEMP PORTAL DIAG] reconnect_attempt attempt=${attempt}`));
+    socket.io.on('reconnect', (attempt: number) => console.info(`[TEMP PORTAL DIAG] reconnect_success attempt=${attempt}`));
+    socket.on('portal:location', (p: { latitude: number; longitude: number; lastUpdatedAt: number }) => { console.info('[TEMP PORTAL DIAG] portal_location_received live_restored'); setState(current => current ? { ...current, location: { ...p, connectionState: 'CONNECTED', freshness: 'FRESH' } } : current); });
     socket.on('portal:presence', (p: Pick<Location, 'lastUpdatedAt' | 'connectionState' | 'freshness'>) => setState(current => current ? { ...current, location: current.location ? { ...current.location, ...p } : current.location } : current));
     socket.on('portal:separated', () => { setState(current => current ? { ...current, separationState: 'separated' } : current); setEvents(current => ['Rider separated from the group', ...current]); });
     socket.on('portal:reunited', () => { setState(current => current ? { ...current, separationState: 'reunited' } : current); setEvents(current => ['Rider reunited with the group', ...current]); });
@@ -33,10 +38,13 @@ function App() {
     socket.connect();
     return () => { socket.close(); };
   }, [state?.observerCredential, state?.rideStatus]);
-  useEffect(() => { const timer = window.setInterval(() => setState(current => { const location = current?.location; if (!current || !location || location.connectionState !== 'CONNECTED' || location.lastUpdatedAt === null || Date.now() - location.lastUpdatedAt <= FRESHNESS_MS) return current; return { ...current, location: { ...location, connectionState: 'DISCONNECTED', freshness: 'STALE' } }; }), 1_000); return () => window.clearInterval(timer); }, []);
+  useEffect(() => { const timer = window.setInterval(() => setState(current => { const location = current?.location; if (!current || !location || location.connectionState !== 'CONNECTED' || location.lastUpdatedAt === null || Date.now() - location.lastUpdatedAt <= FRESHNESS_MS) return current; console.warn('[TEMP PORTAL DIAG] freshness_expired stale_transition'); return { ...current, location: { ...location, connectionState: 'DISCONNECTED', freshness: 'STALE' } }; }), 1_000); return () => window.clearInterval(timer); }, []);
   if (error) return <main><h1>Guardian Portal</h1><p>{error}</p></main>;
   if (!state) return <main><h1>Guardian Portal</h1><p>Loading live ride…</p></main>;
   const stale = !state.location || state.location.freshness === 'STALE';
   return <main><header><strong>GUARDIAN ANGEL</strong><span>Guardian Portal</span></header><h1>{state.riderName}</h1><p className={state.rideStatus === 'ended' ? 'ended' : stale ? 'stale' : 'live'}>{state.rideStatus === 'ended' ? 'Ride ended' : stale ? 'Temporarily offline — showing last known location' : 'Live ride'}</p><p>Ride started {new Date(state.startedAt).toLocaleString()}</p><Map location={state.location} /><p>Last updated: {state.location?.lastUpdatedAt ? new Date(state.location.lastUpdatedAt).toLocaleTimeString() : '—'}</p>{state.separationState === 'separated' && <p className="sos">Separation alert active</p>}<section><h2>Safety updates</h2>{events.length ? events.map((event, index) => <p key={index}>{event}</p>) : <p>No safety alerts.</p>}</section></main>;
 }
 createRoot(document.getElementById('root')!).render(<App />);
+
+function socketDisconnectCategory(reason?: string): string { return ['transport close', 'ping timeout', 'io server disconnect', 'io client disconnect', 'transport error'].includes(reason || '') ? reason! : 'other'; }
+function socketErrorCategory(error: any): string { const message = typeof error?.message === 'string' ? error.message.toLowerCase() : ''; if (message.includes('authorization')) return 'authorization'; if (message.includes('cors')) return 'cors'; if (message.includes('timeout')) return 'timeout'; if (message.includes('transport')) return 'transport'; return 'other'; }

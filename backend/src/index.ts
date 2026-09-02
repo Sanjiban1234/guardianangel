@@ -107,6 +107,7 @@ const isGuardianPortalDeployment = (origin: string): boolean =>
   /^https:\/\/guardian-angel-portal-[a-z0-9-]+\.vercel\.app$/.test(origin);
 const isAllowedOrigin = (origin: string | undefined): boolean =>
   !origin || [...ALLOWED_ORIGINS, GUARDIAN_PORTAL_ALLOWED_ORIGIN].includes(origin) || isGuardianPortalDeployment(origin);
+const originCategory = (origin: string | undefined): string => !origin ? 'missing' : isGuardianPortalDeployment(origin) ? 'portal_deployment' : 'other';
 
 app.use(
   cors({
@@ -124,7 +125,11 @@ app.use(
 const io = new Server(server, {
   maxHttpBufferSize: SOCKET_MAX_HTTP_BUFFER_SIZE,
   cors: {
-    origin: (origin, callback) => callback(null, isAllowedOrigin(origin)),
+    origin: (origin, callback) => {
+      const allowed = isAllowedOrigin(origin);
+      if (!allowed) logger.warn('temporary socket origin rejected', { originCategory: originCategory(origin) });
+      callback(null, allowed);
+    },
     credentials: true,
     methods: ['GET', 'POST'],
   },

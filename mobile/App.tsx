@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  AppState,
   Modal,
   Platform,
   Pressable,
@@ -163,6 +164,7 @@ function App() {
   const [fineLocationGranted, setFineLocationGranted] = useState(false);
   const fineLocationGrantedRef = useRef(false);
   const socketRef = useRef(new SocketClient());
+  const appStateRef = useRef(AppState.currentState || 'unknown');
   const socketLifecycleGuard = React.useMemo(() => {
     const real = socketRef.current;
     return {
@@ -243,6 +245,17 @@ function App() {
   useEffect(() => {
     activeRoomCodeRef.current = activeRoomCode;
   }, [activeRoomCode]);
+
+  useEffect(() => {
+    const updateSocketAppState = (state: string) => (socketRef.current as any).setAppState?.(state);
+    updateSocketAppState(appStateRef.current);
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      appStateRef.current = nextState;
+      updateSocketAppState(nextState);
+      console.log(`[TEMP SOCKET DIAG] app_state=${nextState} socket_active=${socketRef.current.isConnected()}`);
+    });
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     roomMembersRef.current = roomMembers;

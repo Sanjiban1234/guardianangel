@@ -7,6 +7,7 @@ import { GuardianPortalShareService } from '../services/GuardianPortalShareServi
 import { PortalBroadcaster } from '../sockets/GuardianPortalSocketController';
 
 export class LocationHandler {
+  private acceptedCount = 0;
   constructor(
     private readonly socket: AuthenticatedSocket,
     private readonly roomState: RoomState,
@@ -59,11 +60,17 @@ export class LocationHandler {
         connection_state: 'CONNECTED',
         location_freshness: 'FRESH',
       };
+      const socketData = (this.socket as any).data;
+      if (socketData) socketData.lastAcceptedAt = broadcastPayload.last_updated_at;
 
       this.socket.to(`group:${groupCode}`).emit('location:broadcast', broadcastPayload);
       const shareIds = this.portalShares ? await this.portalShares.activeSharesForRoom(groupCode) : [];
       const ownShareIds = shareIds.filter((share) => share.owner_user_id === userId).map((share) => share.id);
       this.portal?.location(ownShareIds, { latitude: reading.latitude, longitude: reading.longitude, lastUpdatedAt: broadcastPayload.last_updated_at });
+      this.acceptedCount += 1;
+      if (this.acceptedCount === 1 || this.acceptedCount % 12 === 0) {
+        logger.info('temporary rider telemetry accepted', { acceptedCount: this.acceptedCount, portalShareTargets: ownShareIds.length, acceptedAt: broadcastPayload.last_updated_at });
+      }
     } catch (err) {
       logger.error('location broadcast failed', err);
     }

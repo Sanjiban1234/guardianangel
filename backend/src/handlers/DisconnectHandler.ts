@@ -15,16 +15,17 @@ export class DisconnectHandler {
   ) {}
 
   register(): void {
-    this.socket.on('disconnect', () => this.handleDisconnect());
+    this.socket.on('disconnect', (reason: string) => this.handleDisconnect(reason));
   }
 
-  private async handleDisconnect(): Promise<void> {
+  private async handleDisconnect(reason?: string): Promise<void> {
     const userId = this.socket.user!.id;
     const name = this.socket.user!.name;
     const groupCode = this.roomState.currentGroupCode;
     const socketId = this.socket.id;
 
-    logger.info('socket disconnected');
+    const category = ['transport close', 'ping timeout', 'server disconnect', 'client disconnect', 'transport error'].includes(reason || '') ? reason : 'other';
+    logger.info('temporary rider socket disconnected', { reason: category, activeRide: Boolean(groupCode), lastAcceptedAt: (this.socket as any).data?.lastAcceptedAt || null });
 
     if (!groupCode) {
       logger.info('socket disconnected without active room');
@@ -58,6 +59,6 @@ export class DisconnectHandler {
     const shareIds = this.portalShares ? await this.portalShares.activeSharesForRoom(groupCode) : [];
     this.portal?.presence(shareIds.filter((share) => share.owner_user_id === userId).map((share) => share.id), { lastUpdatedAt: payload.timestamp, connectionState: 'DISCONNECTED', freshness: 'STALE' });
 
-    logger.info('last known location broadcast completed');
+    logger.info('temporary last-known broadcast completed', { portalShareTargets: shareIds.filter((share) => share.owner_user_id === userId).length });
   }
 }
