@@ -1,271 +1,135 @@
-# Guardian Angel
+# Guardian Angel Engineering Guide
 
-Real-time safety platform for group motorcycle rides. Detects crashes via on-device sensors, broadcasts SOS alerts to ride group members and guardians.
+For overview and setup, see [README.md](README.md). This guide defines the implementation rules for Guardian Angel V1.
 
-## Tech Stack
+## Project Purpose
 
-| Layer | Stack |
-|-------|-------|
-| Mobile | React Native 0.86 + TypeScript (single codebase, iOS/Android) |
-| Backend | Node.js + Express + Socket.IO + TypeScript |
-| Database | PostgreSQL with PostGIS extension |
-| Auth | JWT (bcryptjs for password hashing) |
-| Shared | `contracts/` — TypeScript interfaces + markdown spec for all WebSocket events |
+Guardian Angel coordinates group motorcycle rides with deterministic safety workflows, live telemetry, emergency alerts, route/weather awareness, and private guardian observation. Preserve the boundary between safety authority and advisory features.
 
 ## Repository Layout
 
-```
-backend/          Node.js server (sessions, sockets, REST, DB)
-mobile/           React Native app (telemetry, safety, Post-Ride Summary UI)
-contracts/        Shared WebSocket & REST contract specs (types + docs, ride-summary.ts)
-docs/             Architecture docs, audit reports, ER diagram
-```
-
-## Backend Architecture
-
-Class-based, constructor-injected services. All DB access goes through `QueryRunner` (thin wrapper over `pg.Pool`), which is the single surface mocked in tests.
-
-### Key Modules
-
-```
-src/index.ts                    Composition root (DI wiring, Express + Socket.IO setup)
-src/db.ts                       Schema init (CREATE TABLE IF NOT EXISTS, idempotent)
-src/db/QueryRunner.ts           Injectable query function, mockable in tests
-src/db/DatabasePool.ts          pg.Pool singleton with error tracking
-
-src/routes/AuthRouter.ts        POST /api/auth/register, /api/auth/login
-src/routes/RoomRouter.ts        POST /api/rooms, /api/rooms/join; GET history, summary
-
-src/sockets/RideSocketController.ts   WebSocket connection handler, instantiates per-socket handlers
-src/handlers/SessionHandler.ts        session:join, session:leave
-src/handlers/LocationHandler.ts       location:update → broadcast + persist
-src/handlers/BulkSyncHandler.ts       telemetry:bulkSync → batch insert
-src/handlers/CrashHandler.ts          crash:candidate, crash:countdownExpired, crash:cancelled
-src/handlers/DisconnectHandler.ts     cleanup on socket disconnect
-src/handlers/RefillNotificationHandler.ts refill:requested → log, room broadcast, FCM
-
-src/services/UserService.ts           Registration, login, password hashing
-src/services/RoomService.ts           Room CRUD, membership verification
-src/services/TelemetryService.ts      Single-reading persistence
-src/services/EmergencyAlertService.ts SOS alert creation/resolution
-src/services/PresenceService.ts       Online/offline tracking
-src/services/WeatherService.ts        Weather provider client + in-memory cache + centroid calc
-src/services/GroupCoherenceService.ts Group separation detection + midpoint & speed recommendations
-src/services/RefillNotificationService.ts one-shot petrol-refill event persistence + FCM targets
-
-src/routes/WeatherRouter.ts           GET /api/rooms/:groupCode/weather
-
-
-src/repositories/PostgisTelemetryRepository.ts   Spatial queries (distance, nearby, geofences)
-src/repositories/CrashCandidateRepository.ts     Crash candidate persistence + outcome tracking
+```text
+backend/          Express REST API, Socket.IO handlers, services, repositories, schema
+mobile/           React Native rider app, telemetry, safety UI, TTS
+guardian-portal/  Vite/React observer experience
+contracts/        Shared event, weather, and ride-summary contracts
+docs/             Supporting engineering and Git-history documents
 ```
 
-### Database Schema (PostGIS — source of truth)
+## Current V1 Architecture
 
-| Table | Purpose |
-|-------|---------|
-| `users` | Accounts (id UUID, name, email UNIQUE, phone, password_hash, profile_complete) |
-| `ride_rooms` | Ride sessions (token_hash SHA-256 of group code, destination lat/lng/label, status active/ended) |
-| `room_members` | Many-to-many room membership (`owner`, `member`, `guardian` roles) |
-| `telemetry_readings` | Append-only GPS track (GEOGRAPHY POINT, speed, accuracy) |
-| `rider_current_locations` | Latest position per rider/room (trigger-maintained) |
-| `crash_candidates` | Persisted crash detection events with outcome tracking |
-| `geofences` | Safety zones (GEOGRAPHY POLYGON, hazard/dead_zone) |
-| `emergency_alarms` | SOS records (active/resolved) |
-| `vehicle_breakdowns` | Manual vehicle breakdown reports (reason, note, location, timestamps) |
-| `device_tokens` | FCM push notification registration per user and platform |
-| `medical_info` | Voluntary rider medical ID (blood group, allergies, emergency contacts, notes) |
-| `refill_notifications` | One-shot petrol-refill event log (room, rider, note, created time) |
+Mobile communicates with the TypeScript Express/Socket.IO backend through REST and Socket.IO. PostgreSQL/PostGIS stores users, rides, telemetry, safety records, friends/invitations, Portal shares, and profiles. Open-Meteo supplies weather; Google Places supplies route candidates; DeepSeek may rank validated candidates. Guardian Portal uses the dedicated `/guardian-portal` Socket.IO namespace.
 
-Legacy tables still in schema but not used for new paths: `active_riders`, `notification_subdivision`, `engine_heartbeat`.
+Use constructor-injected backend services and `QueryRunner` database access so tests can mock queries. Keep `contracts/` synchronized when wire shapes change.
 
-### REST API Surface
+## Core Invariants
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST | `/api/auth/register` | Create account (name, email, password, phone); email must be unique and valid format |
-| POST | `/api/auth/login` | Authenticate with email and password, returns JWT with email in payload |
-| POST | `/api/rooms` | Create ride room with destination; server returns 12-hex `group_code` and creator becomes `owner` |
-| POST | `/api/rooms/join` | Join existing room by `group_code`; 24-hour expiry and 20-member cap apply |
-| GET | `/api/rooms/:groupCode/history` | Telemetry history for room |
-| GET | `/api/rooms/:groupCode/summary` | Distance + duration stats |
-| GET | `/api/rooms/:groupCode/weather` | Current weather at ride centroid (active rooms only) |
-| POST | `/api/geofences` | Create geofence (name, type, area as coordinate array) |
-| GET | `/api/geofences` | List active geofences |
-| PATCH | `/api/geofences/:id` | Update geofence fields (name, type, is_active) |
-| DELETE | `/api/geofences/:id` | Soft-delete (set is_active=false) |
-| GET | `/api/safety/config` | Retrieve crash detection threshold configuration (13 tunable parameters — see DetectionConfig in mobile/src/safety/crash/types.ts) |
-| GET | `/api/safety/stats` | Retrieve crash outcome analytics and false positive metrics (admin-only) |
-| POST | `/api/devices/register` | Register/upsert FCM device push token (token, platform) |
-| POST | `/api/users/medical-info` | Upsert authenticated user's medical ID info |
-| GET | `/api/users/medical-info` | Fetch authenticated user's medical ID info |
-| DELETE | `/api/users/medical-info` | Delete authenticated user's medical ID info |
-| GET | `/api/health` | Server health check |
+- AI, UI state, and TTS must never be authoritative for safety decisions.
+- Stale telemetry is not fresh. A disconnected rider must not participate as fresh input to separation calculations.
+- Location freshness and presence are separate concepts.
+- Medical disclosure remains restricted. Friendship does not grant location, medical, or ride-history access.
+- Preserve room/member authorization on REST and Socket.IO paths.
 
-All endpoints except health require JWT in `Authorization: Bearer <token>` header.
+## Safety-Critical Rules
 
-### WebSocket Events (see `contracts/websocket-events.ts` for full types)
+`GroupCoherenceService` is backend authority for separation/reunion. Separation is nearest-neighbour distance greater than 500 m for at least 30 seconds; reunion is 300 m or less for at least 15 seconds. Preserve debounce/cooldown behaviour and deterministic midpoint/speed guidance. Never replace the predicate with centroid distance.
 
-| Event | Direction | Purpose |
-|-------|-----------|---------|
-| `session:join` | Client → Server | Join ride room by group_code |
-| `session:joined` | Server → Client | Confirm join + member list |
-| `session:leave` | Client → Server | Leave room |
-| `session:member_joined/left` | Server → Room | Membership changes |
-| `location:update` | Client → Server | GPS reading |
-| `location:broadcast` | Server → Room | Broadcast position to group |
-| `telemetry:bulkSync` | Client → Server | Offline catch-up batch |
-| `crash:candidate` | Client → Server | On-device crash detection triggered |
-| `crash:countdownExpired` | Client → Server | 15s grace period elapsed, trigger SOS |
-| `crash:cancelled` | Client → Server | Rider dismissed crash warning |
-| `sos:broadcast` | Server → Room | Emergency alert to all members (includes optional `medical_info`) |
-| `group:separationAlert` | Server → Room | Separation alert + midpoint & recommended speeds |
-| `group:reunited` | Server → Room | Notification when separated rider rejoins group |
-| `vehicle:breakdown` | Client → Server | Rider manually reports breakdown (optional reason/note) |
-| `vehicle:breakdownReported` | Server → Room | Breakdown broadcast to room members (includes optional `medical_info`) |
-| `vehicle:breakdownResolved` | Server → Room | Broadcast when rider marks breakdown resolved |
-| `refill:requested` | Client → Server | Informational petrol-refill request (`group_code`, optional note) |
-| `refill:notified` | Server → Room | One-shot refill notification; server also sends FCM to other members |
+Crash sensing begins on mobile and continues through backend candidate/outcome handling and a rider cancellation countdown. SOS, crash, separation, reunion, presence, and weather thresholds must remain deterministic. Crash thresholds are provisional and need real-world validation before production claims.
 
-WebSocket auth: JWT passed in `socket.auth.token` on connection.
+## Authentication Rules
 
-### Crash Detection Flow
+Registration/password login use email; display names and usernames are separate. JWT is required except explicitly public health/bootstrap paths. Do not remove login/biometric rate limits.
 
-1. `App.tsx` instantiates `useCrashDetection` (accelerometer/gyroscope) and `useCountdown`
-2. Client emits `crash:candidate` with timestamp + lat/lng
-3. Server persists to `crash_candidates` table, pulls speed from `rider_current_locations`
-4. 15-second countdown runs on device
-5. If rider cancels → `crash:cancelled` → outcome set to `false_alarm`
-6. If countdown expires → `crash:countdownExpired` → outcome set to `confirmed`, SOS alert created and broadcast
+Biometric login uses registered server credentials and challenge/verify endpoints with the mobile biometric integration. Logout revokes the session and biometric credential. Vehicle profile persistence is `/api/users/profile`; medical information is separately scoped and disclosure-controlled.
 
-## Naming Conventions (Contract Vocabulary)
+## Ride Lifecycle
 
-- **email** (not username) — primary user identifier for registration/login (unique, case-insensitive)
-- **name** — rider's display name (not unique, used in UI only)
-- **group_code** (not room_token) — the plaintext invite code for a ride room
-- **token_hash** — SHA-256 of group_code, stored in `ride_rooms`
-- **alarm_no** (not alert_id) — UUID primary key of emergency_alarms
+Rooms use group codes and membership validation. Preserve owner/member semantics, expiry/capacity checks, active/paused state, start/pause/resume/end controls, and reconnect/rejoin behaviour. Keep route and telemetry history for summaries: distance, duration, route history, and speed data.
 
-## Running
+## Telemetry and Presence
+
+Android foreground/background tracking feeds telemetry. `location:update` is locally buffered if needed and bulk-synced on reconnect. Do not bypass coordinate, timestamp, membership, or batch validation.
+
+Presence is connection state; freshness derives from telemetry recency. Disconnect logic retains last-known location, marks it stale, updates authorized observers, and excludes a disconnected rider from fresh safety inputs.
+
+## Separation / Reunion Logic
+
+Keep the backend deterministic and nearest-rider based. Thresholds are 500 m / 30 seconds for separation and 300 m / 15 seconds for reunion. TTS/UI consume backend events; neither produces safety state.
+
+## Crash / SOS Logic
+
+Mobile motion detection can raise a possible fall/crash, then the rider gets a cancellation countdown. Confirmed SOS is server-persisted and broadcast to the authorized group. Retain optional medical disclosure and resilient failure handling.
+
+## Weather Safety
+
+The weather endpoint samples current/start, destination, and bounded route points with Open-Meteo. It normalizes data and derives deterministic rain, wind/gust, visibility, thunderstorm, and temperature advisories. Provider errors must be isolated from safety traffic; partial results are valid. The app must label failed-refresh retained weather as stale.
+
+## TTS Policy
+
+`GuardianAngelTTS` is Android system TTS and notification-only. Persist the master Voice Alerts toggle, rate, and selected system voice.
+
+- Deduplicate semantic keys and clear separation transition state on reunion.
+- Weather has an active/clear model: announce first summary/new hazards, clear dedupe on hazard clear, and suppress stale-weather speech.
+- SOS/fall is emergency priority. High-priority separation/selected weather may interrupt lower speech. Ordinary speech drops while active; V1 has no generic speech queue.
+- Keep coverage aligned with ride start/end, separation/reunion, SOS/fall, breakdown/refuel, reconnect/disconnect, and weather alerts.
+
+## Guardian Portal
+
+Portal shares are rider-controlled private links and can be revoked. Observers receive scoped location, presence, and separation events; do not expose general rider or medical data.
+
+| Presence | Location | UI |
+| --- | --- | --- |
+| `CONNECTED` | fresh | `LIVE` / Live ride |
+| `CONNECTED` | stale | `ONLINE` / Online — showing last known location |
+| `DISCONNECTED` | last-known | `TEMPORARILY OFFLINE` / Temporarily offline — showing last known location |
+| any | ride ended | Ride ended |
+
+Never regress to “stale location means offline.”
+
+## AI Route Recommendations
+
+The advisory path is active route → corridor sampling → Google Places discovery → deterministic scoring → optional DeepSeek ranking/reason → validated mobile markers. Categories are fuel, food, and workshop.
+
+DeepSeek errors, timeouts, malformed output, or unsafe results must preserve deterministic fallback. AI must never control SOS, crash detection, separation, reunion, presence, or weather rules.
+
+## Friends / Invitations
+
+Friend requests, friendships, blocking, and ride invitations are supported. Preserve authorization and invitation state transitions; social relationships must not silently expand tracking, medical, or history access.
+
+## Backend Conventions
+
+- Prefer services/repositories over route-handler business logic.
+- Validate REST/Socket.IO input and preserve CORS, rate limits, and timeouts.
+- External-provider failures must not block safety-critical paths.
+- Keep schema changes additive/idempotent and update tests with contract changes.
+
+## Mobile Conventions
+
+- Keep telemetry resilient to offline/reconnect cases and preserve Android permission/background tracking flows.
+- UI and spoken alerts consume authoritative events, not produce them.
+- Use configured API URLs; release endpoints require HTTPS.
+
+## Testing Requirements
 
 ```bash
-# Backend
-cd backend
-cp .env.example .env  # configure DATABASE_URL, JWT_SECRET
-npm install
-npm run dev           # tsx watch mode
-
-# Tests
-npm test              # jest --runInBand --detectOpenHandles
+cd mobile && npx tsc --noEmit && npm test -- --runInBand
+cd backend && npx tsc --noEmit && npm test -- --runInBand
+cd guardian-portal && npm run build && npm test
 ```
 
-Environment variables: `DATABASE_URL`, `JWT_SECRET` (required in non-test), `PORT` (default 3000), `ALLOWED_ORIGINS`, `MAX_BODY_SIZE`, `MAX_BULK_BATCH`.
+Run affected package typechecks/tests at minimum. Do not state test totals without rerunning them.
 
-## Test Suites
+## Git / Branch Rules
 
-| File | Coverage |
-|------|----------|
-| `auth.test.ts` | Registration + login (validation, duplicates, auth failures) |
-| `rooms.test.ts` | Room creation, joining, access control, history isolation |
-| `telemetry.test.ts` | WebSocket location broadcast, bulk sync |
-| `disconnect.test.ts` | Room-scoped disconnect isolation |
-| `summary.test.ts` | Ride summary endpoint (distance, duration, access control) |
-| `crash-candidates.test.ts` | Crash candidate persistence, outcome transitions, room scoping |
-| `emergency-alert.test.ts` | SOS creation with/without room_id, graceful degradation |
-| `geofences.test.ts` | Geofence CRUD (create, list, update, soft-delete, validation) |
-| `weather.test.ts` | Weather endpoint (auth, membership, active-room guard, provider mock, cache, centroid, WMO mapping) |
-| `group-coherence.test.ts` | Nearest-rider separation detection, strung-out formation isolation, speed caps, reunion trigger, 30s cooldown |
-| `vehicle-breakdown.test.ts` | Vehicle breakdown report/resolution, FCM token registration, push notification failure isolation, and group coherence alert suppression |
-| `medical-info.test.ts` | Medical ID upsert/fetch/delete, blood group enum & E.164 phone validation, auth scoping, and alert payload integration |
-| `ride-entry-refill.test.ts` | Destination room creation/owner role, profile gate, expiry/capacity/duplicate checks, refill logging, FCM targets, socket identity attribution |
+Current V1 is `integration/all-features` at `8e997d31575bd52ae79d2f4616ea806f289613d0`, following `main` → `integration/full-merge` → `integration/all-features`. Preserve unrelated changes, do not commit secrets, and never rewrite history without explicit authorization. See [docs/git-branch-history-report.md](docs/git-branch-history-report.md).
 
-All tests use mocked `db.query` via `jest.mock('../src/db')` — no live database needed.
+## Known Limitations
 
-## Group Coherence & Reunion Guidance
+- Android is the primary tested platform; background GPS/audio routing need physical-device/OEM validation.
+- Network quality affects live telemetry and Portal updates.
+- Crash thresholds are not real-world validated.
+- Nearest-neighbour separation does not detect every subgroup topology.
 
-**V1 Implementation Scope:**
-- **Separation Detection:** Triggers when a rider's distance to the **nearest other rider** exceeds 500 meters for $\ge 30$ seconds. Nearest-rider distance is specifically used (rather than centroid distance) to prevent false positives for motorcycle groups riding in normal strung-out linear formation.
-- **Meeting Point:** Straight-line (haversine) midpoint between separated rider and group centroid, labeled `is_approximate: true`.
-- **Speed Math & Safety Caps:** Computes equal-arrival target speeds. Separated rider speed increase is capped at max +15% and $+15\text{ km/h}$ ($+4.17\text{ m/s}$). Main group speed decrease is capped at max -20% and $-15\text{ km/h}$ ($-4.17\text{ m/s}$). If either side is stationary ($\le 1.4\text{ m/s}$ / $5\text{ km/h}$), `recommended_speed` is set to `null` to gracefully degrade.
-- **Cooldown & Reunion:** 30-second cooldown between re-emitting `group:separationAlert`. Reunion triggers (`group:reunited`) when distance drops $\le 300\text{ meters}$ for $\ge 15$ seconds to prevent threshold flapping.
-- **V2 Deferred Work:** Road-aware routing engines (OSRM/Google Maps) and route-distance/ETA speed calculations are explicitly deferred.
+## V2 / Deferred Features
 
-
-## Weather Module
-
-**Provider:** Open-Meteo (no API key, no billing, 10k requests/day free tier). Chosen for capstone scope — no budget, good-enough accuracy for "expect rain?" use case.
-
-**Update model:** Pull with cache. `GET /api/rooms/:groupCode/weather` fetches on demand; results cached in-memory per room with 5-minute TTL. Push (periodic Socket.IO broadcast) deferred as a v2 enhancement.
-
-**Location derivation:** Arithmetic mean (centroid) of all riders in `rider_current_locations` for the room. Returns `weather: null, reason: "no_location_data"` if no telemetry has been received yet.
-
-**Active-room restriction:** Endpoint returns 409 for ended rooms. Current weather for an ended ride would be misleading — this is not historical weather-at-ride-time.
-
-**Failure isolation:** 5-second AbortController timeout on the provider call. On any failure, returns `weather: null, reason: "provider_unavailable"` with 200 status. Never blocks or slows safety-critical paths.
-
-**WMO code mapping:** `mapWeatherCode()` in `WeatherService.ts` — pure function mapping numeric WMO weather codes to human-readable condition strings (clear_sky, rain, thunderstorm_with_hail, etc.). Exported and unit-tested independently.
-
-**Response shape:**
-```json
-{
-  "weather": {
-    "condition": "partly_cloudy",
-    "temperature_celsius": 28.5,
-    "precipitation_probability": 40,
-    "wind_speed_kmh": 12.3,
-    "fetched_at": "2026-07-24T10:30:00Z"
-  },
-  "location": { "latitude": 14.5123, "longitude": 121.0456 }
-}
-```
-
-**Known limitations:**
-- In-memory cache means a server restart clears it (acceptable for project scale; not a bug to fix now)
-- Centroid uses arithmetic mean — accurate for group rides within a few km, but would need a proper geographic centroid for continent-scale spread (not a real scenario)
-- No weather-based alerting or route-hazard logic (future feature — would need its own design)
-
-## Crash Detection Thresholds (Unvalidated)
-
-**CRITICAL:** All crash detection threshold values in this project are **provisional and untested**. No real-world crash testing or bench validation has been performed. The values in `/api/safety/config` and `DEFAULT_DETECTION_CONFIG` are engineering estimates based on literature review, not validated against actual motorcycle crash data.
-
-Current thresholds (from `mobile/src/safety/crash/types.ts` `DEFAULT_DETECTION_CONFIG`):
-- `magnitudeThresholdG: 4.0` — peak acceleration spike in g-forces
-- `jerkThreshold: 150` — rate of acceleration change in m/s³
-- `postEventWindowMs: 4000` — duration to watch for post-impact stillness/tumbling
-- `speedGateKmh: 15` — minimum pre-event speed to consider detection
-- See full config in types.ts for all 13 tunable parameters
-
-**Do not adjust these values without real testing data.** Lowering thresholds increases false positives (alerts during normal riding); raising them risks missing real crashes. Real-world validation is an outstanding task, not yet scheduled.
-
-The backend endpoint `GET /api/safety/config` returns these exact values to allow remote tuning without app updates once validation data is available.
-
-## Known Gaps / Deferred Work
-
-- **Crash detection threshold validation**: No real-world or bench testing has been performed. Current values are literature-based estimates only. This is a **mandatory pre-production task**, requires controlled crash testing or validated simulation data
-- **Crash telemetry feed**: `App.tsx` now wires `useCrashDetection`, `useCountdown`, and authenticated `crash:*` socket events through the telemetry `SocketClient`. However, no production telemetry/location stream is yet passed to the detector's speed gate, so sensor candidates cannot be treated as field-ready. The 20-case simulated `crashDetector` test passes; real-world threshold validation remains mandatory.
-- **Vehicle profile persistence**: The UI keeps vehicle model/plate/color locally because the backend contract has no vehicle-profile endpoint. Medical ID persists through `/api/users/medical-info`; do not add a vehicle endpoint without an approved contract change.
-- **Weather push model**: Server could poll weather per active room and broadcast `weather:update` via Socket.IO — deferred, pull-with-cache is sufficient for v1
-- **Guardian Portal** (web observer UI): Deferred until after midterm defense
-- **Geofences**: CRUD endpoints exist; any authenticated user can create/modify/soft-delete geofences (deliberate scope decision for now, not an oversight — must add role-based restriction before production)
-- **Role-based permissions**: All authenticated users have equal access; admin/guardian restrictions deferred
-- **Telemetry speed in crash_candidates**: Populated from `rider_current_locations` — if no telemetry has been received yet for that ride, speed will be null
-
-## Integration Branch Notes
-
-`integration/full-merge` was created from `origin/main` and merges the canonical telemetry (`origin/utsuk/telementry`), safety (`origin/pratyush/safety2`), UI (`origin/radium/ui`), and backend (`origin/sanjiban/backend`) branches. It also includes the locally recovered ride-entry/refill work and mobile wiring commits. Room create/join, registration, medical profile, refill socket notifications, and crash socket transitions now call their existing backend contracts. Both backend and mobile typechecks and Jest test suites pass 100%.
-
-## Security & Resilience Fixes (Audit Remediation)
-
-The following backend hardening measures were resolved per the July 31, 2026 Safety Audit:
-- **JWT Fallback Secret Removed**: Hardcoded JWT fallback secret deleted; server fails fast if `JWT_SECRET` is unset.
-- **Auth Rate Limiting**: `/api/auth/login` and `/api/auth/register` protected with `express-rate-limit` (5 attempts / 15-min window).
-- **CORS Whitelist**: Explicit origin checking against `ALLOWED_ORIGINS` with `credentials: true`.
-- **Password Complexity**: Enforced minimum 8 chars, 1 uppercase, 1 lowercase, 1 number on registration.
-- **Input Length & Format Limits**: Enforced username $\le 50$, password $\le 128$, phone $\le 20$ chars, and strict E.164 phone format (`/^\+[1-9]\d{1,14}$/`).
-- **Telemetry & Bounds Validation**: Coordinates, speed ceiling ($200\text{ m/s}$), relative timestamps (past 24h to future 5min), and `MAX_BULK_BATCH` enforced.
-- **UUID Format Validation**: Route params expecting UUID format validated before database access.
-- **Room Token Keyspace**: Group code generation updated to 12 hex characters (6 random bytes).
-- **Crash Rate Limiting & Safety Endpoints**: Client crash events rate-limited to max 3 / 60s per user; central `/api/safety/config` and `/api/safety/stats` analytics endpoints added.
-- **Graceful Shutdown & Audit Logging**: `SIGTERM`/`SIGINT` handlers added with a 30s drain window, structured audit logging via `winston`.
-
-- **Room resolution race**: `resolveRoomId` (via token_hash) is called independently at several points rather than cached once at session:join. A rare race exists where a room ending mid-flow leaves `emergency_alarms.room_id` as NULL for that alert (cosmetic/audit-only impact — confirmed via testing that outcome tracking and SOS broadcast are unaffected). A cleaner fix would cache room_id in socket roomState at session:join and thread it through everywhere instead of re-resolving; deferred as a broader refactor, not urgent.
+Do not present these as V1: rider-to-rider voice communication/push-to-talk, a richer generic TTS queue, road-aware subgroup graph separation and advanced regroup optimization, or broader fully tested platform support.
