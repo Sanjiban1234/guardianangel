@@ -96,6 +96,10 @@ DeepSeek errors, timeouts, malformed output, or unsafe results must preserve det
 
 Friend requests, friendships, blocking, and ride invitations are supported. Preserve authorization and invitation state transitions; social relationships must not silently expand tracking, medical, or history access.
 
+Manual joins and invitation acceptance share `RoomService.joinMembership` and mobile `handleJoinedRoomConfirm`. Acceptance consumes the invitation and establishes membership in one transaction, returns the canonical room payload, and activates the existing socket session without a second REST join. Same-room retries restore existing membership; another active room causes `ACTIVE_ROOM_CONFLICT`. An accepted invitation is not a new membership grant after leaving.
+
+Keep `ride_rooms.group_code TEXT` nullable for legacy rows. New rooms persist the original code; recovery updates only NULL values after code/hash validation (and membership verification on reconnect). Missing codes cause `ROOM_CODE_UNAVAILABLE` before membership insertion. Do not generate replacement codes or infer a NOT NULL/unique constraint on this column.
+
 ## Backend Conventions
 
 - Prefer services/repositories over route-handler business logic.

@@ -45,6 +45,10 @@ Android system TTS announces ride start/end, separation/reunion, possible falls 
 
 Friend requests, friendships, blocking, and ride invitations are implemented. Friendship alone does not grant location, medical, or ride-history access.
 
+Accepting a ride invitation uses the same mobile room activation, persistence, and Socket.IO session flow as joining by code. Retrying acceptance restores existing membership in the same active room; participation in another active room causes a conflict. Accepted invitations cannot be reused to join again after leaving.
+
+`ride_rooms.group_code` is nullable text. New rooms store the original code alongside its hash. Legacy rooms retain NULL until a manual join or verified-member reconnect supplies the original code; invitation acceptance fails safely until that recovery succeeds.
+
 For an active route, the backend samples a corridor, finds Google Places candidates for fuel, food, or workshops, scores them deterministically, and may add an optional DeepSeek ranking/reason. Only validated markers are returned; deterministic recommendations remain when DeepSeek fails. AI is advisory only and does not decide separation, reunion, SOS, crash detection, presence, or weather thresholds.
 
 ### Guardian Portal
