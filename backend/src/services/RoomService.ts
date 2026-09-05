@@ -11,6 +11,10 @@ export interface CreateRoomResult {
 
 export interface JoinRoomResult {
   room_id: string;
+  group_code: string;
+  status: string;
+  role: string;
+  rideStartedAt: string | null;
   destination?: Destination;
 }
 
@@ -54,10 +58,10 @@ export class RoomService {
 
     const result = await this.db.run(
       `INSERT INTO ride_rooms
-         (token_hash, creator_id, destination_latitude, destination_longitude, destination_label)
-       VALUES ($1, $2, $3, $4, $5)
+         (token_hash, creator_id, destination_latitude, destination_longitude, destination_label, group_code)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id`,
-      [tokenHash, userId, destination.latitude, destination.longitude, destination.label || null]
+      [tokenHash, userId, destination.latitude, destination.longitude, destination.label || null, groupCode]
     );
 
     const roomId = result.rows[0].id;
@@ -77,78 +81,56 @@ export class RoomService {
   }
 
   async joinRoom(userId: string, groupCode: string): Promise<JoinRoomResult> {
-    await this.assertProfileComplete(userId);
-    const tokenHash = this.hashToken(groupCode.toUpperCase());
-
-    const existing = await this.db.run(
-      `SELECT id, status, created_at, destination_latitude, destination_longitude, destination_label,
-              created_at + INTERVAL '${ROOM_EXPIRY_HOURS} hours' AS expires_at
-       FROM ride_rooms WHERE token_hash = $1 LIMIT 1`,
-      [tokenHash]
-    );
-
-    if (existing.rows.length === 0) {
-      throw new AppError('Ride group not found', 'ROOM_NOT_FOUND');
-    }
-
-    const room = existing.rows[0];
-
-    if (room.status !== 'active') {
-      throw new AppError('This ride group has already ended', 'ROOM_ENDED');
-    }
-
-    if (new Date(room.expires_at).getTime() <= Date.now()) {
-      throw new AppError('This ride group has expired', 'ROOM_EXPIRED');
-    }
-
-    const memberCheck = await this.db.run(
-      'SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2 LIMIT 1',
-      [room.id, userId]
-    );
-    if (memberCheck.rows.length > 0) {
-      const err: any = new AppError('You are already a member of this ride group', 'ALREADY_MEMBER');
-      err.room_id = room.id;
-      throw err;
-    }
-
-    const memberCount = await this.db.run(
-      'SELECT COUNT(*)::int AS count FROM room_members WHERE room_id = $1',
-      [room.id]
-    );
-    if (Number(memberCount.rows[0]?.count ?? 0) >= MAX_ROOM_MEMBERS) {
-      throw new AppError('This ride group is full', 'ROOM_FULL');
-    }
-
-    await this.db.run(
-      `INSERT INTO room_members (room_id, user_id, role)
-       VALUES ($1, $2, 'member')`,
-      [room.id, userId]
-    );
-
-    return {
-      room_id: room.id,
-      destination: room.destination_latitude != null && room.destination_longitude != null
-        ? { latitude: room.destination_latitude, longitude: room.destination_longitude, label: room.destination_label }
-        : undefined,
-    };
+    return this.db.transaction(db => this.joinMembership(db, userId, { groupCode: groupCode.toUpperCase() }));
   }
 
-  /** Invitation-only join path. It deliberately performs the same profile,
-   * lifecycle, capacity, and membership checks as a room-code join. */
-  async joinRoomById(userId: string, roomId: string): Promise<JoinRoomResult> {
-    await this.assertProfileComplete(userId);
-    const existing = await this.db.run(`SELECT id, status, created_at, destination_latitude, destination_longitude, destination_label,
-      created_at + INTERVAL '${ROOM_EXPIRY_HOURS} hours' AS expires_at FROM ride_rooms WHERE id = $1 LIMIT 1`, [roomId]);
-    if (!existing.rows.length) throw new AppError('Ride group not found', 'ROOM_NOT_FOUND');
+  async joinRoomById(userId: string, roomId: string, transaction?: QueryRunner): Promise<JoinRoomResult> {
+    const join = (db: QueryRunner) => this.joinMembership(db, userId, { roomId });
+    return transaction ? join(transaction) : this.db.transaction(join);
+  }
+
+  /** Both entry methods serialize membership decisions per rider and capacity per room. */
+  private async joinMembership(db: QueryRunner, userId: string, target: { roomId?: string; groupCode?: string }): Promise<JoinRoomResult> {
+    const profile = await db.run('SELECT profile_complete FROM users WHERE id = $1 FOR UPDATE', [userId]);
+    if (profile.rows[0]?.profile_complete === false) {
+      throw new AppError('Complete registration before creating or joining a ride', 'PROFILE_INCOMPLETE');
+    }
+    const existing = await db.run(`SELECT id, group_code, status, ride_started_at,
+      destination_latitude, destination_longitude, destination_label,
+      created_at + INTERVAL '${ROOM_EXPIRY_HOURS} hours' AS expires_at
+      FROM ride_rooms WHERE ${target.roomId ? 'id' : 'token_hash'} = $1 LIMIT 1 FOR UPDATE`,
+      [target.roomId || this.hashToken(target.groupCode!)]);
     const room = existing.rows[0];
+    if (!room) throw new AppError('Ride group not found', 'ROOM_NOT_FOUND');
     if (room.status !== 'active') throw new AppError('This ride group has already ended', 'ROOM_ENDED');
     if (new Date(room.expires_at).getTime() <= Date.now()) throw new AppError('This ride group has expired', 'ROOM_EXPIRED');
-    if ((await this.db.run('SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2 LIMIT 1', [room.id, userId])).rows.length) {
-      const error: any = new AppError('You are already a member of this ride group', 'ALREADY_MEMBER'); error.room_id = room.id; throw error;
+    const memberships = await db.run(`SELECT rm.room_id, rm.role FROM room_members rm
+      JOIN ride_rooms rr ON rr.id = rm.room_id
+      WHERE rm.user_id = $1 AND rr.status = 'active'
+      AND rr.created_at + INTERVAL '${ROOM_EXPIRY_HOURS} hours' > now()`, [userId]);
+    if (memberships.rows.some(member => member.room_id !== room.id)) {
+      throw new AppError('You are already participating in another active ride.', 'ACTIVE_ROOM_CONFLICT');
     }
-    if (Number((await this.db.run('SELECT COUNT(*)::int AS count FROM room_members WHERE room_id = $1', [room.id])).rows[0]?.count ?? 0) >= MAX_ROOM_MEMBERS) throw new AppError('This ride group is full', 'ROOM_FULL');
-    await this.db.run("INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'member')", [room.id, userId]);
-    return { room_id: room.id, destination: room.destination_latitude != null ? { latitude: room.destination_latitude, longitude: room.destination_longitude, label: room.destination_label } : undefined };
+    const groupCode = target.groupCode || room.group_code;
+    if (!groupCode) {
+      throw new AppError('Ask the host to reopen this ride, then try accepting again.', 'ROOM_CODE_UNAVAILABLE');
+    }
+    if (room.group_code === null && target.groupCode) {
+      await db.run('UPDATE ride_rooms SET group_code = $2 WHERE id = $1 AND group_code IS NULL', [room.id, groupCode]);
+    }
+    const member = memberships.rows.find(member => member.room_id === room.id);
+    if (!member) {
+      const count = await db.run('SELECT COUNT(*)::int AS count FROM room_members WHERE room_id = $1', [room.id]);
+      if (Number(count.rows[0]?.count ?? 0) >= MAX_ROOM_MEMBERS) throw new AppError('This ride group is full', 'ROOM_FULL');
+      await db.run("INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT (room_id, user_id) DO NOTHING", [room.id, userId]);
+    }
+    return {
+      room_id: room.id, group_code: groupCode, status: room.status,
+      role: member?.role || 'member', rideStartedAt: room.ride_started_at || null,
+      destination: room.destination_latitude != null && room.destination_longitude != null
+        ? { latitude: Number(room.destination_latitude), longitude: Number(room.destination_longitude), label: room.destination_label || undefined }
+        : undefined,
+    };
   }
 
   /** Return persisted room details needed to recover an idempotent join. */
@@ -205,12 +187,17 @@ export class RoomService {
     const tokenHash = this.hashToken(groupCode.toUpperCase());
     try {
       const result = await this.db.run(
-        `SELECT rr.id, rr.status FROM ride_rooms rr
+        `SELECT rr.id, rr.status, rr.group_code FROM ride_rooms rr
          JOIN room_members rm ON rm.room_id = rr.id
          WHERE rr.token_hash = $1 AND rm.user_id = $2`,
         [tokenHash, userId]
       );
-      return result.rows.length > 0 ? result.rows[0] : null;
+      const room = result.rows[0];
+      // A verified legacy member supplies the original code; never rotate it.
+      if (room?.group_code === null && room.status === 'active') {
+        await this.db.run('UPDATE ride_rooms SET group_code = $2 WHERE id = $1 AND group_code IS NULL', [room.id, groupCode.toUpperCase()]);
+      }
+      return room || null;
     } catch {
       return null;
     }
@@ -254,13 +241,14 @@ export class RoomService {
   /** Authoritative state used by a client to restore an interrupted active ride. */
   async getActiveMembership(groupCode: string, userId: string): Promise<{
     group_code: string;
+    room_id: string;
     role: string;
     rideStartedAt: string | null;
     destination?: Destination;
   } | null> {
     const tokenHash = this.hashToken(groupCode.toUpperCase());
     const result = await this.db.run(
-      `SELECT rm.role, rr.ride_started_at, rr.destination_latitude, rr.destination_longitude, rr.destination_label
+      `SELECT rr.id, rm.role, rr.ride_started_at, rr.destination_latitude, rr.destination_longitude, rr.destination_label
        FROM ride_rooms rr
        JOIN room_members rm ON rm.room_id = rr.id
        WHERE rr.token_hash = $1 AND rm.user_id = $2 AND rr.status = 'active'
@@ -271,6 +259,7 @@ export class RoomService {
     const room = result.rows[0];
     return {
       group_code: groupCode.toUpperCase(),
+      room_id: room.id,
       role: room.role,
       rideStartedAt: room.ride_started_at,
       destination: room.destination_latitude != null && room.destination_longitude != null

@@ -183,6 +183,7 @@ export const initDb = async (): Promise<void> => {
         ended_at TIMESTAMPTZ
       )
     `);
+    await client.query('ALTER TABLE ride_rooms ADD COLUMN IF NOT EXISTS group_code TEXT');
     await client.query('ALTER TABLE ride_rooms ADD COLUMN IF NOT EXISTS destination_latitude DOUBLE PRECISION');
     await client.query('ALTER TABLE ride_rooms ADD COLUMN IF NOT EXISTS destination_longitude DOUBLE PRECISION');
     await client.query('ALTER TABLE ride_rooms ADD COLUMN IF NOT EXISTS destination_label TEXT');

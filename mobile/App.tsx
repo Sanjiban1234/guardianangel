@@ -226,6 +226,7 @@ function App() {
 
   // Room / Destination state
   const [activeRoomCode, setActiveRoomCode] = useState<string>('');
+  const [roomActivation, setRoomActivation] = useState(0);
   const [activeRoomId, setActiveRoomId] = useState<string>('');
   // This deliberately is not persisted.  It identifies a completed room long
   // enough to fetch its authoritative post-ride summary without treating the
@@ -624,6 +625,7 @@ function App() {
               emergencyContact: [medical.emergency_contact_name, medical.emergency_contact_phone].filter(Boolean).join(' '), medicalNotes: medical.notes || '' }));
           })
           .catch(() => console.warn('[PROFILE HYDRATE] unavailable'));
+        setActiveRoomId(restored.room_id || '');
         setActiveRoomCode(ride.groupCode);
         setDestinationTitle(restored.destination?.label || ride.destinationTitle);
         setDestination(restored.destination ? {
@@ -1048,7 +1050,7 @@ function App() {
         console.warn('[SESSION JOIN FAILED]');
         setConnection('offline');
       });
-  }, [authToken, activeRoomCode]);
+  }, [authToken, activeRoomCode, roomActivation]);
 
   useEffect(() => {
     if (!lastCandidate || !socketRef.current.isConnected()) return;
@@ -1179,7 +1181,15 @@ function App() {
     });
   };
 
-  const handleJoinedRoomConfirm = (preview: RoomPreviewDetails) => {
+  const handleJoinedRoomConfirm = async (preview: RoomPreviewDetails) => {
+    const owner = preview.role === 'owner';
+    await saveActiveRide({
+      groupCode: preview.groupCode, userId, riderName, isHost: owner,
+      destinationTitle: preview.destinationTitle,
+      destination: preview.destination ? { latitude: preview.destination.latitude, longitude: preview.destination.longitude, label: preview.destination.label || preview.destinationTitle } : null,
+    });
+    setActiveRoomId(preview.roomId || '');
+    setRoomActivation(value => value + 1);
     GuardianAngelTTS.resetWeatherTransitions();
     setActiveRoomCode(preview.groupCode);
     setDestinationTitle(preview.destinationTitle);
@@ -1194,6 +1204,7 @@ function App() {
       setActiveRoute(null);
       deadEndDetectorRef.current?.setDestination(dest);
     } else {
+      setDestination(null);
       routeTrackerRef.current?.setDestination(null);
       setActiveRoute(null);
       deadEndDetectorRef.current?.setDestination(null);
@@ -1203,16 +1214,11 @@ function App() {
     setRoomMembers([]);
     setSeparationsByRider(clearAllSeparations());
     setRideAlertState(clearRideAlerts());
-    setIsHost(false);
-    setDeviceRole('RIDER');
-    setRideStarted(false);
+    setIsHost(owner);
+    setDeviceRole(owner ? 'HOST' : 'RIDER');
+    setRideStarted(Boolean(preview.rideStartedAt));
     console.log('[RIDE ROOM JOINED]');
     setScreen('map');
-    persistActiveRide({
-      groupCode: preview.groupCode, userId, riderName, isHost: false,
-      destinationTitle: preview.destinationTitle,
-      destination: preview.destination ? { latitude: preview.destination.latitude, longitude: preview.destination.longitude, label: preview.destination.label || preview.destinationTitle } : null,
-    });
   };
 
   const handleEndRide = () => {
@@ -1459,7 +1465,7 @@ function App() {
       )}
 
       {screen === 'friends' && (
-        <FriendsScreen apiBaseUrl={API_BASE_URL} authToken={authToken} refreshSignal={friendsRefreshSignal} onBack={() => setScreen('portal')} />
+        <FriendsScreen onConfirmJoin={handleJoinedRoomConfirm} apiBaseUrl={API_BASE_URL} authToken={authToken} refreshSignal={friendsRefreshSignal} onBack={() => setScreen('portal')} />
       )}
 
       {screen === 'map' && (() => {

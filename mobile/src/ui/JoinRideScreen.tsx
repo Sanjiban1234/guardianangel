@@ -24,19 +24,8 @@ const COLORS = {
   darkInput: '#0F1A12',
 };
 
-export interface RoomPreviewDetails {
-  groupCode: string;
-  destinationTitle: string;
-  locationName: string;
-  hostName: string;
-  activeRiderCount: number;
-  routeDistanceKm: number;
-  destination?: {
-    latitude: number;
-    longitude: number;
-    label?: string | null;
-  };
-}
+import { joinedRoomPreview, RoomPreviewDetails } from '../ride/JoinedRoom';
+export type { RoomPreviewDetails } from '../ride/JoinedRoom';
 
 interface JoinRideScreenProps {
   initialCode?: string;
@@ -44,7 +33,7 @@ interface JoinRideScreenProps {
   authToken: string;
   isOnline?: boolean;
   onCancel: () => void;
-  onConfirmJoin: (preview: RoomPreviewDetails) => void;
+  onConfirmJoin: (preview: RoomPreviewDetails) => void | Promise<void>;
 }
 
 export function JoinRideScreen({
@@ -125,7 +114,8 @@ export function JoinRideScreen({
         const message = formatJoinError(response.status, body);
 
         if (message === '__ALREADY_MEMBER__') {
-          onConfirmJoin({
+          await onConfirmJoin({
+            roomId: body.room_id,
             groupCode,
             destinationTitle: body.destination?.label || 'Group Ride',
             locationName: `Room ${body.room_id || groupCode}`,
@@ -148,17 +138,7 @@ export function JoinRideScreen({
         return;
       }
 
-      onConfirmJoin({
-        groupCode,
-        destinationTitle: body.destination?.label || 'Group Ride',
-        locationName: `Room ${body.room_id}`,
-        hostName: 'Unknown',
-        activeRiderCount: 0,
-        routeDistanceKm: 0,
-        destination: body.destination
-          ? { latitude: body.destination.latitude, longitude: body.destination.longitude, label: body.destination.label }
-          : undefined,
-      });
+      await onConfirmJoin(joinedRoomPreview({ ...body, status: body.status || 'active', group_code: body.group_code || groupCode }));
     } catch (error) {
       setErrorMsg(
         error instanceof Error

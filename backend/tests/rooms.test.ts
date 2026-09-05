@@ -2,6 +2,7 @@ import request from 'supertest';
 import { app } from '../src/index';
 import * as db from '../src/db';
 import jwt from 'jsonwebtoken';
+import { QueryRunner } from '../src/db/QueryRunner';
 import { createAuthenticatedTestSession, installTestSessionValidator } from './helpers/auth';
 
 jest.mock('../src/db', () => ({
@@ -31,6 +32,7 @@ describe('Ride Room REST Endpoints & Access Control', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(QueryRunner.prototype, 'transaction').mockImplementation(function(this: QueryRunner, action: any) { return action(this); });
   });
 
   describe('POST /api/rooms (Create Room)', () => {

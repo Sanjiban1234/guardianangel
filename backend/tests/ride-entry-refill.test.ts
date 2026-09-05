@@ -5,6 +5,8 @@ import { RefillNotificationHandler } from '../src/handlers/RefillNotificationHan
 import { Server } from 'socket.io';
 
 describe('Ride entry policy and petrol refill notifications', () => {
+  beforeEach(() => { jest.spyOn(QueryRunner.prototype, 'transaction').mockImplementation(function(this: QueryRunner, action: any) { return action(this); }); });
+  afterEach(() => jest.restoreAllMocks());
   const userId = '11111111-1111-1111-1111-111111111111';
   const roomId = '22222222-2222-2222-2222-222222222222';
   const groupCode = 'ABCDEF123456';
@@ -24,7 +26,6 @@ describe('Ride entry policy and petrol refill notifications', () => {
 
   it.each([
     ['expired', new Date(Date.now() - 1000).toISOString(), [], 0, 'ROOM_EXPIRED'],
-    ['already a member', new Date(Date.now() + 3600000).toISOString(), [{ value: 1 }], 0, 'ALREADY_MEMBER'],
     ['full', new Date(Date.now() + 3600000).toISOString(), [], 20, 'ROOM_FULL'],
   ])('rejects a %s room with a distinct error', async (_caseName, expiresAt, membershipRows, count, code) => {
     const query = jest.fn()

@@ -126,7 +126,7 @@ export class RoomRouter {
       const result = await this.roomService.joinRoom(userId, group_code);
       res.status(200).json({
         message: 'Successfully joined ride group',
-        room_id: result.room_id,
+        ...result,
         destination: result.destination ?? null,
       });
     } catch (err: any) {
@@ -138,6 +138,8 @@ export class RoomRouter {
         res.status(410).json({ error: 'This ride group has expired', code: 'ROOM_EXPIRED' });
       } else if (err?.code === 'ROOM_FULL') {
         res.status(409).json({ error: 'This ride group is full', code: 'ROOM_FULL' });
+      } else if (err?.code === 'ACTIVE_ROOM_CONFLICT') {
+        res.status(409).json({ error: err.message, code: err.code });
       } else if (err?.code === 'ALREADY_MEMBER') {
         // A retry must be able to restore the same client state as a fresh
         // join.  In particular, the mobile client needs the persisted
