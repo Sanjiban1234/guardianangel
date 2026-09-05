@@ -255,6 +255,7 @@ export const initDb = async (): Promise<void> => {
         UNIQUE (room_id, user_id, device_timestamp_ms)
       )
     `);
+    await client.query('ALTER TABLE telemetry_readings ADD COLUMN IF NOT EXISTS is_historical BOOLEAN NOT NULL DEFAULT false');
     await client.query('CREATE INDEX IF NOT EXISTS telemetry_readings_location_gix ON telemetry_readings USING GIST (location)');
     await client.query('CREATE INDEX IF NOT EXISTS telemetry_readings_room_user_time_idx ON telemetry_readings (room_id, user_id, device_timestamp_ms)');
 
@@ -275,6 +276,12 @@ export const initDb = async (): Promise<void> => {
       CREATE OR REPLACE FUNCTION maintain_rider_current_location()
       RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
+        -- Historical replay must never renew live freshness or current markers.
+        -- Match RIDER_LOCATION_FRESHNESS_MS (15 seconds) in PresenceService.
+        IF NEW.is_historical OR NEW.device_timestamp_ms < EXTRACT(EPOCH FROM NEW.received_at) * 1000 - 15000
+          OR NEW.device_timestamp_ms > EXTRACT(EPOCH FROM NEW.received_at) * 1000 + 5000 THEN
+          RETURN NEW;
+        END IF;
         INSERT INTO rider_current_locations
           (room_id, user_id, device_timestamp_ms, location, accuracy, speed)
         VALUES
@@ -284,7 +291,7 @@ export const initDb = async (): Promise<void> => {
               location = EXCLUDED.location,
               accuracy = EXCLUDED.accuracy,
               speed = EXCLUDED.speed
-          WHERE EXCLUDED.device_timestamp_ms >= rider_current_locations.device_timestamp_ms;
+          WHERE EXCLUDED.device_timestamp_ms > rider_current_locations.device_timestamp_ms;
         RETURN NEW;
       END;
       $$

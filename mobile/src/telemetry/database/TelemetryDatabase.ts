@@ -23,6 +23,7 @@ export class InMemoryTelemetryDatabase implements ITelemetryDatabase {
     }
     // Transactional deep copy to ensure isolation against object mutations
     this.rows.set(reading.client_reading_id, {
+      ...reading,
       client_reading_id: reading.client_reading_id,
       timestamp: reading.timestamp,
       latitude: reading.latitude,
@@ -33,10 +34,10 @@ export class InMemoryTelemetryDatabase implements ITelemetryDatabase {
     });
   }
 
-  async getUnsyncedReadings(limit = 500): Promise<TelemetryReading[]> {
+  async getUnsyncedReadings(limit = 500, userId?: string, excludedGroupCodes: string[] = []): Promise<TelemetryReading[]> {
     const unsynced: TelemetryReading[] = [];
     for (const reading of this.rows.values()) {
-      if (!reading.synced) {
+      if (!reading.synced && (!userId || reading.userId === userId) && !excludedGroupCodes.includes(reading.groupCode || '')) {
         unsynced.push({ ...reading });
       }
     }

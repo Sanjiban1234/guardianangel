@@ -36,6 +36,8 @@ export interface RoomMember {
 }
 
 export interface RoomVerification {
+  ride_started_at?: string;
+  ended_at?: string;
   id: string;
   status: string;
 }
@@ -187,7 +189,7 @@ export class RoomService {
     const tokenHash = this.hashToken(groupCode.toUpperCase());
     try {
       const result = await this.db.run(
-        `SELECT rr.id, rr.status, rr.group_code FROM ride_rooms rr
+        `SELECT rr.id, rr.status, rr.group_code, rr.ride_started_at, rr.ended_at FROM ride_rooms rr
          JOIN room_members rm ON rm.room_id = rr.id
          WHERE rr.token_hash = $1 AND rm.user_id = $2`,
         [tokenHash, userId]

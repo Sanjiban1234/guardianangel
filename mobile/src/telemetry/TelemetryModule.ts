@@ -1,7 +1,7 @@
 /**
  * @file TelemetryModule.ts
  * @description Main composition engine for continuous telemetry ingestion,
- * offline SQLite caching, reachability monitoring, and bulk re-synchronization.
+ * durable offline caching, reachability monitoring, and bulk re-synchronization.
  */
 
 import { InMemoryTelemetryDatabase } from './database/TelemetryDatabase';
@@ -19,6 +19,8 @@ import {
 } from './types';
 
 export class TelemetryModule {
+  private lifecycle: Promise<void> = Promise.resolve();
+  private readonly deferredRooms = new Map<string, number>();
   private options: TelemetryModuleOptions | null = null;
   private started = false;
   private isSyncing = false;
@@ -34,7 +36,26 @@ export class TelemetryModule {
 
   private unsubscribeConnectivity: (() => void) | null = null;
   private currentStatus: ConnectivityStatus = 'offline';
-  private readingCounter = 0;
+  private deliveryUser: string | undefined;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryMs = 12_000;
+  private nextBatchAt = 0;
+  private readonly liveInFlight = new Set<string>();
+
+  restoreDelivery(userId?: string): void {
+    this.deliveryUser = userId;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    if (userId) void this.db.init().then(() => this.triggerResync()).catch(() => console.warn('[TELEMETRY] storage unavailable'));
+  }
+
+  private scheduleRetry(): void {
+    if (this.retryTimer || (!this.started && !this.deliveryUser)) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      void this.triggerResync();
+    }, this.retryMs);
+  }
 
   constructor(customAdapters?: {
     db?: ITelemetryDatabase;
@@ -51,7 +72,13 @@ export class TelemetryModule {
   /**
    * Starts continuous telemetry ingestion for a ride session.
    */
-  async start(options: TelemetryModuleOptions): Promise<void> {
+  start(options: TelemetryModuleOptions): Promise<void> {
+    const task = this.lifecycle.then(() => this.startSession(options));
+    this.lifecycle = task.catch(() => {});
+    return task;
+  }
+
+  private async startSession(options: TelemetryModuleOptions): Promise<void> {
     console.log('[TELEMETRY START]');
     if (this.started) {
       console.warn('TelemetryModule is already running');
@@ -59,6 +86,7 @@ export class TelemetryModule {
     }
 
     this.options = options;
+    this.deliveryUser = options.userId;
 
     // Use custom adapters from options if provided
     if (options.dbAdapter) this.db = options.dbAdapter;
@@ -102,7 +130,7 @@ export class TelemetryModule {
     // Start background location provider
     console.log(`[LIVE LOCATION TRACE] [TRACE 2] Starting location provider...`);
     await this.locationProvider.start((rawSample) => {
-      this.handleIncomingReading(rawSample);
+      void this.handleIncomingReading(rawSample, options).catch(() => console.warn('[TELEMETRY] local persistence failed'));
     });
 
     this.started = true;
@@ -122,17 +150,22 @@ export class TelemetryModule {
    * lifecycle is managed by the caller (App.tsx useEffect). Disconnecting
    * here would race with the caller's reconnect and kill the new connection.
    *
-   * `this.started` is reset synchronously before any async work so that a
-   * concurrent `start()` call does not short-circuit.
+   * Starts/stops are serialized so an old native stop cannot kill a new ride's watcher.
    */
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
+    const task = this.lifecycle.then(() => this.stopSession());
+    this.lifecycle = task.catch(() => {});
+    return task;
+  }
+
+  private async stopSession(): Promise<void> {
     console.warn('[TELEMETRY STOP]');
     if (!this.started) return;
     console.log(`[LIVE LOCATION TRACE] TelemetryModule stopping...`);
 
-    // Reset state synchronously so start() can proceed immediately
+    // The next start waits until this native stop completes.
     this.started = false;
-    this.isSyncing = false;
+    if (this.retryTimer && !this.deliveryUser) { clearTimeout(this.retryTimer); this.retryTimer = null; }
 
     if (this.unsubscribeConnectivity) {
       this.unsubscribeConnectivity();
@@ -174,6 +207,11 @@ export class TelemetryModule {
     };
   }
 
+  async recordLocation(raw: Omit<TelemetryReading, 'client_reading_id' | 'synced'>, groupCode: string, userId: string): Promise<void> {
+    await this.db.init();
+    await this.handleIncomingReading(raw, { socketUrl: '', authToken: '', healthEndpointUrl: '', groupCode, userId }, false);
+  }
+
   private generateUUIDv4(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
       return crypto.randomUUID();
@@ -189,54 +227,50 @@ export class TelemetryModule {
    * Process incoming raw GPS reading from location provider.
    */
   private async handleIncomingReading(
-    rawSample: Omit<TelemetryReading, 'client_reading_id' | 'synced'>
+    rawSample: Omit<TelemetryReading, 'client_reading_id' | 'synced'>,
+    scope = this.options,
+    notifyLiveListeners = true
   ): Promise<void> {
     console.log('[TELEMETRY RECEIVED]');
+    if (!scope || !Number.isFinite(rawSample.timestamp) || !Number.isFinite(rawSample.latitude) || !Number.isFinite(rawSample.longitude) || Math.abs(rawSample.latitude) > 90 || Math.abs(rawSample.longitude) > 180 || !Number.isFinite(rawSample.accuracy) || rawSample.accuracy < 0) return;
     const clientReadingId = this.generateUUIDv4();
 
     const reading: TelemetryReading = {
       client_reading_id: clientReadingId,
+      groupCode: scope.groupCode,
+      userId: scope.userId,
       timestamp: rawSample.timestamp,
       latitude: rawSample.latitude,
       longitude: rawSample.longitude,
       accuracy: rawSample.accuracy,
-      speed: rawSample.speed,
+      speed: rawSample.speed != null && Number.isFinite(rawSample.speed) && rawSample.speed >= 0 && rawSample.speed <= 200 ? rawSample.speed : null,
       synced: false,
     };
 
     // Emit to reading stream subscribers (Person 2 & 4 UI components)
-    this.notifyReadingListeners(reading);
+    if (notifyLiveListeners) this.notifyReadingListeners(reading);
 
-    // Try to emit live via socket. SocketClient.emitLocationUpdate() already
-    // guards on this.connected internally, so no separate connectivity check needed.
-    // Previous code gated on this.currentStatus === 'online' (ConnectivityManager),
-    // which starts as 'offline' and debounces by 2.5s — blocking ALL live emission
-    // during every stop/start cycle. The ConnectivityManager gate is redundant:
-    // if the socket is connected, the backend is reachable; if not, emitLocationUpdate
-    // silently no-ops and we fall back to cache.
-    const socketConnected = this.socketClient.isConnected();
-    console.log(`[TELEMETRY SOCKET CHECK] connected=${socketConnected}`);
-    if (socketConnected) {
+    const connectedAtCapture = this.socketClient.isConnected();
+    const userAtCapture = this.deliveryUser;
+    // Reserve before the async write so a concurrent backlog scan cannot take a
+    // just-persisted live fix and suppress its normal safety processing.
+    if (connectedAtCapture) this.liveInFlight.add(clientReadingId);
+    try { await this.db.insertReading(reading); }
+    catch (error) { this.liveInFlight.delete(clientReadingId); throw error; }
+    if (connectedAtCapture && this.socketClient.isConnected() && userAtCapture === this.deliveryUser && (!reading.userId || reading.userId === this.deliveryUser)) {
+      const timeout = setTimeout(() => { this.liveInFlight.delete(clientReadingId); this.scheduleRetry(); }, 10_000);
       try {
-        console.log('[TELEMETRY SENT]');
-        this.socketClient.emitLocationUpdate({
-          timestamp: reading.timestamp,
-          latitude: reading.latitude,
-          longitude: reading.longitude,
-          accuracy: reading.accuracy,
-          speed: reading.speed,
+        this.socketClient.emitLocationUpdate(reading, response => {
+          clearTimeout(timeout);
+          this.liveInFlight.delete(clientReadingId);
+          if (response?.sampleId === clientReadingId && (response.accepted || response.permanent)) {
+            if (response.permanent) console.warn('[TELEMETRY] invalid sample rejected');
+            void this.db.markReadingsSynced([clientReadingId]).catch(() => this.scheduleRetry());
+          } else this.scheduleRetry();
         });
-        console.log('[TELEMETRY SENT]');
-      } catch {
-        console.warn('[LIVE LOCATION TRACE] [TRACE 3x] Emit failed, caching');
-        await this.db.insertReading(reading);
-      }
-    } else {
-      // Offline Path: Write reading to local SQLite cache
-      console.log(`[LIVE LOCATION AUDIT] Offline — caching reading locally (status=${this.currentStatus}, connected=${this.socketClient.isConnected()})`);
-      console.log(`[LIVE LOCATION TRACE] [TRACE 3-BLOCKED] Socket not connected — caching locally`);
-      await this.db.insertReading(reading);
-    }
+      } catch { clearTimeout(timeout); this.liveInFlight.delete(clientReadingId); }
+    } else this.liveInFlight.delete(clientReadingId);
+    this.scheduleRetry();
   }
 
   /**
@@ -267,8 +301,12 @@ export class TelemetryModule {
       return this.pendingResync;
     }
 
-    this.pendingResync = this.runResync().finally(() => {
+    this.pendingResync = this.runResync().catch(() => {
+      this.retryMs = Math.min(60_000, this.retryMs * 2);
+      console.warn('[TELEMETRY] pending storage read failed; retry scheduled');
+    }).finally(() => {
       this.pendingResync = null;
+      this.scheduleRetry();
     });
 
     return this.pendingResync;
@@ -278,25 +316,37 @@ export class TelemetryModule {
     // Prevent duplicate/concurrent re-sync loops
     if (this.isSyncing) return;
     this.isSyncing = true;
+    const deliveryUser = this.deliveryUser;
 
     try {
-      while (this.currentStatus === 'online' && this.started) {
-        // Query oldest unsynced readings in batches of up to 500
-        const unsyncedBatch = await this.db.getUnsyncedReadings(300);
+      while (this.socketClient.isConnected() && (this.started || !!this.deliveryUser)) {
+        // Oldest first, with one room and at most 100 readings per upload.
+        const excluded = [...this.deferredRooms].filter(([, until]) => until > Date.now()).map(([room]) => room);
+        const pending = await this.db.getUnsyncedReadings(100, deliveryUser, excluded);
+        if (deliveryUser !== this.deliveryUser || Date.now() < this.nextBatchAt) break;
+        const available = pending.filter(r => !this.liveInFlight.has(r.client_reading_id));
+        const unsyncedBatch = available.filter(r => r.groupCode === available[0]?.groupCode);
         if (unsyncedBatch.length === 0) {
           break; // All readings synced cleanly
         }
 
         try {
           // Emit bulkSync to server and wait for confirmation ack
+          this.nextBatchAt = Date.now() + 12_000;
           const ack = await this.socketClient.emitBulkSync(unsyncedBatch);
 
+          if (ack?.rejectedClientReadingIds?.length) {
+            const rejected = ack.rejectedClientReadingIds.filter(id => unsyncedBatch.some(r => r.client_reading_id === id));
+            console.warn('[TELEMETRY] permanently invalid samples rejected', rejected.length);
+            await this.db.markReadingsSynced(rejected);
+          }
           if (ack && Array.isArray(ack.confirmedClientReadingIds) && ack.confirmedClientReadingIds.length > 0) {
             const batchIds = new Set(unsyncedBatch.map(r => r.client_reading_id));
             const confirmedInBatch = ack.confirmedClientReadingIds.filter(id => batchIds.has(id));
 
             // Only mark confirmed client_reading_ids as synced
-            await this.db.markReadingsSynced(ack.confirmedClientReadingIds);
+            await this.db.markReadingsSynced(confirmedInBatch);
+            this.retryMs = 12_000;
 
             // Progress guard: if the ack confirms no reading from the current
             // batch (e.g. a stale/retried ack from a previous sync), the loop
@@ -305,10 +355,15 @@ export class TelemetryModule {
               break;
             }
           } else {
+            if (unsyncedBatch[0].groupCode) this.deferredRooms.set(unsyncedBatch[0].groupCode, Date.now() + 60_000);
+            // A revoked/removed membership is retained, but cannot starve other rooms.
+            this.retryMs = 12_000;
             // Unconfirmed batch: break sync loop safely without losing or duplicating data
             break;
           }
+          break; // One 100-point batch per tick; live delivery remains independent.
         } catch {
+          this.retryMs = Math.min(60_000, this.retryMs * 2);
           console.warn('Bulk sync batch emission failed or interrupted');
           // Connection dropped mid-sync or server error: stop cleanly, retry on next reconnect
           break;

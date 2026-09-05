@@ -16,6 +16,7 @@ export interface DownsampledSpeedPoint {
 
 /** A privacy-scoped point on the authenticated rider's recorded route. */
 export interface SummaryRoutePoint {
+  gap_before?: boolean;
   latitude: number;
   longitude: number;
   recorded_at_ms: number;
@@ -70,4 +71,8 @@ export interface RideSummaryData {
   average_moving_speed_kmh: number | null;
   max_filtered_speed_kmh: number | null;
   stopped_time_ms: number;
+  moving_time_ms?: number;
+  unknown_time_ms?: number;
+  telemetry_gap_count?: number;
+  route_segments?: SummaryRoutePoint[][];
 }

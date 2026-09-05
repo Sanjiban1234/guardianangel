@@ -49,7 +49,13 @@ describe('WebSocket Telemetry & Bulk Sync Integration Tests', () => {
     userToken1 = createAuthenticatedTestSession({ ...user1, role: 'rider' }).token;
     userToken2 = createAuthenticatedTestSession({ ...user2, role: 'rider' }).token;
 
+    let latestTimestamp: number;
     mockedQuery.mockImplementation(async (text: string, params?: any[]): Promise<any> => {
+      if (text.includes('INSERT INTO telemetry_readings')) {
+        latestTimestamp = params?.[2];
+        return { rows: [{ id: 'inserted' }] };
+      }
+      if (text.includes('SELECT l.device_timestamp_ms')) return { rows: [{ device_timestamp_ms: latestTimestamp }] };
       if (text.includes('room_members') && text.includes('users') && text.includes('name')) {
         return {
           rows: [
@@ -183,9 +189,9 @@ describe('WebSocket Telemetry & Bulk Sync Integration Tests', () => {
         { client_reading_id: '00000000-0000-4000-8000-000000000003', timestamp: now - 1000, latitude: 28.2098, longitude: 83.9858, accuracy: 4.0, speed: 12 }
       ];
 
-      mockedQuery.mockResolvedValueOnce({
-        rows: readings.map(r => ({ client_reading_id: r.client_reading_id }))
-      } as any);
+      mockedQuery.mockResolvedValueOnce({ rows: [{ id: roomId }] } as any)
+        .mockResolvedValueOnce({ rows: [] } as any)
+        .mockResolvedValueOnce({ rows: readings.map(r => ({ client_reading_id: r.client_reading_id, device_timestamp_ms: r.timestamp })) } as any);
 
       clientSocket1.emit('telemetry:bulkSync', { readings }, (ack: { confirmedClientReadingIds: string[] }) => {
         expect(ack.confirmedClientReadingIds).toContain('00000000-0000-4000-8000-000000000001');

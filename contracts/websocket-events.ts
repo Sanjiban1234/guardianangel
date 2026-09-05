@@ -72,11 +72,19 @@ export interface SessionMemberLeftPayload {
  * Single live location update sent by a client (State A - Online).
  */
 export interface LocationUpdatePayload {
+  client_reading_id?: string; // Stable UUID on durable clients; omitted by legacy clients
+  groupCode?: string; // Must match the joined room for live delivery
   timestamp: number; // Unix epoch milliseconds on device
   latitude: number;
   longitude: number;
   accuracy: number;  // GPS accuracy in meters
   speed: number | null; // Native speed in m/s; may be unavailable
+}
+
+export interface LocationUpdateAck {
+  accepted: boolean;
+  sampleId?: string;
+  permanent?: boolean;
 }
 
 /**
@@ -96,8 +104,9 @@ export interface LocationBroadcastPayload extends LocationUpdatePayload {
  * Batch of cached readings pushed upon reconnecting (State B -> A).
  */
 export interface TelemetryBulkSyncPayload {
+  groupCode?: string; // Explicit original room; legacy payloads use the joined room
   readings: Array<{
-    client_reading_id: string; // SQLite row/UUID generated locally by device
+    client_reading_id: string; // Stable UUID generated locally by device
     timestamp: number;         // Device capture epoch milliseconds
     latitude: number;
     longitude: number;
@@ -111,7 +120,8 @@ export interface TelemetryBulkSyncPayload {
  * Acknowledgment returned to confirm successfully saved database logs.
  */
 export interface TelemetryBulkSyncAckPayload {
-  confirmedClientReadingIds: string[]; // List of successfully synchronized IDs
+  confirmedClientReadingIds: string[]; // Includes already-persisted retries
+  rejectedClientReadingIds?: string[]; // Permanently invalid; never a temporary DB/membership failure
 }
 
 /**

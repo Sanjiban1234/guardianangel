@@ -48,7 +48,9 @@ Rooms use group codes and membership validation. Preserve owner/member semantics
 
 ## Telemetry and Presence
 
-Android foreground/background tracking feeds telemetry. `location:update` is locally buffered if needed and bulk-synced on reconnect. Do not bypass coordinate, timestamp, membership, or batch validation.
+Android foreground/background tracking feeds telemetry. Production saves samples to native AsyncStorage before `location:update`; only positive persistence ACKs (or explicit permanent invalid rejection) remove pending data. Stable client UUIDs and room/user scope survive restarts. Historical bulk uploads are membership-authorized independently of the joined room and never update live location or trigger safety. Do not bypass coordinate, timestamp, membership, or batch validation.
+
+Ride Summary uses device measurement time, quality filtering and route gap boundaries. Never derive speed/distance or stopped time across unknown intervals; preserve nullable metrics. Average and maximum use consistent trusted speeds. See `docs/telemetry-reliability.md` for thresholds, retry/retention policy and field tests.
 
 Presence is connection state; freshness derives from telemetry recency. Disconnect logic retains last-known location, marks it stale, updates authorized observers, and excludes a disconnected rider from fresh safety inputs.
 

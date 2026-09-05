@@ -6,6 +6,8 @@ import { logger } from '../utils/logger';
 import { GuardianPortalShareService } from '../services/GuardianPortalShareService';
 import { PortalBroadcaster } from '../sockets/GuardianPortalSocketController';
 
+type LocationAck = (response: { accepted: boolean; sampleId?: string; permanent?: boolean }) => void;
+
 export class LocationHandler {
   private acceptedCount = 0;
   constructor(
@@ -20,18 +22,21 @@ export class LocationHandler {
   register(): void {
     this.socket.on(
       'location:update',
-      (reading: TelemetryReading) => this.handleLocationUpdate(reading)
+      (reading: TelemetryReading, ack?: LocationAck) => this.handleLocationUpdate(reading, ack)
     );
   }
 
-  private async handleLocationUpdate(reading: TelemetryReading): Promise<void> {
+  private async handleLocationUpdate(reading: TelemetryReading, ack?: LocationAck): Promise<void> {
     const groupCode = this.roomState.currentGroupCode;
     const userId = this.socket.user?.id;
     const name = this.socket.user?.name;
 
     logger.debug('location update received', { event: 'location:update' });
 
+    const reply = (accepted: boolean, permanent = false) => { if (typeof ack === 'function') ack({ accepted, sampleId: reading?.client_reading_id, permanent }); };
+    if (reading?.groupCode && reading.groupCode !== groupCode) { reply(false); return; }
     if (!groupCode) {
+      reply(false);
       logger.warn('location update rejected: no active room');
       this.socket.emit('error', {
         message: 'Must join a ride session before sending location updates',
@@ -40,14 +45,19 @@ export class LocationHandler {
     }
 
     if (!this.isValidReading(reading)) {
+      reply(false, true);
       logger.warn('location update rejected: invalid payload');
       return;
     }
 
 
-    try {
-      await this.telemetryService.saveTelemetry(groupCode, userId!, reading);
+    let saved;
+    try { saved = await this.telemetryService.saveTelemetry(groupCode, userId!, reading); }
+    catch { reply(false); return; }
+    reply(saved.accepted);
+    if (!saved.accepted || !saved.live) return;
 
+    try {
       const broadcastPayload = {
         user_id: userId,
         name,
@@ -117,11 +127,12 @@ export class LocationHandler {
       return false;
     }
 
+    if (reading.client_reading_id && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reading.client_reading_id)) return false;
     const now = Date.now();
-    const twentyFourHoursAgo = now - 24 * 60 * 60 * 1000;
+    const earliestDeviceTimestamp = 1600000000000;
     const fiveMinutesFuture = now + 5 * 60 * 1000;
 
-    if (reading.timestamp < twentyFourHoursAgo || reading.timestamp > fiveMinutesFuture) {
+    if (reading.timestamp < earliestDeviceTimestamp || reading.timestamp > fiveMinutesFuture) {
       this.socket.emit('error', { message: 'Timestamp out of acceptable bounds' });
       return false;
     }

@@ -12,6 +12,8 @@ export interface RideSummaryData {
   max_filtered_speed_kmh: number | null;
   stopped_time_ms: number;
   route: SummaryRoutePoint[];
+  unknown_time_ms?: number;
+  telemetry_gap_count?: number;
   pace_benchmark: null;
 }
 
@@ -42,10 +44,12 @@ export async function fetchRideSummaryFromBackend(
     user_id: rawSummary.user_id,
     total_distance_meters: totalDistanceMeters,
     actual_duration_ms: actualDurationMs,
-    average_moving_speed_kmh: Number.isFinite(Number(rawSummary.average_moving_speed_kmh)) ? Number(rawSummary.average_moving_speed_kmh) : null,
-    max_filtered_speed_kmh: Number.isFinite(Number(rawSummary.max_filtered_speed_kmh)) ? Number(rawSummary.max_filtered_speed_kmh) : null,
+    average_moving_speed_kmh: rawSummary.average_moving_speed_kmh != null && Number.isFinite(Number(rawSummary.average_moving_speed_kmh)) ? Number(rawSummary.average_moving_speed_kmh) : null,
+    max_filtered_speed_kmh: rawSummary.max_filtered_speed_kmh != null && Number.isFinite(Number(rawSummary.max_filtered_speed_kmh)) ? Number(rawSummary.max_filtered_speed_kmh) : null,
     stopped_time_ms: Number.isFinite(Number(rawSummary.stopped_time_ms)) ? Number(rawSummary.stopped_time_ms) : 0,
     route: Array.isArray(rawSummary.route) ? rawSummary.route.filter((point: any) => Number.isFinite(point?.latitude) && Number.isFinite(point?.longitude) && Number.isFinite(point?.recorded_at_ms)) : [],
+    unknown_time_ms: Math.max(0, Number(rawSummary.unknown_time_ms) || 0),
+    telemetry_gap_count: Math.max(0, Number(rawSummary.telemetry_gap_count) || 0),
     pace_benchmark: null,
   };
 }

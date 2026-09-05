@@ -36,7 +36,7 @@ describe('Guardian Portal socket delivery', () => {
       on: jest.fn((event, handler) => handlers.set(event, handler)), emit: jest.fn(),
       to: jest.fn().mockReturnValue({ emit: jest.fn() }),
     };
-    const telemetry = { saveTelemetry: jest.fn().mockResolvedValue(undefined) };
+    const telemetry = { saveTelemetry: jest.fn().mockResolvedValue({ accepted: true, live: true }) };
     new LocationHandler(riderSocket as any, { currentGroupCode: 'GROUP1' }, telemetry as any, undefined, shares as any, portal).register();
     await handlers.get('location:update')!({ timestamp: Date.now(), latitude: 27.7, longitude: 85.3, accuracy: 5, speed: 12 });
     const payload = await received;

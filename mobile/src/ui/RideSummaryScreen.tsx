@@ -28,7 +28,7 @@ export const formatDuration = (milliseconds: number): string => {
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 };
 
-const formatSpeed = (speed: number | null): string => speed == null ? '—' : `${speed.toFixed(1)} km/h`;
+const formatSpeed = (speed: number | null): string => speed == null ? 'Unavailable' : `${speed.toFixed(1)} km/h`;
 
 const ActualRouteMap: React.FC<{ route: SummaryRoutePoint[] }> = ({ route }) => {
   const mapRef = useRef<MapView>(null);
@@ -43,9 +43,9 @@ const ActualRouteMap: React.FC<{ route: SummaryRoutePoint[] }> = ({ route }) => 
  * and the chart samples at most 80 columns without changing route rendering. */
 const SpeedProfileChart: React.FC<{ route: SummaryRoutePoint[] }> = ({ route }) => {
   const source = route.length <= 80 ? route : Array.from({ length: 80 }, (_, index) => route[Math.round(index * (route.length - 1) / 79)]);
-  const speeds = source.map(point => point.speed_kmh ?? 0);
-  const ceiling = Math.max(10, ...speeds);
-  return <View accessibilityLabel="Speed profile chart" style={styles.chart}><View style={styles.chartBars}>{speeds.map((speed, index) => <View key={index} style={[styles.chartBar, { height: `${Math.max(3, speed / ceiling * 100)}%` }]} />)}</View><View style={styles.chartAxis}><Text style={styles.axisText}>Start</Text><Text style={styles.axisText}>Speed (km/h)</Text><Text style={styles.axisText}>Finish</Text></View></View>;
+  const speeds = source.map(point => point.speed_kmh);
+  const ceiling = Math.max(10, ...speeds.filter((speed): speed is number => speed != null));
+  return <View accessibilityLabel="Speed profile chart" style={styles.chart}><View style={styles.chartBars}>{speeds.map((speed, index) => <View key={index} style={[styles.chartBar, { opacity: speed == null ? 0 : 1, height: `${Math.max(3, (speed ?? 0) / ceiling * 100)}%` }]} />)}</View><View style={styles.chartAxis}><Text style={styles.axisText}>Start</Text><Text style={styles.axisText}>Speed (km/h)</Text><Text style={styles.axisText}>Finish</Text></View></View>;
 };
 
 export const RideSummaryScreen: React.FC<RideSummaryScreenProps> = ({ groupCode, authToken, apiBaseUrl, onReturnToPortal }) => {
@@ -88,6 +88,7 @@ export const RideSummaryScreen: React.FC<RideSummaryScreenProps> = ({ groupCode,
 
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Actual Route</Text>
+          {!!data.telemetry_gap_count && <Text style={styles.notice}>Route contains telemetry gaps.</Text>}
           <Text style={styles.detail}>Your recorded GPS trace, colored by speed range.</Text>
           {data.route.length > 1 ? <ActualRouteMap route={data.route} /> : <View style={styles.emptyProfile}><Text style={styles.emptyProfileTitle}>Route unavailable</Text><Text style={styles.emptyProfileText}>At least two usable historical GPS points are needed to show your actual route.</Text></View>}
         </View>
@@ -109,10 +110,14 @@ export const RideSummaryScreen: React.FC<RideSummaryScreenProps> = ({ groupCode,
 
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Route Speed Profile</Text>
+          {(data.average_moving_speed_kmh == null || data.max_filtered_speed_kmh == null) && <Text style={styles.notice}>Insufficient recorded telemetry for reliable speed statistics.</Text>}
+          {!!data.unknown_time_ms && <Text style={styles.detail}>Unrecorded time: {formatDuration(data.unknown_time_ms)}</Text>}
           <Text style={styles.detail}>Calculated from the same recorded GPS trace.</Text>
-          {data.route.length > 1 ? <><SpeedProfileChart route={data.route} /><View style={styles.metricsRow}><View><Text style={styles.columnLabel}>Avg moving</Text><Text style={styles.metricValue}>{formatSpeed(data.average_moving_speed_kmh)}</Text></View><View><Text style={styles.columnLabel}>Maximum</Text><Text style={styles.metricValue}>{formatSpeed(data.max_filtered_speed_kmh)}</Text></View><View><Text style={styles.columnLabel}>Stopped</Text><Text style={styles.metricValue}>{formatDuration(data.stopped_time_ms)}</Text></View></View></> : <View style={styles.emptyProfile}><Text style={styles.emptyProfileTitle}>Speed profile unavailable</Text><Text style={styles.emptyProfileText}>Not enough usable historical telemetry was recorded.</Text></View>}
+          {data.route.length > 1 ? <SpeedProfileChart route={data.route} /> : <View style={styles.emptyProfile}><Text style={styles.emptyProfileTitle}>Speed profile unavailable</Text><Text style={styles.emptyProfileText}>Not enough usable historical telemetry was recorded.</Text></View>}
+          <View style={styles.metricsRow}><View><Text style={styles.columnLabel}>Avg moving</Text><Text style={styles.metricValue}>{formatSpeed(data.average_moving_speed_kmh)}</Text></View><View><Text style={styles.columnLabel}>Maximum</Text><Text style={styles.metricValue}>{formatSpeed(data.max_filtered_speed_kmh)}</Text></View><View><Text style={styles.columnLabel}>Stopped</Text><Text style={styles.metricValue}>{formatDuration(data.stopped_time_ms)}</Text></View></View>
         </View>
 
+        <TouchableOpacity accessibilityRole="button" onPress={retry}><Text style={styles.notice}>Refresh summary</Text></TouchableOpacity>
         <TouchableOpacity accessibilityRole="button" style={styles.primaryButton} onPress={onReturnToPortal}><Text style={styles.primaryButtonText}>DONE</Text></TouchableOpacity>
       </ScrollView>
     </SafeAreaView>

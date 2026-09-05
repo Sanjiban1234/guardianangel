@@ -7,7 +7,7 @@ const mockSocketDisconnect = jest.fn();
 const mockSocketEmitWithAck = jest.fn();
 
 jest.mock('../src/telemetry', () => ({
-  TelemetryModule: jest.fn().mockImplementation(() => ({
+  TelemetryModule: jest.fn().mockImplementation(() => ({ restoreDelivery: jest.fn(), triggerResync: jest.fn(async () => {}), recordLocation: jest.fn(async () => {}),
     stop: mockTelemetryStop,
     onReading: () => () => {},
   })),

@@ -8,3 +8,12 @@ describe('ride summary speed bands', () => {
     expect(segments[0].coordinates).toHaveLength(3);
   });
 });
+
+
+it('never coalesces same-speed lines across a telemetry gap', () => {
+  const points = [0, 1, 2, 3].map(i => ({ latitude: 27, longitude: 85 + i * .001, recorded_at_ms: i * 5000, speed_kmh: 20, accuracy: 5, gap_before: i === 2 }));
+  const segments = groupRouteSegments(points);
+  expect(segments).toHaveLength(2);
+  expect(segments[0].coordinates).toEqual(points.slice(0, 2).map(({ latitude, longitude }) => ({ latitude, longitude })));
+  expect(segments[1].coordinates).toEqual(points.slice(2).map(({ latitude, longitude }) => ({ latitude, longitude })));
+});

@@ -19,7 +19,7 @@ jest.mock('../src/telemetry/socket/SocketClient', () => ({ SocketClient: jest.fn
   onEvent: (event: string, fn: any) => { mockEvents.set(event, fn); return () => mockEvents.delete(event); },
   joinSession: mockJoin, emitEvent: jest.fn(), emitWithAck: jest.fn(), emitLocationUpdate: jest.fn(), emitBulkSync: jest.fn(),
 })) }));
-jest.mock('../src/telemetry', () => ({ TelemetryModule: jest.fn().mockImplementation(() => ({ stop: jest.fn(async () => {}), start: jest.fn(async () => {}), onReading: () => () => {} })) }));
+jest.mock('../src/telemetry', () => ({ TelemetryModule: jest.fn().mockImplementation(() => ({ restoreDelivery: jest.fn(), triggerResync: jest.fn(async () => {}), recordLocation: jest.fn(async () => {}), stop: jest.fn(async () => {}), start: jest.fn(async () => {}), onReading: () => () => {} })) }));
 jest.mock('../src/telemetry/location/LocationProvider', () => ({ CommunityGeolocationProvider: jest.fn().mockImplementation(() => ({})) }));
 jest.mock('../src/ui/MapScreen', () => ({ __esModule: true, default: () => null }));
 jest.mock('react-native-safe-area-context', () => require('react-native-safe-area-context/jest/mock').default);

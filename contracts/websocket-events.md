@@ -59,7 +59,7 @@ This contract defines the real-time communication events between the Guardian An
 ```
 
 ### 6. `location:update` (Client → Server)
-- **Description:** Send single live location telemetry point (State A).
+- **Description:** Send one durably saved location point. New clients include `client_reading_id` (stable UUID) and `groupCode`. Persistence callback: `{ accepted, sampleId, permanent }`. Delete locally only after matching accepted ACK or explicit permanent invalid rejection. Missing/temporary ACKs retain the sample. Delayed or out-of-order samples do not broadcast or trigger live safety.
 - **Payload Shape:**
 ```json
 {
@@ -87,13 +87,13 @@ This contract defines the real-time communication events between the Guardian An
 ```
 
 ### 8. `telemetry:bulkSync` (Client → Server)
-- **Description:** Batch push of telemetry cached on device during offline mode (State B).
+- **Description:** Historical upload with explicit `groupCode` (legacy clients may omit it). The server verifies authenticated membership in that original room, including ended rides; the batch never updates live state. New clients send at most 100 timestamp-ordered readings per batch, one batch in flight and at least 12 seconds between sends.
 - **Payload Shape:**
 ```json
 {
   "readings": [
     {
-      "client_reading_id": "uuid-or-local-id",
+      "client_reading_id": "00000000-0000-4000-8000-000000000001",
       "timestamp": 1720958400000,
       "latitude": 28.2096,
       "longitude": 83.9856,
@@ -105,12 +105,12 @@ This contract defines the real-time communication events between the Guardian An
 ```
 
 ### 9. `telemetry:bulkSyncAck` (Server → Client)
-- **Description:** Acknowledgment containing client reading IDs successfully written/resolved by the server.
+- **Description:** Callback containing `confirmedClientReadingIds` for committed rows, including retries. Optional `rejectedClientReadingIds` names permanently invalid samples only; temporary storage/authorization failures are not deletion instructions.
 - **Payload Shape:**
 ```json
 {
   "confirmedClientReadingIds": [
-    "uuid-or-local-id"
+    "00000000-0000-4000-8000-000000000001"
   ]
 }
 ```

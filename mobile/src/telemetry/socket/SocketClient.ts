@@ -15,7 +15,7 @@ export class MockSocketClient implements ISocketClient {
   
   public locationUpdatesEmitted: Array<Omit<TelemetryReading, 'client_reading_id' | 'synced'>> = [];
   public bulkSyncsEmitted: Array<TelemetryReading[]> = [];
-  public ackHandlerOverride: ((readings: TelemetryReading[]) => Promise<{ confirmedClientReadingIds: string[] }>) | null = null;
+  public ackHandlerOverride: ((readings: TelemetryReading[]) => Promise<{ confirmedClientReadingIds: string[]; rejectedClientReadingIds?: string[] }>) | null = null;
 
   async connect(socketUrl: string, token: string): Promise<void> {
     this.connected = true;
@@ -39,13 +39,14 @@ export class MockSocketClient implements ISocketClient {
     }
   }
 
-  emitLocationUpdate(payload: Omit<TelemetryReading, 'client_reading_id' | 'synced'>): void {
+  emitLocationUpdate(payload: Omit<TelemetryReading, 'client_reading_id' | 'synced'> & { client_reading_id?: string }, ack?: (response: { accepted: boolean; sampleId?: string; permanent?: boolean }) => void): void {
     if (this.connected) {
       this.locationUpdatesEmitted.push({ ...payload });
+      ack?.({ accepted: true, sampleId: payload.client_reading_id });
     }
   }
 
-  async emitBulkSync(readings: TelemetryReading[]): Promise<{ confirmedClientReadingIds: string[] }> {
+  async emitBulkSync(readings: TelemetryReading[]): Promise<{ confirmedClientReadingIds: string[]; rejectedClientReadingIds?: string[] }> {
     if (!this.connected) {
       throw new Error('Socket not connected during bulk sync');
     }
@@ -224,22 +225,23 @@ export class SocketClient implements ISocketClient {
     });
   }
 
-  emitLocationUpdate(payload: Omit<TelemetryReading, 'client_reading_id' | 'synced'>): void {
+  emitLocationUpdate(payload: Omit<TelemetryReading, 'client_reading_id' | 'synced'> & { client_reading_id?: string }, ack?: (response: { accepted: boolean; sampleId?: string; permanent?: boolean }) => void): void {
     if (this.socket && this.connected) {
       console.log('[SOCKET TELEMETRY EMIT]');
-      this.socket.emit('location:update', payload);
+      this.socket.emit('location:update', payload, ack);
     } else {
       console.log(`[LIVE LOCATION TRACE] [TRACE 4-BLOCKED] SocketClient cannot emit | socket=${!!this.socket} connected=${this.connected}`);
     }
   }
 
-  async emitBulkSync(readings: TelemetryReading[]): Promise<{ confirmedClientReadingIds: string[] }> {
+  async emitBulkSync(readings: TelemetryReading[]): Promise<{ confirmedClientReadingIds: string[]; rejectedClientReadingIds?: string[] }> {
     return new Promise((resolve, reject) => {
       if (!this.socket || !this.connected) {
         return reject(new Error('Socket is not connected'));
       }
 
       const payload = {
+        groupCode: readings[0]?.groupCode,
         readings: readings.map(r => ({
           client_reading_id: r.client_reading_id,
           timestamp: r.timestamp,
@@ -256,7 +258,7 @@ export class SocketClient implements ISocketClient {
       }, 10000);
 
       // Emit with Socket.io acknowledgment callback
-      this.socket.emit('telemetry:bulkSync', payload, (ackResponse: { confirmedClientReadingIds: string[] }) => {
+      this.socket.emit('telemetry:bulkSync', payload, (ackResponse: { confirmedClientReadingIds: string[]; rejectedClientReadingIds?: string[] }) => {
         clearTimeout(timeout);
         if (ackResponse && Array.isArray(ackResponse.confirmedClientReadingIds)) {
           resolve(ackResponse);

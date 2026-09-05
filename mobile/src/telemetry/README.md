@@ -1,6 +1,8 @@
 # Telemetry Ingestion & Local Cache Module — Guardian Angel Mobile
 
-This module owns continuous background GPS sampling, offline SQLite caching, reachability monitoring, and bulk re-sync for Guardian Angel group rides.
+This module owns continuous background GPS sampling, durable offline delivery, reachability monitoring, and bulk re-sync for Guardian Angel group rides.
+
+Production App injects `DurableTelemetryDatabase` using installed native AsyncStorage. The default in-memory adapters below are for simulation; the older op-sqlite adapter is not installed/enabled. For the current save-first ACK protocol, room/user scoping, retention, live/history separation and device checks, see [telemetry reliability](../../../docs/telemetry-reliability.md).
 
 ---
 

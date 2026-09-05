@@ -1,6 +1,7 @@
 export type SpeedBand = 'stopped' | 'slow' | 'normal' | 'fast' | 'very_fast';
 
 export interface SummaryRoutePoint {
+  gap_before?: boolean;
   latitude: number;
   longitude: number;
   recorded_at_ms: number;
@@ -29,13 +30,16 @@ export interface RouteSegment { band: SpeedBand; coordinates: Array<{ latitude: 
 /** Coalesces adjacent intervals of the same band, retaining shared join points. */
 export function groupRouteSegments(points: SummaryRoutePoint[]): RouteSegment[] {
   const result: RouteSegment[] = [];
+  let interrupted = false;
   for (let index = 1; index < points.length; index++) {
+    if (points[index].gap_before) { interrupted = true; continue; }
     const band = getSpeedBand(points[index].speed_kmh);
     const start = { latitude: points[index - 1].latitude, longitude: points[index - 1].longitude };
     const end = { latitude: points[index].latitude, longitude: points[index].longitude };
     const current = result[result.length - 1];
-    if (current?.band === band) current.coordinates.push(end);
+    if (!interrupted && current?.band === band) current.coordinates.push(end);
     else result.push({ band, coordinates: [start, end] });
+    interrupted = false;
   }
   return result;
 }

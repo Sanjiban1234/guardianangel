@@ -20,7 +20,8 @@ This documents the current V1 system. Safety state is deterministic and service-
 
 ### Location and Telemetry
 
-- Android foreground/background tracking, Socket.IO telemetry, local offline buffering, bulk re-sync, and reconnect handling.
+- Android foreground/background tracking saves each GPS sample to native AsyncStorage before Socket.IO delivery. ACKed store-and-forward resync sends room-scoped history in ordered 100-sample batches, including recoverable ended rides.
+- Historical uploads never refresh current location or replay live safety alerts. Ride Summary filters telemetry, splits route gaps, distinguishes moving/stopped/unrecorded time, and shows unavailable speed statistics when needed. See [telemetry reliability and field tests](docs/telemetry-reliability.md).
 - Backend presence is distinct from last-known location freshness.
 
 ### Separation and Reunion Safety

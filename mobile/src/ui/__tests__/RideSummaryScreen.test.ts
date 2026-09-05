@@ -60,3 +60,14 @@ describe('RideSummaryScreen formatting', () => {
     expect(onReturnToPortal).toHaveBeenCalledTimes(1);
   });
 });
+
+
+it('renders null speeds as Unavailable and discloses unknown intervals and gaps', () => {
+  mockUseRideSummary.mockReturnValue({ data: { room_id: 'r', group_code: 'g', user_id: 'u', total_distance_meters: 0, actual_duration_ms: 120000, average_moving_speed_kmh: null, max_filtered_speed_kmh: null, stopped_time_ms: 0, unknown_time_ms: 120000, telemetry_gap_count: 1, route: [{ latitude: 27, longitude: 85, recorded_at_ms: 0, speed_kmh: null, accuracy: 5 }, { latitude: 27, longitude: 85.1, recorded_at_ms: 120000, speed_kmh: null, accuracy: 5, gap_before: true }], pace_benchmark: null }, loading: false, error: null, retry: jest.fn() });
+  const text = collectText(RideSummaryScreen({ groupCode: 'g', authToken: 't', apiBaseUrl: 'https://api.example', onReturnToPortal: jest.fn() })).join(' ');
+  expect(text).toContain('Route contains telemetry gaps.');
+  expect(text).toContain('Insufficient recorded telemetry for reliable speed statistics.');
+  expect(text).toContain('Unrecorded time:');
+  expect(text).not.toContain('0.0 km/h');
+  expect(text.match(/Unavailable/g)?.length).toBe(3);
+});

@@ -225,7 +225,9 @@ SRID 4326 is WGS84. Queries construct points as longitude, latitude. `ST_DWithin
 
 ## 10. Ride and Telemetry Model
 
-Rooms, membership, host/creator, lifecycle, start/end, destination, and hashed group credential are persisted. `activeRoute`, Socket.IO room assignment, socket IDs, handler `RoomState`, and ride summary objects are not relational entities. No ride-summary/history table exists. Telemetry is append-only history; `rider_current_locations` stores one latest row per room/rider.
+Rooms, membership, host/creator, lifecycle, start/end, destination, and hashed group credential are persisted. `activeRoute`, Socket.IO room assignment, socket IDs, handler `RoomState`, and ride summary objects are not relational entities. No ride-summary/history table exists. Telemetry is append-only history; `rider_current_locations` stores one latest live row per room/rider.
+
+The additive idempotent `is_historical BOOLEAN NOT NULL DEFAULT false` column marks backfills. The current-location trigger excludes historical uploads and points outside the live freshness window (existing 15-second freshness threshold / 5 seconds future); updates require a strictly newer device timestamp. Existing `client_reading_id`, unique `(user_id, client_reading_id)`, unique `(room_id, user_id, device_timestamp_ms)`, `device_timestamp_ms` (recorded time), and `received_at` (server receive time) are reused. No duplicate sample/time columns or new server tables are introduced. Legacy rows default to nonhistorical and retain their original timestamps.
 
 ## 11. Social Model
 

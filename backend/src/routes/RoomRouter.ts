@@ -3,7 +3,7 @@ import { AuthMiddleware, AuthenticatedRequest } from '../middleware/AuthMiddlewa
 import { RoomService } from '../services/RoomService';
 import { PostgisTelemetryRepository } from '../repositories/PostgisTelemetryRepository';
 import { logger } from '../utils/logger';
-import { calculateSummaryMetrics, downsample, normalizeTelemetry } from '../services/RideSummaryTelemetry';
+import { calculateSummaryMetrics, downsample, normalizeTelemetry, splitRoute } from '../services/RideSummaryTelemetry';
 
 export class RoomRouter {
   readonly router: Router;
@@ -225,14 +225,22 @@ export class RoomRouter {
         return;
       }
 
-      const normalizedRoute = normalizeTelemetry(await this.telemetryRepo.summaryTelemetry(room.id, userId));
-      const metrics = calculateSummaryMetrics(normalizedRoute);
+      const points = await this.telemetryRepo.summaryTelemetry(room.id, userId);
+      const start = room.ride_started_at ? new Date(room.ride_started_at).getTime() : null;
+      const end = room.ended_at ? new Date(room.ended_at).getTime() : null;
+      const inRide = points.filter(p => (start == null || p.timestamp_ms >= start) && (end == null || p.timestamp_ms <= end));
+      const normalizedRoute = normalizeTelemetry(inRide);
+      const rawTimes = inRide.map(p => p.timestamp_ms).filter(Number.isFinite);
+      const first = start ?? (rawTimes.length ? rawTimes.reduce((a, b) => Math.min(a, b)) : 0);
+      const last = end ?? (rawTimes.length ? rawTimes.reduce((a, b) => Math.max(a, b)) : first);
+      const metrics = calculateSummaryMetrics(normalizedRoute, Math.max(0, last - first));
 
       res.status(200).json({
         room_id: room.id,
         user_id: userId,
         ...metrics,
         route: downsample(normalizedRoute),
+        route_segments: splitRoute(downsample(normalizedRoute)),
         pace_benchmark: null,
       });
     } catch (err) {

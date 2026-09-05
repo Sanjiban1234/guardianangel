@@ -1,5 +1,3 @@
-import { ISocketClient } from '../types';
-
 export interface LatestLocationSnapshot {
   timestamp: number;
   latitude: number;
@@ -69,7 +67,7 @@ export function getCurrentPositionAfterJoin(
  * Sends the most recent GPS sample only after session:join has acknowledged.
  */
 export function emitLatestLocationAfterJoin(
-  socketClient: Pick<ISocketClient, 'emitLocationUpdate'>,
+  socketClient: { emitLocationUpdate(payload: { timestamp: number; latitude: number; longitude: number; accuracy: number; speed: number | null }): void },
   groupCode: string,
   location: LatestLocationSnapshot | null,
 ): boolean {
@@ -95,7 +93,7 @@ export function emitLatestLocationAfterJoin(
  * the newcomer to receive a position without waiting for another GPS update.
  */
 export function resendLatestLocationForJoinedMember(
-  socketClient: Pick<ISocketClient, 'isConnected' | 'emitLocationUpdate'>,
+  socketClient: { isConnected(): boolean; emitLocationUpdate(payload: { timestamp: number; latitude: number; longitude: number; accuracy: number; speed: number | null }): void },
   groupCode: string,
   currentUserName: string,
   joinedMember: JoinedMember,

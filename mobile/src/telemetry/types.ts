@@ -8,6 +8,8 @@
  * Raw GPS telemetry reading captured on device.
  */
 export interface TelemetryReading {
+  groupCode?: string;
+  userId?: string;
   client_reading_id: string; // Client-generated unique identifier (UUID/timestamp-random)
   timestamp: number;         // Device capture Unix epoch milliseconds
   latitude: number;
@@ -26,6 +28,7 @@ export type ConnectivityStatus = 'online' | 'offline';
  * Configuration options for starting the TelemetryModule.
  */
 export interface TelemetryModuleOptions {
+  userId?: string;
   socketUrl: string;
   authToken: string;
   groupCode: string;
@@ -45,7 +48,7 @@ export interface TelemetryModuleOptions {
 export interface ITelemetryDatabase {
   init(): Promise<void>;
   insertReading(reading: TelemetryReading): Promise<void>;
-  getUnsyncedReadings(limit?: number): Promise<TelemetryReading[]>;
+  getUnsyncedReadings(limit?: number, userId?: string, excludedGroupCodes?: string[]): Promise<TelemetryReading[]>;
   markReadingsSynced(clientReadingIds: string[]): Promise<void>;
   getUnsyncedCount(): Promise<number>;
   clear(): Promise<void>;
@@ -68,8 +71,8 @@ export interface ISocketClient {
   disconnect(): void;
   isConnected(): boolean;
   joinSession(groupCode: string): Promise<void>;
-  emitLocationUpdate(payload: Omit<TelemetryReading, 'client_reading_id' | 'synced'>): void;
-  emitBulkSync(readings: TelemetryReading[]): Promise<{ confirmedClientReadingIds: string[] }>;
+  emitLocationUpdate(payload: Omit<TelemetryReading, 'client_reading_id' | 'synced'> & { client_reading_id?: string }, ack?: (response: { accepted: boolean; sampleId?: string; permanent?: boolean }) => void): void;
+  emitBulkSync(readings: TelemetryReading[]): Promise<{ confirmedClientReadingIds: string[]; rejectedClientReadingIds?: string[] }>;
   onConnect(listener: () => void): () => void;
   onDisconnect(listener: () => void): () => void;
   emitEvent(event: string, payload?: Record<string, unknown>): void;

@@ -15,17 +15,17 @@ export class BulkSyncHandler {
     this.socket.on(
       'telemetry:bulkSync',
       (
-        data: { readings: BulkTelemetryReading[] },
-        callback?: (response: { confirmedClientReadingIds: string[] }) => void
+        data: { groupCode?: string; readings: BulkTelemetryReading[] },
+        callback?: (response: { confirmedClientReadingIds: string[]; rejectedClientReadingIds?: string[] }) => void
       ) => this.handleBulkSync(data, callback)
     );
   }
 
   private async handleBulkSync(
-    data: { readings: BulkTelemetryReading[] },
-    callback?: (response: { confirmedClientReadingIds: string[] }) => void
+    data: { groupCode?: string; readings: BulkTelemetryReading[] },
+    callback?: (response: { confirmedClientReadingIds: string[]; rejectedClientReadingIds?: string[] }) => void
   ): Promise<void> {
-    const groupCode = this.roomState.currentGroupCode;
+    const groupCode = data?.groupCode || this.roomState.currentGroupCode;
 
     if (!groupCode) {
       this.socket.emit('error', {
@@ -48,51 +48,36 @@ export class BulkSyncHandler {
       return;
     }
 
-    const now = Date.now();
-    const twentyFourHoursAgo = now - 24 * 60 * 60 * 1000;
-    const fiveMinutesFuture = now + 5 * 60 * 1000;
+    const rejectedClientReadingIds: string[] = [];
+    const valid = data.readings.filter(reading => {
+      const ok = typeof reading?.client_reading_id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reading.client_reading_id) &&
+        Number.isFinite(reading.timestamp) && reading.timestamp >= 1600000000000 && reading.timestamp <= Date.now() + 300_000 &&
+        Number.isFinite(reading.latitude) && Math.abs(reading.latitude) <= 90 &&
+        Number.isFinite(reading.longitude) && Math.abs(reading.longitude) <= 180 &&
+        Number.isFinite(reading.accuracy) && reading.accuracy >= 0 &&
+        (reading.speed === null || (Number.isFinite(reading.speed) && reading.speed >= 0 && reading.speed <= 200));
+      if (!ok && typeof reading?.client_reading_id === 'string') rejectedClientReadingIds.push(reading.client_reading_id);
+      return ok;
+    });
+    if (rejectedClientReadingIds.length) logger.warn('invalid historical samples rejected', { count: rejectedClientReadingIds.length });
 
-    for (const reading of data.readings) {
-      if (
-        typeof reading?.timestamp !== 'number' || !Number.isFinite(reading.timestamp) ||
-        typeof reading?.latitude !== 'number' || !Number.isFinite(reading.latitude) ||
-        typeof reading?.longitude !== 'number' || !Number.isFinite(reading.longitude) ||
-        typeof reading?.accuracy !== 'number' || !Number.isFinite(reading.accuracy) ||
-        (reading?.speed !== null && (typeof reading?.speed !== 'number' || !Number.isFinite(reading.speed))) ||
-        !reading?.client_reading_id
-      ) {
-        this.socket.emit('error', { message: 'Invalid payload: malformed reading in batch' });
-        return;
-      }
-
-      if (
-        reading.latitude < -90 || reading.latitude > 90 ||
-        reading.longitude < -180 || reading.longitude > 180 ||
-        (reading.speed != null && (reading.speed < 0 || reading.speed > 200)) ||
-        reading.accuracy < 0
-      ) {
-        this.socket.emit('error', { message: 'Invalid coordinate or speed values in bulk batch' });
-        return;
-      }
-
-      if (reading.timestamp < twentyFourHoursAgo || reading.timestamp > fiveMinutesFuture) {
-        this.socket.emit('error', { message: 'Timestamp out of acceptable bounds in bulk batch' });
-        return;
-      }
+    if (!valid.length) {
+      this.socket.emit('error', { message: 'Invalid telemetry batch' });
+      if (typeof callback === 'function') callback({ confirmedClientReadingIds: [], rejectedClientReadingIds });
+      return;
     }
-
     const userId = this.socket.user!.id;
 
     try {
       logger.info('bulk telemetry sync started', { count: data.readings.length });
 
       const confirmedClientReadingIds =
-        await this.telemetryService.bulkSyncTelemetry(groupCode, userId, data.readings);
+        await this.telemetryService.bulkSyncTelemetry(groupCode, userId, valid);
 
       logger.info('bulk telemetry sync completed', { count: confirmedClientReadingIds.length });
 
       if (typeof callback === 'function') {
-        callback({ confirmedClientReadingIds });
+        callback({ confirmedClientReadingIds, rejectedClientReadingIds });
       } else {
         this.socket.emit('telemetry:bulkSyncAck', { confirmedClientReadingIds });
       }

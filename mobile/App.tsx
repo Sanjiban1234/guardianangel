@@ -38,6 +38,7 @@ import RiderProfileScreen, {
 } from './src/ui/RiderProfileScreen';
 import { SocketClient } from './src/telemetry/socket/SocketClient';
 import FriendsScreen from './src/friends/FriendsScreen';
+import { DurableTelemetryDatabase } from './src/telemetry/database/DurableTelemetryDatabase';
 import { TelemetryModule } from './src/telemetry';
 import { CommunityGeolocationProvider } from './src/telemetry/location/LocationProvider';
 import {
@@ -175,7 +176,7 @@ function App() {
       disconnect: () => {},
       isConnected: () => real.isConnected(),
       joinSession: (gc: string) => real.joinSession(gc),
-      emitLocationUpdate: (p: any) => real.emitLocationUpdate(p),
+      emitLocationUpdate: (p: any, ack?: any) => real.emitLocationUpdate(p, ack),
       emitBulkSync: (r: any) => real.emitBulkSync(r),
       onConnect: (l: () => void) => real.onConnect(l),
       onDisconnect: (l: () => void) => real.onDisconnect(l),
@@ -187,6 +188,7 @@ function App() {
 
   const telemetryModuleRef = useRef(
     new TelemetryModule({
+      db: new DurableTelemetryDatabase(),
       socketClient: socketLifecycleGuard as any,
       locationProvider: new CommunityGeolocationProvider(),
     })
@@ -220,6 +222,8 @@ function App() {
   const riderNameRef = useRef(riderName);
   const [riderEmail, setRiderEmail] = useState('');
   const [userId, setUserId] = useState('');
+  const telemetryUserRef = useRef(userId);
+  telemetryUserRef.current = userId;
 
   // Profile data state
   const [profile, setProfile] = useState<RiderProfileData>(INITIAL_PROFILE_DATA);
@@ -389,6 +393,11 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    telemetryModuleRef.current.restoreDelivery(authToken ? userId : undefined);
+    return () => telemetryModuleRef.current.restoreDelivery(undefined);
+  }, [authToken, userId]);
+
   const showCompletedRideSummary = (groupCode: string) => {
     if (!groupCode) return;
     console.log('[SUMMARY CONTEXT SET]');
@@ -514,36 +523,50 @@ function App() {
     }
   };
 
+  const durableLocationSender = (groupCode: string) => {
+    const owner = telemetryUserRef.current;
+    return {
+      isConnected: () => socketRef.current.isConnected(),
+      emitLocationUpdate: (sample: any) => {
+        if (groupCode && owner) void telemetryModuleRef.current.recordLocation(sample, groupCode, owner)
+          .catch(() => console.warn('[TELEMETRY] local persistence failed'));
+      },
+    };
+  };
+
   const emitLocationAfterJoinWithFallback = async (groupCode: string) => {
+    const sender = durableLocationSender(groupCode);
     const cachedLocation = currentLocationRef.current;
     if (hasValidLatestLocation(cachedLocation)) {
-      emitLatestLocationAfterJoin(socketRef.current, groupCode, cachedLocation);
+      emitLatestLocationAfterJoin(sender, groupCode, cachedLocation);
       return;
     }
     console.log('[POST-JOIN LOCATION CACHE MISS]');
     const location = await getPostJoinCurrentPosition();
-    if (location) emitLatestLocationAfterJoin(socketRef.current, groupCode, location);
+    if (location) emitLatestLocationAfterJoin(sender, groupCode, location);
   };
 
   const resendLocationForJoinedMemberWithFallback = async (groupCode: string, payload: any) => {
+    const sender = durableLocationSender(groupCode);
     if (!socketRef.current.isConnected() || !payload?.user_id || payload.name === riderNameRef.current) return;
     const cachedLocation = currentLocationRef.current;
     if (hasValidLatestLocation(cachedLocation)) {
-      resendLatestLocationForJoinedMember(socketRef.current, groupCode, riderNameRef.current, payload, cachedLocation);
+      resendLatestLocationForJoinedMember(sender, groupCode, riderNameRef.current, payload, cachedLocation);
       return;
     }
     console.log('[POST-JOIN LOCATION CACHE MISS]');
     const location = await getPostJoinCurrentPosition();
     if (location) {
-      resendLatestLocationForJoinedMember(socketRef.current, groupCode, riderNameRef.current, payload, location);
+      resendLatestLocationForJoinedMember(sender, groupCode, riderNameRef.current, payload, location);
     }
   };
 
   const resendLocationAfterReconnect = async (groupCode: string) => {
+    const sender = durableLocationSender(groupCode);
     const cachedLocation = currentLocationRef.current;
     if (hasValidLatestLocation(cachedLocation)) {
       console.log('[RECONNECT LOCATION RESEND]');
-      emitLatestLocationAfterJoin(socketRef.current, groupCode, cachedLocation);
+      emitLatestLocationAfterJoin(sender, groupCode, cachedLocation);
       return;
     }
     console.log('[RECONNECT LOCATION CACHE MISS]');
@@ -553,7 +576,7 @@ function App() {
       return;
     }
     console.log('[RECONNECT CURRENT POSITION SUCCESS]');
-    emitLatestLocationAfterJoin(socketRef.current, groupCode, location);
+    emitLatestLocationAfterJoin(sender, groupCode, location);
   };
 
   useEffect(() => {
@@ -985,6 +1008,7 @@ function App() {
         console.log('[JOINING SESSION]');
         socketRef.current.joinSession(roomCode).then(() => {
           console.log('[SESSION JOINED]');
+          void telemetryModuleRef.current.triggerResync();
           if (reconnecting) {
             console.log('[REJOIN AFTER RECONNECT] success');
             resendLocationAfterReconnect(roomCode);
@@ -1030,6 +1054,7 @@ function App() {
       socketUrl: API_BASE_URL,
       authToken,
       groupCode: activeRoomCode,
+      userId,
       healthEndpointUrl: `${API_BASE_URL}/api/health`,
     }).catch(() => {});
 

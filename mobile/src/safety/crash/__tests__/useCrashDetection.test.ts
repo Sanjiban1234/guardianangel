@@ -50,6 +50,7 @@ describe('Crash detection speed gate integration via TelemetryModule stream', ()
 
     const detector = new CrashDetector();
     const telemetryModule = new TelemetryModule();
+    (telemetryModule as any).options = { groupCode: 'ROOM', userId: 'u' };
 
     // Wire telemetryStream$ exactly as App.tsx wires it
     const telemetryStream$ = {
@@ -114,6 +115,7 @@ describe('Crash detection speed gate integration via TelemetryModule stream', ()
 
     const detector = new CrashDetector();
     const telemetryModule = new TelemetryModule();
+    (telemetryModule as any).options = { groupCode: 'ROOM', userId: 'u' };
 
     const telemetryStream$ = {
       subscribe: (cb: (r: any) => void) => {
